@@ -4,6 +4,25 @@
 
 `AzDO-DSC-LCM` is the Local Configuration Manager (LCM) component for the `AzureDevOpsDsc` DSC Module. This module helps manage Azure DevOps resources through Desired State Configuration (DSC). Utilizes Datum to merge configuration stubs into larger pieces of configuration which is parsed into the LCM.
 
+> **For developers and LLM context**: See [`CLAUDE.md`](CLAUDE.md) for an in-depth guide to the codebase, configuration processing pipeline, validation rules, and integration points with AzureDevOpsDsc.
+
+## Authentication and Integration with AzureDevOpsDsc
+
+The LCM depends on the `AzureDevOpsDsc` module for DSC resource execution. Before running the LCM, ensure:
+
+1. **AzureDevOpsDsc is deployed** to the agent pool in `C:\Users\<user>\Documents\PowerShell\Modules\AzureDevOpsDsc\0.0.2\`
+2. **ModuleSettings.clixml exists** at `$ENV:AZDODSC_CACHE_DIRECTORY\ModuleSettings.clixml`
+   - This file stores the Azure DevOps organization name and authentication token (DPAPI-encrypted)
+   - Created during AzureDevOpsDsc initialization
+3. **Authentication credentials are configured**:
+   - Personal Access Token (PAT): Store in `ModuleSettings.clixml` via `AzureDevOpsDsc` setup
+   - Managed Identity: Ensure the agent service account has Azure AD permissions
+   - Service Principal: Configure via AzureDevOpsDsc authentication helpers
+
+The LCM automatically reads `ModuleSettings.clixml` and passes the organization name and token to each DSC resource during execution. **Do not call authentication helpers directly from the LCM** — they are internal to AzureDevOpsDsc resource classes.
+
+For authentication details, see the [AzureDevOpsDsc documentation](https://github.com/ZanattaMichael/AzureDevOpsDsc/blob/main/CLAUDE.md).
+
 ## Datum
 
 This LCM utilizes Datum from Gael Colas to streamline configuration. For more information on how to implement and use it, please refer to the [official documentation or Gael Colas' resources.](https://github.com/gaelcolas/Datum)
@@ -248,7 +267,13 @@ In the realm of configuration, there are specialized commands designed to modify
 
 1. __Setup the Azure DevOps Pipeline:__
 
-    - TODO: More documentation is required.
+    - The self-hosted agent pool must have the `azdo-dsc-lcm` module deployed and the `AzureDevOpsDsc` module configured with authentication credentials stored in `ModuleSettings.clixml`.
+    - Create a pipeline YAML that calls `Invoke-AZDoLCM` with the path to your Datum configuration:
+      ```powershell
+      Invoke-AZDoLCM -ConfigurationPath '$(System.DefaultWorkingDirectory)\Configuration' -Verbose
+      ```
+    - The LCM will merge all configuration policies via Datum, validate rules, and orchestrate DSC resource execution against your Azure DevOps organization.
+    - For detailed LCM architecture and configuration processing, see [`CLAUDE.md`](CLAUDE.md).
 
     1. __Test to Ensure the LCM is Running Correctly:__
 
