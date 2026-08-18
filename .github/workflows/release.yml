@@ -1,0 +1,251 @@
+name: Release
+
+# Publishing is driven by tags. Push a SemVer tag (v0.1.0, v0.1.0-preview0001) to build,
+# validate and publish that version.
+#
+# workflow_dispatch runs the same build and validation but defaults to a dry run, so a
+# release can be rehearsed end to end without publishing anything. A version published to
+# the PowerShell Gallery cannot be replaced, only deprecated - rehearse first.
+#
+# Required repository secret:
+#   PSGALLERY_API_KEY - PowerShell Gallery API key with push rights for 'azdo-dsc-lcm'.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Module version to build, e.g. 0.1.0 or 0.1.0-preview0001'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and validate only - do not publish'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  MODULE_NAME: azdo-dsc-lcm
+
+jobs:
+  release:
+    name: Build, validate and publish
+    # Windows is the module's primary target - Invoke-DscResource and the managed identity
+    # path are Windows-first - and Authenticode signing (issue #38) will require it.
+    runs-on: windows-latest
+
+    permissions:
+      contents: write # Publish_release_to_GitHub creates the release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Sampler and ChangelogManagement read git history when producing release notes.
+          fetch-depth: 0
+
+      - name: Resolve version and publish mode
+        id: meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch')
+          {
+              $version = '${{ inputs.version }}'
+              $publish = ('${{ inputs.dry_run }}' -eq 'false')
+          }
+          else
+          {
+              $version = '${{ github.ref_name }}' -replace '^v', ''
+              $publish = $true
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9]+)?$')
+          {
+              throw "Version '$version' is not valid SemVer 2.0. Expected e.g. '0.1.0' or '0.1.0-preview0001'."
+          }
+
+          # Sampler resolves the build version from $env:ModuleVersion first. This repository
+          # has no GitVersion configuration, so setting it explicitly keeps the built version
+          # deterministic and tied to the tag.
+          "ModuleVersion=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "publish=$($publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          Write-Host "Version: $version"
+          Write-Host "Publish: $publish"
+
+      - name: Verify publishing secret is configured
+        if: steps.meta.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          # Fail before the build rather than after it, when the only remaining step is the
+          # one that needs the key.
+          if ([string]::IsNullOrWhiteSpace($env:GALLERY_API_KEY))
+          {
+              throw "Repository secret 'PSGALLERY_API_KEY' is not configured. Add it under Settings > Secrets and variables > Actions."
+          }
+
+          Write-Host "PSGALLERY_API_KEY is present."
+
+      - name: Bootstrap dependencies and build
+        shell: pwsh
+        run: ./Build.ps1 -ResolveDependency -Tasks pack
+
+      - name: Verify built artefact
+        id: artefact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $moduleRoot = Join-Path -Path './output' -ChildPath $env:MODULE_NAME
+
+          if (-not (Test-Path -LiteralPath $moduleRoot))
+          {
+              throw "Built module not found at '$moduleRoot'."
+          }
+
+          $versionDirectory = Get-ChildItem -LiteralPath $moduleRoot -Directory |
+              Sort-Object -Property LastWriteTime -Descending |
+              Select-Object -First 1
+
+          if (-not $versionDirectory)
+          {
+              throw "No versioned module directory found beneath '$moduleRoot'."
+          }
+
+          $manifestPath = Join-Path -Path $versionDirectory.FullName -ChildPath "$($env:MODULE_NAME).psd1"
+
+          if (-not (Test-Path -LiteralPath $manifestPath))
+          {
+              throw "Manifest not found at '$manifestPath'."
+          }
+
+          #
+          # The LCM dot-sources its rules from this directory at runtime. A module published
+          # without it imports cleanly and then fails on the first run, so assert it here.
+
+          $rulesPath = Join-Path -Path $versionDirectory.FullName -ChildPath 'LCM Rules'
+
+          foreach ($required in @('PreParse', 'Format', 'Custom'))
+          {
+              $path = Join-Path -Path $rulesPath -ChildPath $required
+
+              if (-not (Test-Path -LiteralPath $path))
+              {
+                  throw "Built module is missing 'LCM Rules/$required'. The Copy_LCM_Rules task did not stage it."
+              }
+          }
+
+          $ruleCount = @(Get-ChildItem -LiteralPath $rulesPath -Recurse -Filter '*.ps1').Count
+          Write-Host "LCM Rules staged: $ruleCount script(s)."
+
+          #
+          # The manifest must be structurally valid and must actually export commands. The
+          # source manifest previously listed its functions under CmdletsToExport with an
+          # empty FunctionsToExport, which exports nothing at all.
+
+          $manifest = Test-ModuleManifest -Path $manifestPath -ErrorAction Stop
+
+          if ($manifest.ExportedFunctions.Count -eq 0)
+          {
+              throw "Built manifest exports no functions. Check FunctionsToExport in source/$($env:MODULE_NAME).psd1."
+          }
+
+          Write-Host "Exported functions: $($manifest.ExportedFunctions.Keys -join ', ')"
+
+          if ($manifest.Version.ToString() -ne '${{ steps.meta.outputs.version }}'.Split('-')[0])
+          {
+              throw "Built module version '$($manifest.Version)' does not match the requested version '${{ steps.meta.outputs.version }}'."
+          }
+
+          "modulePath=$($versionDirectory.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Run tests
+        shell: pwsh
+        run: ./Build.ps1 -Tasks test
+
+      - name: Preflight - gallery dependency resolution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Publish-Module rejects a package whose RequiredModules cannot be resolved in the
+          # target repository. Checking here turns an opaque publish-time rejection into an
+          # actionable message, and catches the case where a dependency has never been
+          # published to the Gallery at all.
+
+          $manifestPath = Join-Path -Path '${{ steps.artefact.outputs.modulePath }}' -ChildPath "$($env:MODULE_NAME).psd1"
+          $data = Import-PowerShellDataFile -Path $manifestPath
+
+          $missing = @()
+          $unbounded = @()
+
+          foreach ($required in $data.RequiredModules)
+          {
+              $name = if ($required -is [string]) { $required } else { $required.ModuleName }
+
+              if (Find-Module -Name $name -ErrorAction SilentlyContinue)
+              {
+                  Write-Host "  OK       $name"
+              }
+              else
+              {
+                  Write-Host "  MISSING  $name"
+                  $missing += $name
+              }
+
+              # A MaximumVersion with no floor is satisfied by any older release, including
+              # versions carrying known defects. Reported, not fatal - see issue #36.
+              if ($required -isnot [string] -and $required.MaximumVersion -and
+                  -not $required.ModuleVersion -and -not $required.RequiredVersion)
+              {
+                  $unbounded += $name
+              }
+          }
+
+          if ($unbounded.Count -gt 0)
+          {
+              Write-Warning "RequiredModules entries specify MaximumVersion with no minimum: $($unbounded -join ', '). See issue #36."
+          }
+
+          if ($missing.Count -gt 0)
+          {
+              throw "These RequiredModules could not be found on the PowerShell Gallery: $($missing -join ', '). Publish-Module will reject the package until every dependency is resolvable there."
+          }
+
+      - name: Upload build artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.MODULE_NAME }}-${{ steps.meta.outputs.version }}
+          path: |
+            output/${{ env.MODULE_NAME }}/
+            output/*.nupkg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to PowerShell Gallery and GitHub
+        if: steps.meta.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GalleryApiToken: ${{ secrets.PSGALLERY_API_KEY }}
+          GitHubToken: ${{ secrets.GITHUB_TOKEN }}
+        run: ./Build.ps1 -Tasks publish
+
+      - name: Dry run summary
+        if: steps.meta.outputs.publish != 'true'
+        shell: pwsh
+        run: |
+          "### Dry run complete" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Version ``${{ steps.meta.outputs.version }}`` built, tested and validated. Nothing was published." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Push the tag ``v${{ steps.meta.outputs.version }}`` to publish." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

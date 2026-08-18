@@ -39,9 +39,14 @@ BuildWorkflow:
     - Pester_if_Code_Coverage_Under_Threshold
 
   publish:
+    # Ordered so the reversible step runs first: if the GitHub release fails, nothing has
+    # been pushed to the PowerShell Gallery, where a published version cannot be replaced.
     - Publish_release_to_GitHub
     - publish_module_to_gallery
-    - Publish_GitHub_Wiki_Content
+    # Publish_GitHub_Wiki_Content is provided by DscResource.DocGenerator, which is not in
+    # RequiredModules.psd1, and it publishes output/WikiContent, which no task in this build
+    # generates. Re-enable it alongside a Generate_Wiki_Content task - see issue #37.
+    #- Publish_GitHub_Wiki_Content
 
 ####################################################
 #       PESTER  Configuration                      #
