@@ -15,7 +15,7 @@
     ModuleVersion = '0.1'
 
     # Supported PSEditions
-    # CompatiblePSEditions = @()
+    CompatiblePSEditions = @('Core')
 
     # ID used to uniquely identify this module
     GUID = '1e4519dc-19e4-4cb2-a5e8-83d571a4d1ca'
@@ -45,7 +45,8 @@
     # DotNetFrameworkVersion = ''
 
     # Minimum version of the common language runtime (CLR) required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-    ClrVersion = '4.0'
+    # Not applicable: this module requires PowerShell 7.0 / PSEdition Core.
+    # ClrVersion = '4.0'
 
     # Processor architecture (None, X86, Amd64) required by this module
     # ProcessorArchitecture = ''
@@ -94,10 +95,8 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @()
-
-    # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-    CmdletsToExport = @(
+    # These are script functions, not compiled cmdlets, so they must be declared here rather than in CmdletsToExport.
+    FunctionsToExport = @(
         'Build-DatumConfiguration'
         'Invoke-AZDoLCM'
         'Resolve-AzDoDatumProject'
@@ -105,8 +104,12 @@
         'Test-DatumConfiguration'
     )
 
-    # Variables to export from this module
-    VariablesToExport = '*'
+    # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
+    CmdletsToExport = @()
+
+    # Variables to export from this module. The module-scope $references, $variables and $parameters
+    # hashtables are internal LCM state and must not be published into the caller's session.
+    VariablesToExport = @()
 
     # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
     AliasesToExport = @()
@@ -131,15 +134,15 @@
             Tags         = @('DesiredStateConfiguration', 'DSC', 'DSCResourceKit', 'DSCResource')
 
             # A URL to the license for this module.
-            LicenseUri   = 'https://github.com/ZanattaMichael/AzDoDSCDatum/blob/main/LICENSE'
+            LicenseUri   = 'https://github.com/ZanattaMichael/AzDO-DSC-LCM/blob/main/LICENSE'
 
             # A URL to the main website for this project.
-            ProjectUri   = 'https://github.com/ZanattaMichael/AzDoDSCDatum'
+            ProjectUri   = 'https://github.com/ZanattaMichael/AzDO-DSC-LCM'
 
-            # A URL to an icon representing this module.
-            IconUri      = 'https://github.com/ZanattaMichael/AzDoDSCDatum/icon.png'
+            # A URL to an icon representing this module. Must be a raw content URL to resolve to the image itself.
+            IconUri      = 'https://raw.githubusercontent.com/ZanattaMichael/AzDO-DSC-LCM/main/icon.png'
 
-            # ReleaseNotes of this module
+            # ReleaseNotes of this module. Populated from CHANGELOG.md by the Sampler release pipeline.
             ReleaseNotes = ''
 
         } # End of PSData hashtable
