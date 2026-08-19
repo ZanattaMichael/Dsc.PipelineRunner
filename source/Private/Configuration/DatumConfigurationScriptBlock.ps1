@@ -7,7 +7,7 @@
 
 .DESCRIPTION
     The DatumConfigurationScriptBlock function imports necessary modules, changes the current directory to the specified configuration path,
-    creates a Datum structure from a YAML definition file, tests the configuration, and resolves each project node using the Resolve-AzDoDatumProject function.
+    creates a Datum structure from a YAML definition file, tests the configuration, and resolves each project node using the Resolve-DscDatumProject function.
 
 .PARAMETER OutputPath
     The path where the output will be stored.
@@ -19,7 +19,7 @@
     DatumConfigurationScriptBlock -OutputPath "C:\Output" -ConfigurationPath "C:\Configuration"
 
 .NOTES
-    This function requires the 'azdo-dsc-lcm', 'powershell-yaml', 'datum', and 'datum.invokecommand' modules to be installed and available.
+    This function requires the 'Dsc.PipelineRunner', 'powershell-yaml', 'datum', and 'datum.invokecommand' modules to be installed and available.
 #>
 Function DatumConfigurationScriptBlock {
     param($OutputPath, $configurationPath, [switch]$isTest)
@@ -31,9 +31,9 @@ Function DatumConfigurationScriptBlock {
 
     # Import the YAML module for handling YAML files
     # Import the Datum module for configuration data management
-    Import-Module 'azdo-dsc-lcm','powershell-yaml','datum','datum.invokecommand'
+    Import-Module 'Dsc.PipelineRunner','powershell-yaml','datum','datum.invokecommand'
 
-    Write-Verbose "Modules for AZDO-DSC-LCM, YAML, Datum and Datum.InvokeCommand have been imported"
+    Write-Verbose "Modules for Dsc.PipelineRunner, YAML, Datum and Datum.InvokeCommand have been imported"
 
     # Change the current directory to the Example Configuration directory
     Set-Location $ConfigurationPath
@@ -50,8 +50,8 @@ Function DatumConfigurationScriptBlock {
     ForEach ($ProjectType in $Datum.Projects.psobject.properties) {
         # Iterate through each of the projects in the current project type
         ForEach ($ProjectNode in $Datum.Projects."$($ProjectType.name)".psobject.properties) {
-            # Resolve the project node using the Resolve-AzDoDatumProject function
-            Resolve-AzDoDatumProject -NodeName $ProjectNode -AllNodes $Datum.Projects."$($ProjectType.name)"."$($ProjectNode.Name)"
+            # Resolve the project node using the Resolve-DscDatumProject function
+            Resolve-DscDatumProject -NodeName $ProjectNode -AllNodes $Datum.Projects."$($ProjectType.name)"."$($ProjectNode.Name)"
         }
     }
 }

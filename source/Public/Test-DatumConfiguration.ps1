@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     The Test-DatumConfiguration function validates the Datum Configuration object to ensure it contains the necessary properties and that the versioning is correct. 
-    It checks for the presence of the LCMConfigSettings property, validates the versioning of the Datum Configuration, and ensures that the versions are within the acceptable range.
+    It checks for the presence of the PipelineRunnerSettings property, validates the versioning of the Datum Configuration, and ensures that the versions are within the acceptable range.
 
 .PARAMETER Datum
     The Datum Configuration object that needs to be validated. This parameter is mandatory.
@@ -30,30 +30,30 @@ function Test-DatumConfiguration {
     Write-Verbose "[Test-DatumConfiguration] Validating the Datum Configuration."
 
     # Validate that the Datum Configuration meets the requirements for the Datum Configuration.
-    if ($null -eq $Datum.__Definition.LCMConfigSettings) {
-        throw "[Test-DatumConfiguration] The Datum Configuration does not contain the LCMConfigSettings property. The Datum Configuration is invalid and cannot be processed."
+    if ($null -eq $Datum.__Definition.PipelineRunnerSettings) {
+        throw "[Test-DatumConfiguration] The Datum Configuration does not contain the PipelineRunnerSettings property. The Datum Configuration is invalid and cannot be processed."
     }
 
     # Validate that the Datum Configuration Versioning is the correct version. If not, throw an error.
 
     # Get the Datum Configuration Version
-    $LCMConfiguration = @{
-        DatumConfigurationVersion   = $Datum.__Definition.LCMConfigSettings.ConfigurationVersion -as [Version]
-        AZDOLCMVersion              = $Datum.__Definition.LCMConfigSettings.AZDOLCMVersion -as [Version]
+    $runnerConfig = @{
+        DatumConfigurationVersion   = $Datum.__Definition.PipelineRunnerSettings.ConfigurationVersion -as [Version]
+        PipelineRunnerVersion              = $Datum.__Definition.PipelineRunnerSettings.PipelineRunnerVersion -as [Version]
         YAMLConfigurationMinimumVersion = $ModuleConfigurationData.YAMLConfigurationMinimumVersion -as [Version]
         YAMLConfigurationMaximumVersion = $ModuleConfigurationData.YAMLConfigurationMaximumVersion -as [Version]
     }
 
     $CurrentPSDesiredStateConfigurationVersion = (Get-Module PSDesiredStateConfiguration | Select-Object -First 1).Version
-    $CurrentAZDOLCMVersion = (Get-Module azdo-dsc-lcm | Select-Object -First 1).Version
+    $CurrentPipelineRunnerVersion = (Get-Module Dsc.PipelineRunner | Select-Object -First 1).Version
 
-    Write-Verbose "[Test-DatumConfiguration] Datum Configuration Version: $($LCMConfiguration.DatumConfigurationVersion)"
+    Write-Verbose "[Test-DatumConfiguration] Datum Configuration Version: $($runnerConfig.DatumConfigurationVersion)"
 
     # Confirm that all the Datum Configuration Versions have been safely typecasted to the [Version] type.
-    foreach ($LCMConfigurationKey in $LCMConfiguration.Keys) {
-        Write-Verbose "[Test-DatumConfiguration] Validating Datum Configuration Version for $LCMConfigurationKey."
-        if ($null -eq $LCMConfiguration[$LCMConfigurationKey]) {
-            throw "[Test-DatumConfiguration] The Datum Configuration Version for $LCMConfigurationKey is not a valid version. The Datum Configuration is invalid and cannot be processed. Please ensure that the Datum Configuration Version is a valid version."
+    foreach ($runnerConfigKey in $runnerConfig.Keys) {
+        Write-Verbose "[Test-DatumConfiguration] Validating Datum Configuration Version for $runnerConfigKey."
+        if ($null -eq $runnerConfig[$runnerConfigKey]) {
+            throw "[Test-DatumConfiguration] The Datum Configuration Version for $runnerConfigKey is not a valid version. The Datum Configuration is invalid and cannot be processed. Please ensure that the Datum Configuration Version is a valid version."
         }
     }
 
@@ -61,13 +61,13 @@ function Test-DatumConfiguration {
     # Validate the Datum Configuration Versioning
     #
 
-    $supportedConfigurationMaxMajorVersion = $LCMConfiguration.YAMLConfigurationMaximumVersion.Major
-    $supportedConfigurationMaxMinorVersion = $LCMConfiguration.YAMLConfigurationMaximumVersion.Minor
-    $supportedConfigurationMinMajorVersion = $LCMConfiguration.YAMLConfigurationMinimumVersion.Major
-    $supportedConfigurationMinMinorVersion = $LCMConfiguration.YAMLConfigurationMinimumVersion.Minor
+    $supportedConfigurationMaxMajorVersion = $runnerConfig.YAMLConfigurationMaximumVersion.Major
+    $supportedConfigurationMaxMinorVersion = $runnerConfig.YAMLConfigurationMaximumVersion.Minor
+    $supportedConfigurationMinMajorVersion = $runnerConfig.YAMLConfigurationMinimumVersion.Major
+    $supportedConfigurationMinMinorVersion = $runnerConfig.YAMLConfigurationMinimumVersion.Minor
 
-    $datumConfigurationMajorVersion = $LCMConfiguration.DatumConfigurationVersion.Major
-    $datumConfigurationMinorVersion = $LCMConfiguration.DatumConfigurationVersion.Minor
+    $datumConfigurationMajorVersion = $runnerConfig.DatumConfigurationVersion.Major
+    $datumConfigurationMinorVersion = $runnerConfig.DatumConfigurationVersion.Minor
 
     # Combine the Major and Minor versions as a decimal number to compare the versions.
     $maxSupportedVersion = [decimal]::Parse("$supportedConfigurationMaxMajorVersion.$supportedConfigurationMaxMinorVersion")
@@ -77,13 +77,13 @@ function Test-DatumConfiguration {
     
     # Throw an error if the Datum Configuration Version is outside the valid range of the Datum Configuration Versions.
     if (($currentVersion -lt $minSupportedVersion) -or ($currentVersion -gt $maxSupportedVersion)) {
-        throw "[Test-DatumConfiguration] The Datum Configuration Version $($LCMConfiguration.DatumConfigurationVersion) is outside the valid range ($($LCMConfiguration.YAMLConfigurationMinimumVersion) to $($LCMConfiguration.YAMLConfigurationMaximumVersion)). The Datum Configuration is invalid and cannot be processed."
+        throw "[Test-DatumConfiguration] The Datum Configuration Version $($runnerConfig.DatumConfigurationVersion) is outside the valid range ($($runnerConfig.YAMLConfigurationMinimumVersion) to $($runnerConfig.YAMLConfigurationMaximumVersion)). The Datum Configuration is invalid and cannot be processed."
     }
 
     # Check if the Datum Configuration Version is two or more minor versions behind the current PSDesiredStateConfiguration version.
     # If it is, write a warning.
     if ($currentVersion -ge ($maxSupportedVersion - 0.2)) {
-        Write-Warning "[Test-DatumConfiguration] The Datum Configuration Version $($LCMConfiguration.DatumConfigurationVersion) is two or more minor versions behind the current PSDesiredStateConfiguration version $($LCMConfiguration.CurrentPSDesiredStateConfigurationVersion). Consider updating to a more recent version."
+        Write-Warning "[Test-DatumConfiguration] The Datum Configuration Version $($runnerConfig.DatumConfigurationVersion) is two or more minor versions behind the current PSDesiredStateConfiguration version $($runnerConfig.CurrentPSDesiredStateConfigurationVersion). Consider updating to a more recent version."
     }
 
     #
@@ -100,13 +100,13 @@ function Test-DatumConfiguration {
     }
 
     #
-    # Validate the azdo-dsc-lcm Versions
+    # Validate the Dsc.PipelineRunner Versions
     #
 
-    # Ensure that the Module azdo-dsc-lcm Version is within the valid range of the Datum Configuration Versions.
-    if ($LCMConfiguration.CurrentAZDOLCMVersion -lt $LCMConfiguration.AZDOLCMMinimumVersion -or 
-        $LCMConfiguration.CurrentAZDOLCMVersion -gt $LCMConfiguration.AZDOLCMMaximumVersion) {
-        throw "[Test-DatumConfiguration] The azdo-dsc-lcm Version $($LCMConfiguration.CurrentAZDOLCMVersion) is outside the valid range ($($LCMConfiguration.AZDOLCMMinimumVersion) to $($LCMConfiguration.AZDOLCMMaximumVersion)). The Datum Configuration is invalid and cannot be processed."
+    # Ensure that the Module Dsc.PipelineRunner Version is within the valid range of the Datum Configuration Versions.
+    if ($runnerConfig.CurrentPipelineRunnerVersion -lt $runnerConfig.PipelineRunnerMinimumVersion -or 
+        $runnerConfig.CurrentPipelineRunnerVersion -gt $runnerConfig.PipelineRunnerMaximumVersion) {
+        throw "[Test-DatumConfiguration] The Dsc.PipelineRunner Version $($runnerConfig.CurrentPipelineRunnerVersion) is outside the valid range ($($runnerConfig.PipelineRunnerMinimumVersion) to $($runnerConfig.PipelineRunnerMaximumVersion)). The Datum Configuration is invalid and cannot be processed."
     }
 
 }

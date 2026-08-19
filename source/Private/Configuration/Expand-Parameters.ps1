@@ -14,7 +14,7 @@
  This example demonstrates how to call the Expand-Parameters function with a hashtable.
 
  .NOTES
- This function is part of the azdo-dsc-lcm module and is intended for internal use.
+ This function is part of the Dsc.PipelineRunner module and is intended for internal use.
  It relies on other functions such as Expand-HashTable and Expand-ParameterInArray.
  If a placeholder parameter is not found in the parameters hashtable, an error is thrown.
 #>

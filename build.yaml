@@ -28,7 +28,7 @@ BuildWorkflow:
   build:
     - Clean
     - Build_Module_ModuleBuilder
-    - Copy_LCM_Rules
+    - Copy_Pipeline_Rules
 
   pack:
     - build
