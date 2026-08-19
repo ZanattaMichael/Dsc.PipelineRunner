@@ -57,12 +57,12 @@ Dsc.PipelineRunner                      (core — provider-agnostic)
 │   ├─ Source/                          resolve config → local dir
 │   │   ├─ Local.ps1                    local directory passthrough (default)
 │   │   └─ Git.ps1                      clone any git remote (HTTPS/SSH)
-│   └─ Connect/                         establish auth/session before Test/Set/Get
-│       ├─ None.ps1                     no auth (default)
-│       └─ AzureDevOps.ps1              New-AzDoAuthenticationProvider — opt-in, soft dep
-├─ Execution engines/                   NEW typed engine seam (§4B, §5)
-│   ├─ Invoke-DscV2Engine               wraps Invoke-DscResource
-│   └─ Invoke-DscV3Engine               wraps dsc.exe (DSC v3)
+│   ├─ Connect/                         establish auth/session before Test/Set/Get
+│   │   ├─ None.ps1                     no auth (default)
+│   │   └─ AzureDevOps.ps1              New-AzDoAuthenticationProvider — opt-in, soft dep
+│   └─ Engine/                          drive Test/Set/Get — action + typed contract (§4B, §5)
+│       ├─ DscV2.ps1                    wraps Invoke-DscResource (default)
+│       └─ DscV3.ps1                    wraps dsc.exe (DSC v3)
 └─ RequiredModules: NO AzureDevOpsDsc   (AzDO is an optional action, not a dependency)
 ```
 
@@ -89,15 +89,19 @@ Actions apply the same idiom to the lifecycle hooks the runner must not hard-cod
   (`Local`, `Git`, or a user drop-in)
 - `Actions/Connect/` — establish auth/session before evaluation
   (`None`, `AzureDevOps`, or a user drop-in)
+- `Actions/Engine/` — drive resource Test/Set/Get
+  (`DscV2`, `DscV3`, or a user drop-in) — see seam B for its stricter contract
 
 Every action file exposes the same shape as the existing rules — `param($Context)`
-— returning its result (a local path for Source; a credential/`$null` for Connect).
-Selection is config-driven and consistent with existing keys:
+— returning its result (a local path for Source; a credential/`$null` for Connect;
+a normalized result for Engine). Selection is config-driven and consistent with
+existing keys:
 
 ```yaml
 PipelineRunnerSettings:
   Source: Git            # a file in Actions/Source/  (default: Local)
   Connect: AzureDevOps   # a file in Actions/Connect/ (default: None)
+  Engine: DscV3          # a file in Actions/Engine/  (default: DscV2)
 ```
 
 **Runtime scriptblock override — no file required.** For bespoke, one-off cases the
@@ -115,12 +119,24 @@ Invoke-DscRunner -Source $localDir -ConnectAction {
 `RequiredModules`. AzDO thus becomes opt-in by *naming its action* (or shipping an
 optional "actions pack"), never a hard dependency and never a separate module.
 
-**B. Execution-engine contract.** `Start-DscRunner` currently calls
-`Invoke-DscResource` directly three times (Test/Set/Get). Extract an engine
-interface `Invoke-DscMethod -Engine <v2|v3> -Method <Test|Set|Get> -Resource …`
-so the loop is engine-agnostic (§5). This is deliberately a **typed seam, not a
-dot-sourced action**: the engine runs once per resource per method on the hot path
-and warrants a stricter, testable contract than the loader-driven actions above.
+**B. Execution engine — an action *and* a typed seam.** `Start-DscRunner` currently
+calls `Invoke-DscResource` directly three times (Test/Set/Get). Engines are loaded
+through the same `Actions/` mechanism as Source and Connect — drop a file in
+`Actions/Engine/`, select it by name (`Engine: DscV3`), or pass an inline
+`-EngineAction` scriptblock — so third parties can add engines without forking.
+
+Unlike Source/Connect, the engine also carries a **strict, typed contract**, because
+it runs once per resource per method on the hot path and its result feeds the report
+and the exit code:
+
+- input: `$Context` = `{ Method = 'Test'|'Set'|'Get'; ModuleName; Name; Property }`
+- output: a normalized `[DscMethodResult]`
+  `{ InDesiredState:[bool]; RebootRequired:[bool]; Message:[string]; Raw }`
+
+The loader validates that a selected engine returns this shape (a Pester contract
+test every engine must pass), so the loop stays engine-agnostic while the boundary
+stays type-checked. Net: the pluggability of an action with the guarantees of a typed
+interface — `DscV2` and `DscV3` ship in the box, custom engines are first-class.
 
 ## 4. Phased delivery
 
@@ -180,8 +196,10 @@ directory with `Connect: None` and no AzDO connection; a third party can add a
 
 ### Phase 2 — DSC v3 (`dsc.exe`) execution engine [21]
 
-See §5. Add the v2/v3 engine seam and the v3 `dsc.exe` implementation. This is what
-makes Linux/macOS hosted agents genuinely useful, since `Invoke-DscResource` is
+See §5. Add the `Actions/Engine/` hook with its typed `[DscMethodResult]` contract
+(§3B), extract today's `Invoke-DscResource` calls into `DscV2.ps1` (default), and add
+`DscV3.ps1` driving `dsc.exe`. Both must pass the shared engine contract test. This is
+what makes Linux/macOS hosted agents genuinely useful, since `Invoke-DscResource` is
 Windows/PS-DSC-v2-first.
 
 ### Phase 3 — Pipeline-native auth & hosted-agent story [21, 22]
@@ -222,30 +240,38 @@ PR #39 (release workflow) already exists and stays open; wire signing into it he
 cross-platform CLI (`dsc.exe` / `dsc`) that operates on resource manifests and
 JSON over stdin/stdout.
 
-### Approach — engine abstraction, config-selected
+### Approach — engine as an action with a typed contract
 
-1. Extract the three call sites behind one internal function, e.g.
-   `Invoke-DscMethod -Engine <DscV2|DscV3> -Method <Test|Set|Get> -ModuleName …
-   -Name … -Property …`, returning a **normalized result**
-   (`{ InDesiredState, RebootRequired, Message, Raw }`) so the reporting code is
-   engine-independent.
-2. **`Invoke-DscV2Engine`** — today's behavior, `Invoke-DscResource`, unchanged.
-3. **`Invoke-DscV3Engine`** — shells out to `dsc.exe`:
+Engines load through the `Actions/` loader (§3A) but honor a strict typed contract
+(§3B), so they are both drop-in-pluggable and type-checked.
+
+1. Route the three call sites through the loader, e.g. `Invoke-EngineAction -Context
+   @{ Method='Test'; ModuleName=…; Name=…; Property=… }`, which resolves the selected
+   `Actions/Engine/<Name>.ps1` (or an inline `-EngineAction` scriptblock) and requires
+   a **normalized `[DscMethodResult]`** back
+   (`{ InDesiredState, RebootRequired, Message, Raw }`) so reporting is engine-independent.
+2. **`Actions/Engine/DscV2.ps1`** (default) — today's behavior, `Invoke-DscResource`,
+   unchanged apart from returning the normalized shape.
+3. **`Actions/Engine/DscV3.ps1`** — shells out to `dsc.exe`:
    - map `Test`/`Set`/`Get` to `dsc resource test|set|get`,
    - pass the resource type and property JSON on stdin,
    - parse the JSON result into the normalized shape,
    - surface `dsc.exe` non-zero exit as a failed resource (feeds Phase 4 exit
      contract).
-4. **Engine selection** — a config key drives it. The existing
+4. **Contract test** — a single shared Pester suite runs against every engine in
+   `Actions/Engine/` (and any custom one) asserting the input/output contract, so a
+   third-party engine is a first-class citizen the moment it passes.
+5. **Engine selection** — the `PipelineRunnerSettings.Engine` key names the file
+   (`DscV2`/`DscV3`/custom). Keep the existing
    `PipelineRunnerSettings.DSCResourceVersion` (`Example Configuration/Datum.yml:21`)
-   is the natural switch: `2.x` → v2 engine, `3.x` → v3 engine. Allow a
-   per-invocation `-Engine` override and auto-detect (`dsc.exe` on PATH, resource
-   type shape) with a clear error when the requested engine is unavailable.
-5. **Docs & CI** — a "Getting started on a hosted Linux agent with DSC v3" page,
+   as a back-compat default mapping (`2.x`→`DscV2`, `3.x`→`DscV3`) when `Engine` is
+   unset; allow a per-invocation `-EngineAction` override and auto-detect (`dsc.exe`
+   on PATH) with a clear error when the requested engine is unavailable.
+6. **Docs & CI** — a "Getting started on a hosted Linux agent with DSC v3" page,
    and a CI job that runs a real v3 resource through `dsc.exe` on Linux.
 
-This keeps the loop, rules, reporting, and providers identical across engines —
-only the three DSC calls change.
+This keeps the loop, rules, reporting, and connect/source actions identical across
+engines — only the selected `Actions/Engine/` file changes.
 
 ## 6. Eradicating "LCM"
 
@@ -267,9 +293,10 @@ grep-guard enforces "no new LCM" going forward.
 - [ ] Core imports and runs with `AzureDevOpsDsc` absent (#20)
 - [ ] `AzureDevOpsDsc*` removed from core `RequiredModules` (#20)
 - [ ] AzDO logic lives in an opt-in `Actions/Connect/AzureDevOps.ps1` — single module, no separate package, no hard dependency (#20)
-- [ ] A custom `Connect`/`Source` action (drop-in file or `-ConnectAction` scriptblock) works without forking (#20)
+- [ ] A custom `Source`/`Connect`/`Engine` action (drop-in file or inline scriptblock) works without forking (#20)
 - [ ] Integration test: core runs against a local dir with `Connect: None`, no AzDO connection (#20)
-- [ ] `dsc.exe` (DSC v3) engine selectable and green in CI on Linux (#21)
+- [ ] Engines load via `Actions/Engine/` and every engine passes the shared typed-contract Pester test (#21)
+- [ ] `dsc.exe` (DSC v3) engine selectable (`Engine: DscV3`) and green in CI on Linux (#21)
 - [ ] Pipeline-native auth: SecureString tokens, `System.AccessToken`, no token in logs (#22)
 - [ ] Runner returns a machine-readable result and a non-zero exit on failure (#19)
 - [ ] Phase-0 correctness bugs fixed with Pester coverage (#7–#14, #18, #28)
