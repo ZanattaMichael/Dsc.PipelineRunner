@@ -9,7 +9,7 @@ $config = New-PesterConfiguration
 
 $config.Run.Path = ".\Tests\LCM"
 $config.CodeCoverage.Enabled = $true
-$config.CodeCoverage.Path = @( ".\source\Private", ".\source\Public", ".\LCM Rules\" )
+$config.CodeCoverage.Path = @( ".\source\Private", ".\source\Public", ".\Pipeline Rules\" )
 $config.Output.Verbosity = "Detailed"
 $config.CodeCoverage.OutputPath = ".\output\testResults\codeCoverage.xml"
 
