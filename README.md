@@ -38,8 +38,9 @@ This LCM utilizes Datum from Gael Colas to streamline configuration. For more in
 1. __Modular LCM Formatting and Validation Rules__: Incorporate modular scripts stored in the `\LCM Rules\` directory into the module build process. These scripts are responsible for validating and formatting configuration resources to meet specific requirements. They can be modified and extended as needed. The current set of scripts includes:
 
     - `LCM Rules\PreParse\Test-CircularReferences.ps1`: Checks for circular references within resources. If this script detects an error, the LCM will not apply any changes.
-    - `LCM Rules\PreParse\Test-ResourceForIncorrectProperties`: Validates resource properties against documented specifications. Errors prevent LCM from applying changes.
-    - `LCM Rules\Custom\Sort-DependsOn.ps1`: Orders resources in the YAML file based on their `dependsOn` property. This script is mandatory and cannot be bypassed.
+    - `LCM Rules\PreParse\Test-ResourcesForIncorrectProperties.ps1`: Validates resource properties against documented specifications. Errors prevent LCM from applying changes.
+    - `LCM Rules\Custom\Sort-DependsOn.ps1`: Orders resources based on their `dependsOn` property. This script is mandatory and cannot be bypassed.
+    - `LCM Rules\Format\`: Directory reserved for format rules that pre-process task properties before execution.
 
 1. __Versioned Configuration__: Ensure all versions are managed by the LCM to avoid unforeseen issues as new features are introduced.
 
@@ -47,16 +48,24 @@ This LCM utilizes Datum from Gael Colas to streamline configuration. For more in
 
     ```yaml
     LCMConfigSettings:
-      ConfigurationVersion: 1.0
-      AZDOLCMVersion: 1.0
-      DSCResourceVersion: 1.0
+      ConfigurationVersion: 0.1
+      AZDOLCMVersion: 0.1
+      DSCResourceVersion: 2.0
     ```
+
+    The LCM enforces the following version constraints (defined in `source\Public\VersionConfiguration.ps1`):
+
+    | Setting | Minimum | Maximum |
+    |---|---|---|
+    | `ConfigurationVersion` | `0.1` | `0.9` |
+    | `PSDesiredStateConfiguration` module | `2.0` | `2.9` |
+    | DSC Resource module | `1.0` | `1.9` |
 
 ### Enhanced LCM Resource Features
 
 The Local Configuration Manager (LCM) provides a set of features applicable to all Desired State Configuration (DSC) resources, enhancing their flexibility and control. These features include:
 
-- __condition__: This feature allows conditional execution of resources. The condition is evaluated before the resource runs, and if it evaluates to `$true`, the resource is skipped. This is useful for dynamically controlling resource execution based on specific criteria.
+- __condition__: This feature allows conditional execution of resources. The condition is evaluated as a PowerShell expression before the resource runs. If the condition evaluates to `$true`, the resource executes; if it evaluates to `$false`, the resource is skipped. This is useful for dynamically controlling resource execution based on specific criteria.
 
     __Example:__
 
@@ -99,8 +108,8 @@ In the realm of configuration, there are specialized commands designed to modify
 
     ```yaml
     - name: Project
-        type: AzureDevOpsDsc/AzDoProject
-        postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
+      type: AzureDevOpsDsc/AzDoProject
+      postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     ```
 
     In this scenario, when the project is set for deletion, it will remove the project and subsequently halt any further tasks from executing within the pipeline.
@@ -114,22 +123,41 @@ In the realm of configuration, there are specialized commands designed to modify
 1. The `Resources` are ordered according to the `dependsOn` property.
 1. The LCM iterates through each of the Resources and performs the following steps:
     1. Checks if `Stop-TaskProcessing` has been executed; if so, the resource will be skipped.
-    1. Checks for the `condition` property and executes the statement. The resource will execute on a `$true` response.
-    1. Iterates through all the properties within the resource and executes any calculated properties. This includes variables such as:
+    1. Checks for the `condition` property and evaluates the expression. The resource executes when the condition is `$true`; a `$false` result skips the resource.
+    1. Iterates through all the properties within the resource and executes any calculated properties. This includes subexpressions such as:
 
     ```yaml
     Ensure: $( if ([string]::IsNullOrEmpty($Project_Ensure)) { 'Present' } else { $Project_Ensure } )
     ```
 
-    1. Executes the resource.
+    1. Executes the resource using `Invoke-DscResource`.
     1. Upon completion (even in case of an error), the LCM checks for the `postExecutionScript` property and invokes the code if present.
+    1. The LCM calls the DSC `Get` method on the resource and stores the result in a references table, making it available to subsequent resources via the `reference` function.
 
-    ``` YAML
-    Ensure: $( if ([string]::IsNullOrEmpty($Project_Ensure)) { 'Present' } else { $Project_Ensure } )
-    ```
+## Public Commands
 
-    1. The resource is executed.
-    1. Once completed (_even on error_). The LCM will check for the `postExecutionScript` property. It will invoke the code.
+| Command | Description |
+|---|---|
+| `Invoke-AZDoLCM` | Entry point. Clones or reads the Datum configuration, compiles it, authenticates to Azure DevOps, and invokes the LCM for each compiled YAML file. |
+| `Build-DatumConfiguration` | Compiles the Datum configuration by resolving all nodes and writing per-project YAML files to the output directory. Runs in a separate runspace. |
+| `Test-DatumConfiguration` | Validates a Datum configuration object: checks for `LCMConfigSettings`, enforces version constraints, and warns when the configuration version is near the maximum supported version. |
+| `Resolve-AzDoDatumProject` | Resolves a single Datum project node, evaluating variables and converting the result to YAML. Called internally by `Build-DatumConfiguration`. |
+| `Stop-TaskProcessing` | Signals the LCM to skip all remaining resources in the current YAML file. Must be called from within `postExecutionScript`. |
+
+### `Invoke-AZDoLCM` Parameters
+
+| Parameter | Required | Description |
+|---|---|---|
+| `AzureDevopsOrganizationName` | Yes | Name of the Azure DevOps organization. |
+| `exportConfigDir` | Yes | Directory where Datum writes compiled per-project YAML files. Must exist. |
+| `ConfigurationSourcePath` | Yes | URL (cloned via git) or local directory path for the Datum configuration. |
+| `JITToken` | Yes | Just-In-Time access token. |
+| `Mode` | Yes | `Test` (validate only) or `Set` (validate and apply changes). Default: `Test`. |
+| `AuthenticationType` | No | `ManagedIdentity` (default) or `PAT`. |
+| `PATToken` | When using PAT | 52-character alphanumeric Personal Access Token. |
+| `ReportPath` | No | Directory path where a per-project CSV report is written after execution. |
+
+> The environment variable `AZDODSC_CACHE_DIRECTORY` must be set before calling `Invoke-AZDoLCM`.
 
 ## Getting Started
 
@@ -201,9 +229,18 @@ In the realm of configuration, there are specialized commands designed to modify
 
 1. __Ensure that the Agent Pools have required dependencies__
 
-    Ensure that the Agent Pool is equipped with all necessary PowerShell module dependencies as specified in the module manifest file [`source\azdo-dsc-lcm.psd1`](.\source\azdo-dsc-lcm.psd1). These dependencies are crucial for the proper functioning of the Local Configuration Manager (LCM) within your Azure DevOps environment.
+    Ensure that the Agent Pool is equipped with all necessary PowerShell module dependencies as specified in the module manifest file [`source\azdo-dsc-lcm.psd1`](.\source\azdo-dsc-lcm.psd1). The required modules are:
 
-    To install these required modules, execute the following command for each module listed in the manifest:
+    | Module | Version Constraint |
+    |---|---|
+    | `PSDesiredStateConfiguration` | `>= 2.0.0` |
+    | `powershell-yaml` | `<= 1.0.0` |
+    | `AzureDevOpsDsc.Common` | `<= 1.0.0` |
+    | `AzureDevOpsDsc` | `<= 1.0.0` |
+    | `datum` | `<= 1.0.0` |
+    | `Datum.InvokeCommand` | `<= 1.0.0` |
+
+    To install these required modules, execute the following command for each module listed above:
 
     ```powershell
     Install-Module -Name ModuleName
@@ -244,17 +281,49 @@ In the realm of configuration, there are specialized commands designed to modify
 
     By following these steps, you will ensure that your Agent Pool is fully prepared with all necessary PowerShell dependencies, facilitating seamless operation of your Azure DevOps pipelines.
 
-    > Please Note: Maintaining the correct versioning is crucial to prevent LCM compilation errors. Before proceeding with any updates, always verify that the LCMConfigSettings within Datum.yml are compatible. The Local Configuration Manager will reject any configuration that does not meet the specified versioning criteria.
+    > Please Note: Maintaining the correct versioning is crucial to prevent LCM compilation errors. Before proceeding with any updates, always verify that the `LCMConfigSettings` within `Datum.yml` are within the ranges enforced by the module. The Local Configuration Manager will reject any configuration that does not meet the specified versioning criteria.
 
 1. __Setup the Azure DevOps Pipeline:__
 
-    - TODO: More documentation is required.
+    Create a pipeline that calls `Invoke-AZDoLCM` on your self-hosted agent. A minimal pipeline looks like:
+
+    ```yaml
+    trigger:
+      - main
+
+    pool:
+      name: SelfHosted
+
+    steps:
+      - pwsh: |
+          $env:AZDODSC_CACHE_DIRECTORY = "$(Agent.TempDirectory)\AzDODSCCache"
+          New-Item -Path $env:AZDODSC_CACHE_DIRECTORY -ItemType Directory -Force | Out-Null
+
+          Import-Module azdo-dsc-lcm
+
+          Invoke-AZDoLCM `
+            -AzureDevopsOrganizationName "$(OrganizationName)" `
+            -exportConfigDir "$(Agent.TempDirectory)\ExportedConfig" `
+            -ConfigurationSourcePath "$(ConfigurationRepoUrl)" `
+            -JITToken "$(System.AccessToken)" `
+            -Mode "Set" `
+            -AuthenticationType ManagedIdentity
+        displayName: 'Apply DSC Configuration'
+    ```
+
+    The exported config directory must exist before calling `Invoke-AZDoLCM`:
+
+    ```powershell
+    New-Item -Path "$(Agent.TempDirectory)\ExportedConfig" -ItemType Directory -Force
+    ```
 
     1. __Test to Ensure the LCM is Running Correctly:__
 
     - __Set the LCM Mode to Test:__
-        - Switch the LCM to test mode to validate configuration changes without applying them immediately.
+        - Pass `-Mode Test` to validate configuration changes without applying them immediately.
     - __Look for Runtime Errors:__
-        - Monitor logs and outputs for any runtime errors or warnings that could indicate misconfigurations or issues needing resolution.
+        - Monitor pipeline logs for any runtime errors or warnings that could indicate misconfigurations or issues needing resolution.
     - __Verify Expected Outcomes:__
         - Conduct thorough testing to confirm that the LCM behaves as expected, making adjustments as necessary to address any discrepancies or failures.
+    - __Review the CSV Report:__
+        - If `-ReportPath` is specified, a per-project CSV report is generated containing the pass/fail/skipped status for every resource. Review this output to verify all resources reached their desired state.
