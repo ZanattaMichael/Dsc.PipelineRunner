@@ -60,14 +60,10 @@
             ModuleName = 'powershell-yaml'
             MaximumVersion = '1.0.0'
         }
-        @{
-            ModuleName = 'AzureDevOpsDsc.Common'
-            MaximumVersion = '1.0.0'
-        }
-        @{
-            ModuleName = 'AzureDevOpsDsc'
-            MaximumVersion = '1.0.0'
-        }
+        # AzureDevOpsDsc / AzureDevOpsDsc.Common are intentionally NOT required here.
+        # Azure DevOps support is an opt-in Connect action (Actions/Connect/AzureDevOps.ps1)
+        # that imports AzureDevOpsDsc.Common on demand, so the core runner imports and runs
+        # on any platform with Azure DevOps absent.
         @{
             ModuleName = 'datum'
             MaximumVersion = '1.0.0'
@@ -100,6 +96,7 @@
     CmdletsToExport = @(
         'Build-DatumConfiguration'
         'Invoke-DscPipelineRunner'
+        'Invoke-DscRunner'
         'Resolve-DscDatumProject'
         'Stop-TaskProcessing'
         'Test-DatumConfiguration'

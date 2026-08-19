@@ -131,7 +131,20 @@ function Invoke-DscPipelineRunner {
     Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath
 
     #
-    # Determine the Authentication Type and create the Authentication Provider
+    # Determine the Authentication Type and create the Authentication Provider.
+    #
+    # Azure DevOps is no longer a hard dependency of the module (it is not listed in
+    # RequiredModules). This back-compat entry point therefore imports the provider on
+    # demand and fails clearly if it is absent — new callers should prefer
+    # Invoke-DscRunner with `-Connect AzureDevOps` (or a custom Connect action).
+    if (-not (Get-Command -Name New-AzDoAuthenticationProvider -ErrorAction SilentlyContinue)) {
+        if (Get-Module -ListAvailable -Name AzureDevOpsDsc.Common) {
+            Import-Module -Name AzureDevOpsDsc.Common -ErrorAction Stop
+        }
+        else {
+            throw "[Invoke-DscPipelineRunner] Azure DevOps support requires the 'AzureDevOpsDsc.Common' module. Install it, or use Invoke-DscRunner with a custom Connect action."
+        }
+    }
 
     if ($AuthenticationType -eq 'PAT') {
         New-AzDoAuthenticationProvider -OrganizationName $AzureDevopsOrganizationName -PersonalAccessToken $PATToken
