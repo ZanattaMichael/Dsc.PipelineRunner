@@ -52,39 +52,75 @@ Dsc.PipelineRunner                      (core — provider-agnostic)
 ├─ Start-DscRunner                      resource evaluation loop
 ├─ Build-DatumConfiguration             Datum compilation
 ├─ Stop-TaskProcessing                  run control
-├─ Pipeline Rules/                      provider-agnostic rules
-├─ Execution engines/                   NEW abstraction (§5)
+├─ Pipeline Rules/                      provider-agnostic rules (already loader-driven)
+├─ Actions/                             NEW loader-driven lifecycle hooks (§4A)
+│   ├─ Source/                          resolve config → local dir
+│   │   ├─ Local.ps1                    local directory passthrough (default)
+│   │   └─ Git.ps1                      clone any git remote (HTTPS/SSH)
+│   └─ Connect/                         establish auth/session before Test/Set/Get
+│       ├─ None.ps1                     no auth (default)
+│       └─ AzureDevOps.ps1              New-AzDoAuthenticationProvider — opt-in, soft dep
+├─ Execution engines/                   NEW typed engine seam (§4B, §5)
 │   ├─ Invoke-DscV2Engine               wraps Invoke-DscResource
 │   └─ Invoke-DscV3Engine               wraps dsc.exe (DSC v3)
-├─ Providers/                           NEW pluggable source + auth contract
-│   ├─ Local (default)                  local directory, no auth
-│   └─ Git (generic)                    clone any git remote (HTTPS/SSH)
-└─ RequiredModules: NO AzureDevOpsDsc
-
-Dsc.PipelineRunner.AzureDevOps          (optional provider module — separate)
-├─ Invoke-DscPipelineRunner             AzDO entry point (back-compat shim)
-├─ AzDO source/auth provider            New-AzDoAuthenticationProvider wrapper
-└─ RequiredModules: Dsc.PipelineRunner, AzureDevOpsDsc
+└─ RequiredModules: NO AzureDevOpsDsc   (AzDO is an optional action, not a dependency)
 ```
+
+**Single module.** There is no separate `Dsc.PipelineRunner.AzureDevOps` package.
+The Azure-DevOps-specific surface in the source is one command —
+`New-AzDoAuthenticationProvider` (`Invoke-DscPipelineRunner.ps1:136–139`) — and it
+isn't even the runner's logic: it establishes an ambient session that the
+`AzureDevOpsDsc` *resource module* consumes during Test/Set/Get, exactly like a
+cloud resource would need its own session. Everything else read as "AzDO" is
+generic: `Clone-Repository` is a plain `git clone`; the `git` wrapper's
+`http.extraHeader="Authorization: Basic …"` is standard git-over-HTTPS auth that
+GitHub/GitLab/Bitbucket all accept. A whole second published module to hold one
+optional pre-step is unjustified — it becomes a drop-in **action** instead.
 
 ### Two seams introduced
 
-**A. Source/auth provider contract.** The core takes a *resolved local
-configuration directory* plus an opaque *credential*, and knows nothing about how
-either was obtained. A provider is a small object/hashtable implementing:
+**A. Actions — loader-driven lifecycle hooks.** This generalizes the pattern the
+module *already uses for rules*: `Invoke-PreParseRules` enumerates and dot-sources
+every `.ps1` in `Pipeline Rules/PreParse/`, and `Invoke-CustomTask` dispatches to a
+named file (`Sort-DependsOn.ps1`) passing a known contract (`-PipelineResources`).
+Actions apply the same idiom to the lifecycle hooks the runner must not hard-code:
 
-- `Resolve-Configuration` → returns a local path (local dir passthrough, or clone)
-- `Get-Credential` → returns a `[SecureString]`/token object, or `$null`
+- `Actions/Source/` — resolve a config source to a local directory
+  (`Local`, `Git`, or a user drop-in)
+- `Actions/Connect/` — establish auth/session before evaluation
+  (`None`, `AzureDevOps`, or a user drop-in)
 
-The generic core ships a **Local** provider (passthrough) and a **Git** provider
-(clone any remote, pinned to a revision, over HTTPS/SSH). The AzDO module ships an
-**AzureDevOps** provider that adds `System.AccessToken`, workload-identity
-federation, and managed identity.
+Every action file exposes the same shape as the existing rules — `param($Context)`
+— returning its result (a local path for Source; a credential/`$null` for Connect).
+Selection is config-driven and consistent with existing keys:
+
+```yaml
+PipelineRunnerSettings:
+  Source: Git            # a file in Actions/Source/  (default: Local)
+  Connect: AzureDevOps   # a file in Actions/Connect/ (default: None)
+```
+
+**Runtime scriptblock override — no file required.** For bespoke, one-off cases the
+caller instantiates the runner with a custom action inline:
+
+```powershell
+Invoke-DscRunner -Source $localDir -ConnectAction {
+    param($Context)
+    Connect-MyPlatform -Token $Context.Credential   # any custom solution
+}
+```
+
+`AzureDevOps.ps1` calls `New-AzDoAuthenticationProvider` only if
+`AzureDevOpsDsc.Common` is importable; the core never loads it and never lists it in
+`RequiredModules`. AzDO thus becomes opt-in by *naming its action* (or shipping an
+optional "actions pack"), never a hard dependency and never a separate module.
 
 **B. Execution-engine contract.** `Start-DscRunner` currently calls
 `Invoke-DscResource` directly three times (Test/Set/Get). Extract an engine
 interface `Invoke-DscMethod -Engine <v2|v3> -Method <Test|Set|Get> -Resource …`
-so the loop is engine-agnostic (§5).
+so the loop is engine-agnostic (§5). This is deliberately a **typed seam, not a
+dot-sourced action**: the engine runs once per resource per method on the hot path
+and warrants a stricter, testable contract than the loader-driven actions above.
 
 ## 4. Phased delivery
 
@@ -108,29 +144,39 @@ errors. These are self-contained and unblock everything:
 
 Exit criterion: full Pester suite green on Linux and Windows hosted agents.
 
-### Phase 1 — Core / provider layering [20]
+### Phase 1 — Core decoupling via the Actions loader (single module) [20]
 
 1. Remove `AzureDevOpsDsc` and `AzureDevOpsDsc.Common` from core
    `RequiredModules` (`Dsc.PipelineRunner.psd1:63–70`).
-2. Introduce the **source/auth provider contract** (§3A) and a public
-   `Invoke-DscRunner` (provider-agnostic) core entry point that:
-   - accepts a resolved config dir *or* a provider descriptor,
+2. Add the **`Actions/` loader** (§3A), reusing the `Invoke-CustomTask` /
+   `Invoke-PreParseRules` idiom: a resolver that, given a hook (`Source`/`Connect`)
+   and a name, dot-sources `Actions/<Hook>/<Name>.ps1` with `-Context`, and a
+   registration path for an inline `[scriptblock]` override.
+3. Introduce a provider-agnostic `Invoke-DscRunner` core entry point that:
+   - runs the configured **Source** action to obtain a local config dir
+     (or accepts one directly),
+   - runs the configured **Connect** action (default `None`) to establish
+     auth/session,
    - accepts a generic `-CacheDirectory` (default `$(Agent.TempDirectory)` /
      `[System.IO.Path]::GetTempPath()`), replacing the `AZDODSC_CACHE_DIRECTORY`
      hard requirement [21],
-   - compiles Datum and calls `Start-DscRunner` per file.
-3. Ship **Local** and **Git** providers in core. Generic Git clone replaces the
-   AzDO-only path; pin to a reviewed revision and clean up the temp clone
-   [31, 32] — HTTP→HTTPS/SSH, revision pinning, scoped temp dir with cleanup.
-4. Move `Invoke-DscPipelineRunner`, the AzDO auth wrapper, and the AzDO
-   credential-helper clone into a **new `Dsc.PipelineRunner.AzureDevOps`**
-   module directory (built/published separately). Keep `Invoke-DscPipelineRunner`
-   as a thin back-compat shim that constructs the AzDO provider and calls the core
-   `Invoke-DscRunner` — existing callers migrate with no functional change.
+   - compiles Datum and calls `Start-DscRunner` per file,
+   - accepts `-SourceAction` / `-ConnectAction` scriptblocks for custom solutions.
+4. Ship **`Actions/Source/Local.ps1`**, **`Actions/Source/Git.ps1`** (generic clone
+   replacing the AzDO-only path — HTTPS/SSH, revision pinning, scoped temp dir with
+   cleanup [31, 32]), and **`Actions/Connect/None.ps1`**.
+5. Ship **`Actions/Connect/AzureDevOps.ps1`** — wraps `New-AzDoAuthenticationProvider`,
+   imports `AzureDevOpsDsc.Common` only if present, otherwise throws a clear
+   "install the AzureDevOpsDsc actions pack" error. No new module, no hard dependency.
+6. Keep `Invoke-DscPipelineRunner` as a thin **back-compat shim** in the same module:
+   it maps its AzDO-flavored parameters (`AzureDevopsOrganizationName`, `JITToken`,
+   PAT) onto `Invoke-DscRunner -Source Git -Connect AzureDevOps`, so existing callers
+   migrate with no functional change.
 
 Exit criteria (from #20): `Start-DscRunner` + `Build-DatumConfiguration` import and
 run with `AzureDevOpsDsc` absent; an integration test runs the core against a local
-directory with no AzDO connection.
+directory with `Connect: None` and no AzDO connection; a third party can add a
+`Connect` action or pass a `-ConnectAction` scriptblock without forking.
 
 ### Phase 2 — DSC v3 (`dsc.exe`) execution engine [21]
 
@@ -220,8 +266,9 @@ grep-guard enforces "no new LCM" going forward.
 
 - [ ] Core imports and runs with `AzureDevOpsDsc` absent (#20)
 - [ ] `AzureDevOpsDsc*` removed from core `RequiredModules` (#20)
-- [ ] `Dsc.PipelineRunner.AzureDevOps` provider module wraps all AzDO logic (#20)
-- [ ] Integration test: core runs against a local dir, no AzDO connection (#20)
+- [ ] AzDO logic lives in an opt-in `Actions/Connect/AzureDevOps.ps1` — single module, no separate package, no hard dependency (#20)
+- [ ] A custom `Connect`/`Source` action (drop-in file or `-ConnectAction` scriptblock) works without forking (#20)
+- [ ] Integration test: core runs against a local dir with `Connect: None`, no AzDO connection (#20)
 - [ ] `dsc.exe` (DSC v3) engine selectable and green in CI on Linux (#21)
 - [ ] Pipeline-native auth: SecureString tokens, `System.AccessToken`, no token in logs (#22)
 - [ ] Runner returns a machine-readable result and a non-zero exit on failure (#19)
