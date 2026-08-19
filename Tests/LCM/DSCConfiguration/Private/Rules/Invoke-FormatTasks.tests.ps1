@@ -8,8 +8,8 @@ Describe "Invoke-FormatTasks Function Tests" -Tag Unit, LCM, Configuration {
         . $preParseFilePath
 
         # Setup a temp powershell file to be dot sourced
-        $rulePath = Join-Path $TestDrive '\LCM Rules\Format\MyCustomRule.ps1'
-        $rulePath2 = Join-Path $TestDrive '\LCM Rules\Format\MyCustomRule2.ps1'
+        $rulePath = Join-Path $TestDrive '\Pipeline Rules\Format\MyCustomRule.ps1'
+        $rulePath2 = Join-Path $TestDrive '\Pipeline Rules\Format\MyCustomRule2.ps1'
 
         # Create the folderpath
         $null = New-Item -Path (Split-Path $rulePath) -ItemType Directory -Force

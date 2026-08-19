@@ -6,7 +6,7 @@
 # .DESCRIPTION
 # The Build-DatumConfiguration function clears the specified output directory, imports necessary modules,
 # changes the current directory to the configuration path, creates a new Datum structure from a definition file,
-# tests the configuration, and resolves each project node using the Resolve-AzDoDatumProject function.
+# tests the configuration, and resolves each project node using the Resolve-DscDatumProject function.
 # The function runs the script block in a separate thread.
 #
 # .PARAMETER OutputPath

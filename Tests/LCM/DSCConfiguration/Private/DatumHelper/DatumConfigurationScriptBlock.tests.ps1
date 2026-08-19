@@ -5,7 +5,7 @@ Describe 'DatumConfigurationScriptBlock Function Tests' {
         # Load the functions to test
         $preParseFilePath = (Get-FunctionPath 'DatumConfigurationScriptBlock.ps1').FullName
         $testDatumConfigurationFilePath = (Get-FunctionPath 'Test-DatumConfiguration.ps1').FullName
-        $resolveAzDoDatumProjectFilePath = (Get-FunctionPath 'Resolve-AzDoDatumProject.ps1').FullName
+        $resolveAzDoDatumProjectFilePath = (Get-FunctionPath 'Resolve-DscDatumProject.ps1').FullName
 
         . $preParseFilePath
         . $testDatumConfigurationFilePath
@@ -14,7 +14,7 @@ Describe 'DatumConfigurationScriptBlock Function Tests' {
         # Mock necessary commands to isolate the function's behavior
         Mock -CommandName New-DatumStructure -MockWith { @{Projects = @{}} }
         Mock -CommandName Test-DatumConfiguration
-        Mock -CommandName Resolve-AzDoDatumProject
+        Mock -CommandName Resolve-DscDatumProject
         Mock -CommandName Set-Location
         Mock -CommandName Import-Module
 
@@ -39,7 +39,7 @@ Describe 'DatumConfigurationScriptBlock Function Tests' {
 
             # Verify that Import-Module was called with expected parameters
             Assert-MockCalled -CommandName Import-Module -Exactly 1 -Scope It -ParameterFilter { 
-                ($Name -eq 'azdo-dsc-lcm') -or 
+                ($Name -eq 'Dsc.PipelineRunner') -or
                 ($Name -eq 'powershell-yaml') -or
                 ($Name -eq 'datum') -or
                 ($Name -eq 'datum.invokecommand')
@@ -93,7 +93,7 @@ Describe 'DatumConfigurationScriptBlock Function Tests' {
 
             DatumConfigurationScriptBlock -OutputPath (New-MockDirectoryPath) -ConfigurationPath (New-MockDirectoryPath) -isTest
 
-            Assert-MockCalled -CommandName Resolve-AzDoDatumProject -Exactly 2 -Scope It
+            Assert-MockCalled -CommandName Resolve-DscDatumProject -Exactly 2 -Scope It
         }
     }
 

@@ -33,8 +33,8 @@ Function Invoke-CustomTask {
     Write-Verbose "[Invoke-CustomTask] Processing Custom Task: $CustomTaskName"
 
     # Get the path to the CustomTasks directory
-    $currentPath = (Get-Module 'azdo-dsc-lcm').ModuleBase
-    $CustomTasksDirectoryPath = "{0}\LCM Rules\Custom\" -f $currentPath
+    $currentPath = (Get-Module 'Dsc.PipelineRunner').ModuleBase
+    $CustomTasksDirectoryPath = "{0}\Pipeline Rules\Custom\" -f $currentPath
 
     # Get the path to the Custom Task File
     $CustomTaskFilePath = "{0}\{1}.ps1" -f $CustomTasksDirectoryPath, $CustomTaskName

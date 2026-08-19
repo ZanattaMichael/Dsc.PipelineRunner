@@ -9,7 +9,7 @@ Data ModuleConfigurationData {
         # Define the minimum and maximum versions for the PSDesiredStateConfiguration Module.
         PSDesiredStateConfigurationMinimumVersion = '2.0'
         PSDesiredStateConfigurationMaximumVersion = '2.9'
-        # Define the minimum and maximum versions for the azdo-dsc-lcm Module.
+        # Define the minimum and maximum versions for the Dsc.PipelineRunner Module.
         DSCResourceMinimumVersion = '1.0'
         DSCResourceMaximumVersion = '1.9'
     }

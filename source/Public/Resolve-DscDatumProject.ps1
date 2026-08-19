@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Resolves and processes Azure DevOps Datum project configuration for a given node.
+    Resolves and processes a Datum project configuration for a given node.
 
 .DESCRIPTION
-    The Resolve-AzDoDatumProject function processes the configuration for a specified node in an Azure DevOps Datum project.
+    The Resolve-DscDatumProject function processes the configuration for a specified node in a Datum project.
     It retrieves node groups, creates a configuration data hashtable, accesses properties, resolves resources, parameters,
     conditions, and variables, and finally converts the configuration to YAML format and saves it to an output file.
 
@@ -14,7 +14,7 @@
     A collection of all nodes in the configuration. This parameter is mandatory.
 
 .EXAMPLE
-    PS> Resolve-AzDoDatumProject -NodeName $node -AllNodes $allNodes
+    PS> Resolve-DscDatumProject -NodeName $node -AllNodes $allNodes
 
     This example processes the configuration for the specified node and all nodes in the configuration.
 
@@ -23,7 +23,7 @@
     to resolve and process the configuration data.
 
 #>
-Function Resolve-AzDoDatumProject {
+Function Resolve-DscDatumProject {
     param(
         [Parameter(Mandatory=$true)]
         [Object]$NodeName,

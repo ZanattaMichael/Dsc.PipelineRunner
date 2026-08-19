@@ -1,9 +1,9 @@
-Describe "Resolve-AzDoDatumProject Function Tests" -Tag Unit, LCM, Configuration {
+Describe "Resolve-DscDatumProject Function Tests" -Tag Unit, LCM, Configuration {
 
     BeforeAll {
 
         # Load the functions to test
-        $preParseFilePath = (Get-FunctionPath 'Resolve-AzDoDatumProject.ps1').FullName
+        $preParseFilePath = (Get-FunctionPath 'Resolve-DscDatumProject.ps1').FullName
 
         . $preParseFilePath
 
@@ -35,7 +35,7 @@ Describe "Resolve-AzDoDatumProject Function Tests" -Tag Unit, LCM, Configuration
             $mockNodeName = @{ Name = 'Node1' }
             $mockAllNodes = @{ 'Node1' = @{} }
             
-            Resolve-AzDoDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
+            Resolve-DscDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
 
             Assert-MockCalled -CommandName Write-Verbose -Times 3 -Scope It
         }
@@ -44,7 +44,7 @@ Describe "Resolve-AzDoDatumProject Function Tests" -Tag Unit, LCM, Configuration
             $mockNodeName = @{ Name = 'Node1' }
             $mockAllNodes = @{ 'Node1' = @{} }
             
-            Resolve-AzDoDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
+            Resolve-DscDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
 
             Assert-MockCalled -CommandName Resolve-Datum -Exactly 4 -Scope It
         }
@@ -67,7 +67,7 @@ Describe "Resolve-AzDoDatumProject Function Tests" -Tag Unit, LCM, Configuration
             $mockNodeName = @{ Name = 'Node1' }
             $mockAllNodes = @{ 'Node1' = @{} }
             
-            Resolve-AzDoDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
+            Resolve-DscDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
 
             Assert-MockCalled -CommandName Invoke-InvokeCommandAction -Times 1 -Scope It
         }
@@ -79,7 +79,7 @@ Describe "Resolve-AzDoDatumProject Function Tests" -Tag Unit, LCM, Configuration
             $mockNodeName = @{ Name = 'Node1' }
             $mockAllNodes = @{ 'Node1' = @{} }
             
-            Resolve-AzDoDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
+            Resolve-DscDatumProject -NodeName $mockNodeName -AllNodes $mockAllNodes
 
             Assert-MockCalled -CommandName ConvertTo-Yaml -Exactly 1 -Scope It
             Assert-MockCalled -CommandName Out-File -Exactly 1 -Scope It

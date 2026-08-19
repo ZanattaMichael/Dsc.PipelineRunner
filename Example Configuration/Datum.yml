@@ -14,10 +14,10 @@ DatumHandlersThrowOnError: true
 # Datum Handlers are used to process Datum values.
 default_lookup_options: MostSpecific
 
-# Configuration and LCM Versioning Settings for the Configuration. This ensures that the right version of the LCM is used to apply the configuration.
-LCMConfigSettings:
+# Pipeline Runner versioning settings. Ensures the correct module version is used to apply the configuration.
+PipelineRunnerSettings:
   ConfigurationVersion: 0.1
-  AZDOLCMVersion: 0.1
+  PipelineRunnerVersion: 0.1
   DSCResourceVersion: 2.0
 
 # Datum Handlers are used to process Datum values.

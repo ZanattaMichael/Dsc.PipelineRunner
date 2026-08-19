@@ -17,7 +17,7 @@ Function Stop-TaskProcessing {
     # Get the call-stack
     $callStack = Get-PSCallStack
     if ($callStack.Command -notcontains 'Start-LCM') {
-        Write-Error "[azdo-dsc-lcm\Stop-TaskProcessing] Stop-TaskProcessing can only be called within the Start-LCM function."
+        Write-Error "[Dsc.PipelineRunner\Stop-TaskProcessing] Stop-TaskProcessing can only be called within the Start-LCM function."
         return
     }
 

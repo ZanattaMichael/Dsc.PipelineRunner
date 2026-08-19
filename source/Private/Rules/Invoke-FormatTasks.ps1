@@ -6,8 +6,8 @@ Function Invoke-FormatTasks {
     )
 
     # Get the path to the PreParseRules directory
-    $currentPath = (Get-Module 'azdo-dsc-lcm').ModuleBase
-    $TasksDirectoryPath = "{0}\LCM Rules\Format" -f $currentPath
+    $currentPath = (Get-Module 'Dsc.PipelineRunner').ModuleBase
+    $TasksDirectoryPath = "{0}\Pipeline Rules\Format" -f $currentPath
 
     #
     # Iterate through each of the Configuration Tasks 

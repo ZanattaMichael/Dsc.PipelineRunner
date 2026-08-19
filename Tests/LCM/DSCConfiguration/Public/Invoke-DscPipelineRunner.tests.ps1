@@ -1,10 +1,10 @@
 
-Describe "Invoke-AZDoLCM Function Tests" {
+Describe "Invoke-DscPipelineRunner Function Tests" {
 
     BeforeAll {
 
         # Load the functions to test
-        $preParseFilePath = (Get-FunctionPath 'Invoke-AZDoLCM.ps1').FullName
+        $preParseFilePath = (Get-FunctionPath 'Invoke-DscPipelineRunner.ps1').FullName
 
         @(
             (Get-FunctionPath 'Start-LCM.ps1')
@@ -53,12 +53,12 @@ Describe "Invoke-AZDoLCM Function Tests" {
 
         It "Should throw an error if AZDODSC_CACHE_DIRECTORY environment variable is not set" {
             Remove-Item Env:AZDODSC_CACHE_DIRECTORY -ErrorAction SilentlyContinue
-            { Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*The Environment Variable AZDODSC_CACHE_DIRECTORY is not set. Please set the environment variable before running this script*"
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*The Environment Variable AZDODSC_CACHE_DIRECTORY is not set. Please set the environment variable before running this script*"
         }
 
         It "Should not throw an error if AZDODSC_CACHE_DIRECTORY environment variable is set" {
             $env:AZDODSC_CACHE_DIRECTORY = "SomePath"
-            { Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
         } 
     }
 
@@ -84,18 +84,18 @@ Describe "Invoke-AZDoLCM Function Tests" {
         }
 
        It "Should create authentication provider with ManagedIdentity" {
-            Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
             Assert-MockCalled -CommandName New-AzDoAuthenticationProvider -Exactly 1 -Scope It -ParameterFilter { $useManagedIdentity }
        }
 
        It "Should create authentication provider with PAT" {
             $PAT = Get-MockPATToken
-            Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken $PAT -AuthenticationType "PAT" -PATToken $PAT -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken $PAT -AuthenticationType "PAT" -PATToken $PAT -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
             Assert-MockCalled -CommandName New-AzDoAuthenticationProvider -Exactly 1 -Scope It -ParameterFilter { $PersonalAccessToken -eq $PAT }
        }
 
        It "Should build datum configuration" {
-            Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
             Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 1 -Scope It
        }
     }
@@ -114,7 +114,7 @@ Describe "Invoke-AZDoLCM Function Tests" {
             Mock -CommandName 'Clone-Repository' -Verifiable -MockWith {
                 return 'C:\mockPath'
             }
-            { Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath "http://mockGitRepo.com/repo"} | Should -Not -Throw
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath "http://mockGitRepo.com/repo"} | Should -Not -Throw
             Should -InvokeVerifiable
         }
 
@@ -124,7 +124,7 @@ Describe "Invoke-AZDoLCM Function Tests" {
                 $path -eq $exportConfigDir
             } -Verifiable -MockWith { return $true }
 
-            { Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
             Should -Invoke 'Clone-Repository' -Exactly 0
             Should -InvokeVerifiable
             Should -Invoke 'Start-LCM' -Exactly 0
@@ -138,7 +138,7 @@ Describe "Invoke-AZDoLCM Function Tests" {
                 $path -eq $ConfigurationSourcePath
             } -Verifiable -MockWith { return $false }
 
-            { Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*Invalid ConfigurationSourcePath*"
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*Invalid ConfigurationSourcePath*"
             Should -Invoke 'Clone-Repository' -Exactly 0
             Should -InvokeVerifiable
             Should -Invoke 'Start-LCM' -Exactly 0            

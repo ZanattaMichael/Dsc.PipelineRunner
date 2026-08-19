@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-Invokes the Azure DevOps Lifecycle Management (LCM) process using specified configurations and authentication methods.
+Invokes the DSC Pipeline Runner process using specified configurations and authentication methods.
 
 .DESCRIPTION
-The Invoke-AZDoLCM function is designed to manage the lifecycle of Azure DevOps configurations. It supports advanced function features similar to cmdlets and allows for different authentication methods, including Managed Identity and Personal Access Token (PAT). The function handles the cloning of configuration repositories, compilation of configurations, and invocation of resources based on the provided parameters.
+The Invoke-DscPipelineRunner function is designed to manage DSC configurations in any CI/CD pipeline environment. It supports advanced function features similar to cmdlets and allows for different authentication methods, including Managed Identity and Personal Access Token (PAT). The function handles the cloning of configuration repositories, compilation of configurations, and invocation of resources based on the provided parameters.
 
 .PARAMETER AzureDevopsOrganizationName
 Specifies the name of the Azure DevOps organization. This parameter is mandatory.
@@ -30,9 +30,9 @@ Specifies the Personal Access Token (PAT). This parameter is mandatory when Auth
 Specifies the path to the report file. This parameter is optional and must be a valid file path.
 
 .EXAMPLE
-Invoke-AZDoLCM -AzureDevopsOrganizationName "MyOrg" -exportConfigDir "C:\Configs" -ConfigurationSourcePath "https://repo.url" -JITToken "token" -Mode "Set" -AuthenticationType "PAT" -PATToken "pat_token"
+Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir "C:\Configs" -ConfigurationSourcePath "https://repo.url" -JITToken "token" -Mode "Set" -AuthenticationType "PAT" -PATToken "pat_token"
 
-This example invokes the Azure DevOps LCM process using a PAT for authentication.
+This example invokes the DSC Pipeline Runner process using a PAT for authentication.
 
 .NOTES
 Ensure that the environment variable AZDODSC_CACHE_DIRECTORY is set before running this function. The function will throw an error if this environment variable is not set.
@@ -40,7 +40,7 @@ Ensure that the environment variable AZDODSC_CACHE_DIRECTORY is set before runni
 #>
 
 
-function Invoke-AZDoLCM {
+function Invoke-DscPipelineRunner {
     # Utilizes the CmdletBinding attribute to enable advanced function features similar to cmdlets.
     [CmdletBinding(defaultParameterSetName='Default')]
     param(
@@ -123,7 +123,7 @@ function Invoke-AZDoLCM {
     } 
     # Else. Throw an error for bad data.
     else {
-        throw "[Invoke-LCM] Invalid ConfigurationSourcePath: $ConfigurationSourcePath"
+        throw "[Invoke-DscPipelineRunner] Invalid ConfigurationSourcePath: $ConfigurationSourcePath"
     }
 
     #

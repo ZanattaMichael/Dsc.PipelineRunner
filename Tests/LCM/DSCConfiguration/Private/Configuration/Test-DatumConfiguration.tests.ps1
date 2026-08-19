@@ -13,7 +13,7 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
             param($name)
             switch ($name) {
                 'PSDesiredStateConfiguration' { @{ Version = [version]"2.0.0" } }
-                'azdo-dsc-lcm' { @{ Version = [version]"1.0.0" } }
+                'Dsc.PipelineRunner' { @{ Version = [version]"1.0.0" } }
                 default { $null }
             }
         }
@@ -27,9 +27,9 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
         It "should pass without errors" {
             $datumConfig = @{
                 '__Definition' = @{
-                    LCMConfigSettings = @{
+                    PipelineRunnerSettings = @{
                         ConfigurationVersion = "1.0.0"
-                        AZDOLCMVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
                         DSCResourceVersion = "1.0.0"
                     }
                 }
@@ -49,10 +49,10 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
         }
     }
  
-    Context "When LCMConfigSettings is Missing" {
+    Context "When PipelineRunnerSettings is Missing" {
         It "should throw an error" {
             $datumConfig = @{}
-            { Test-DatumConfiguration -Datum $datumConfig } | Should -Throw -ErrorId "*LCMConfigSettings*"
+            { Test-DatumConfiguration -Datum $datumConfig } | Should -Throw -ErrorId "*PipelineRunnerSettings*"
             Assert-MockCalled Write-Warning -Exactly 0
         }
     }
@@ -61,9 +61,9 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
         It "should throw an error if version fields are not valid" {
             $datumConfig = @{
                 '__Definition' = @{
-                    LCMConfigSettings = @{
+                    PipelineRunnerSettings = @{
                         ConfigurationVersion = "invalid"
-                        AZDOLCMVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
                         DSCResourceVersion = "1.0.0"
                     }
                 }
@@ -81,9 +81,9 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
         It "should throw an error if version is outside the valid range" {
             $datumConfig = @{
                 '__Definition' = @{
-                    LCMConfigSettings = @{
+                    PipelineRunnerSettings = @{
                         ConfigurationVersion = "3.0.0"
-                        AZDOLCMVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
                         DSCResourceVersion = "1.0.0"
                     }
                 }
@@ -104,9 +104,9 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
 
             $datumConfig = @{
                 '__Definition' = @{
-                    LCMConfigSettings = @{
+                    PipelineRunnerSettings = @{
                         ConfigurationVersion = "1.8.0"
-                        AZDOLCMVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
                         DSCResourceVersion = "1.0.0"
                     }
                 }
@@ -135,9 +135,9 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, LCM, Configuration 
 
             $datumConfig = @{
                 '__Definition' = @{
-                    LCMConfigSettings = @{
+                    PipelineRunnerSettings = @{
                         ConfigurationVersion = "1.0.0"
-                        AZDOLCMVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
                         DSCResourceVersion = "1.0.0"
                     }
                 }

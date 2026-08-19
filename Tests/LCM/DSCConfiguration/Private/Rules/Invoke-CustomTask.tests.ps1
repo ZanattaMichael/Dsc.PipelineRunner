@@ -8,7 +8,7 @@ Describe "Invoke-CustomTask Function Tests" -Tag Unit, LCM, Configuration {
         . $preParseFilePath
 
         # Setup a temp powershell file to be dot sourced
-        $rulePath = Join-Path $TestDrive '\LCM Rules\Custom\MyCustomTask.ps1'
+        $rulePath = Join-Path $TestDrive '\Pipeline Rules\Custom\MyCustomTask.ps1'
         # Create the folderpath
         $null = New-Item -Path (Split-Path $rulePath) -ItemType Directory -Force
         

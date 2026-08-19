@@ -5,8 +5,8 @@ function Invoke-PreParseRules {
     )
 
     # Get the path to the PreParseRules directory
-    $currentPath = (Get-Module 'azdo-dsc-lcm').ModuleBase
-    $PreParseDirectoryPath = "{0}\LCM Rules\PreParse" -f $currentPath
+    $currentPath = (Get-Module 'Dsc.PipelineRunner').ModuleBase
+    $PreParseDirectoryPath = "{0}\Pipeline Rules\PreParse" -f $currentPath
 
     #
     # Iterate through each of the PreParse Rules
