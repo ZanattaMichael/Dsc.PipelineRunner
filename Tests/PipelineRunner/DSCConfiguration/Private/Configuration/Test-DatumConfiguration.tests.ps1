@@ -127,6 +127,56 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, Runner, Configurati
         }
     }
 
+    Context "When the Dsc.PipelineRunner version is out of range" {
+
+        It "should throw if the installed version is below the configured minimum" {
+            $datumConfig = @{
+                '__Definition' = @{
+                    PipelineRunnerSettings = @{
+                        ConfigurationVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
+                        DSCResourceVersion = "1.0.0"
+                    }
+                }
+            }
+
+            # Installed Dsc.PipelineRunner is 1.0.0 (mocked Get-Module); minimum is 1.5.0
+            $ModuleConfigurationData = @{
+                YAMLConfigurationMinimumVersion = "0.9.0"
+                YAMLConfigurationMaximumVersion = "2.0.0"
+                PSDesiredStateConfigurationMinimumVersion = "1.0.0"
+                PSDesiredStateConfigurationMaximumVersion = "2.0.0"
+                DSCResourceMinimumVersion = "1.5.0"
+                DSCResourceMaximumVersion = "2.0.0"
+            }
+
+            { Test-DatumConfiguration -Datum $datumConfig } | Should -Throw -ErrorId "*outside the valid range*"
+        }
+
+        It "should warn and skip when the version bounds are not configured" {
+            $datumConfig = @{
+                '__Definition' = @{
+                    PipelineRunnerSettings = @{
+                        ConfigurationVersion = "1.0.0"
+                        PipelineRunnerVersion = "1.0.0"
+                        DSCResourceVersion = "1.0.0"
+                    }
+                }
+            }
+
+            # DSCResourceMinimumVersion / DSCResourceMaximumVersion intentionally omitted
+            $ModuleConfigurationData = @{
+                YAMLConfigurationMinimumVersion = "0.9.0"
+                YAMLConfigurationMaximumVersion = "2.0.0"
+                PSDesiredStateConfigurationMinimumVersion = "1.0.0"
+                PSDesiredStateConfigurationMaximumVersion = "2.0.0"
+            }
+
+            { Test-DatumConfiguration -Datum $datumConfig } | Should -Not -Throw
+            Assert-MockCalled Write-Warning -Exactly 1
+        }
+    }
+
     Context "When the PSDesiredStateConfiguration is Outdated" {
 
         it "Should throw an error if outside the valid range" {

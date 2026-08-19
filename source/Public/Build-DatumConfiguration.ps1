@@ -57,20 +57,40 @@ Function Build-DatumConfiguration {
     $runspace.Open()
 
     # Create a PowerShell instance and attach the script block and runspace
-    $powerShellInstance = [powershell]::Create().AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath)
+    $powerShellInstance = [powershell]::Create()
+    $powerShellInstance.Runspace = $runspace
+    $null = $powerShellInstance.AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath)
 
-    # Run the PowerShell script asynchronously
-    $asyncResult = $powerShellInstance.BeginInvoke()
+    try {
+        # Run the PowerShell script asynchronously and wait for completion
+        $asyncResult = $powerShellInstance.BeginInvoke()
+        $scriptOutput = $powerShellInstance.EndInvoke($asyncResult)
 
-    # Optionally, you can handle the output of the script after it has completed
-    $scriptOutput = $powerShellInstance.EndInvoke($asyncResult)
+        # Surface any errors raised inside the runspace instead of discarding them.
+        # Without this a failed Datum compile returns silently and the caller proceeds
+        # to Start-DscRunner with an empty output directory, reporting a clean run.
+        if ($powerShellInstance.HadErrors -or $powerShellInstance.Streams.Error.Count -gt 0) {
+            $firstError = $powerShellInstance.Streams.Error | Select-Object -First 1
+            throw "[Build-DatumConfiguration] Datum compilation failed in the script block: $firstError"
+        }
 
-    # Output the results from the script block
-    foreach ($output in $scriptOutput) {
-        Write-Output $output
+        # Output the results from the script block
+        foreach ($output in $scriptOutput) {
+            Write-Output $output
+        }
+    }
+    finally {
+        # Always release the runspace/instance, even on failure
+        $powerShellInstance.Dispose()
+        $runspace.Close()
+        $runspace.Dispose()
     }
 
-    # Close the runspace when done
-    $runspace.Close()
+    # Datum must have produced at least one compiled output file; an empty directory
+    # means compilation silently failed to merge the hierarchy or resolve a resource.
+    $producedOutput = Get-ChildItem -LiteralPath $OutputPath -File -ErrorAction SilentlyContinue
+    if (-not $producedOutput) {
+        throw "[Build-DatumConfiguration] Datum compilation produced no output in '$OutputPath' — check the configuration path and YAML syntax."
+    }
 
 }

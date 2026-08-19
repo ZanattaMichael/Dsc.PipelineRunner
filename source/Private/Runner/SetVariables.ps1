@@ -32,6 +32,8 @@ function Set-Variables {
 
         $varName = $key.Replace(".", "_")
         New-Variable -Name $varName -Value $Source[$key] -Scope Script -Force | Out-Null
-        New-Item -Path env:varName -Value $Source[$key] -ErrorAction SilentlyContinue
+        # Use the interpolated variable name (env:$varName), not the literal string
+        # "varName", and Set-Item so an existing environment variable is updated.
+        Set-Item -Path "env:$varName" -Value $Source[$key] -ErrorAction SilentlyContinue | Out-Null
     }
 }

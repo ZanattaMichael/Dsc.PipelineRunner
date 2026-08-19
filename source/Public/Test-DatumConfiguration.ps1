@@ -103,10 +103,23 @@ function Test-DatumConfiguration {
     # Validate the Dsc.PipelineRunner Versions
     #
 
-    # Ensure that the Module Dsc.PipelineRunner Version is within the valid range of the Datum Configuration Versions.
-    if ($runnerConfig.CurrentPipelineRunnerVersion -lt $runnerConfig.PipelineRunnerMinimumVersion -or 
-        $runnerConfig.CurrentPipelineRunnerVersion -gt $runnerConfig.PipelineRunnerMaximumVersion) {
-        throw "[Test-DatumConfiguration] The Dsc.PipelineRunner Version $($runnerConfig.CurrentPipelineRunnerVersion) is outside the valid range ($($runnerConfig.PipelineRunnerMinimumVersion) to $($runnerConfig.PipelineRunnerMaximumVersion)). The Datum Configuration is invalid and cannot be processed."
+    # Read the configured bounds from ModuleConfigurationData. Previously this check
+    # compared $runnerConfig.PipelineRunnerMinimumVersion / .CurrentPipelineRunnerVersion,
+    # neither of which was ever populated, so it was a permanent no-op ($x -lt $null is
+    # always $false). Use the real installed version and the configured bounds, and warn
+    # (rather than silently pass) when a bound cannot be determined.
+    $PipelineRunnerMinimumVersion = $ModuleConfigurationData.DSCResourceMinimumVersion -as [Version]
+    $PipelineRunnerMaximumVersion = $ModuleConfigurationData.DSCResourceMaximumVersion -as [Version]
+
+    if (($null -eq $PipelineRunnerMinimumVersion) -or ($null -eq $PipelineRunnerMaximumVersion)) {
+        Write-Warning "[Test-DatumConfiguration] The Dsc.PipelineRunner minimum/maximum version bounds are not configured; skipping the Dsc.PipelineRunner version check."
+    }
+    elseif ($null -eq $CurrentPipelineRunnerVersion) {
+        Write-Warning "[Test-DatumConfiguration] The installed Dsc.PipelineRunner module version could not be determined; skipping the Dsc.PipelineRunner version check."
+    }
+    elseif ($CurrentPipelineRunnerVersion -lt $PipelineRunnerMinimumVersion -or
+            $CurrentPipelineRunnerVersion -gt $PipelineRunnerMaximumVersion) {
+        throw "[Test-DatumConfiguration] The Dsc.PipelineRunner Version $CurrentPipelineRunnerVersion is outside the valid range ($PipelineRunnerMinimumVersion to $PipelineRunnerMaximumVersion). The Datum Configuration is invalid and cannot be processed."
     }
 
 }

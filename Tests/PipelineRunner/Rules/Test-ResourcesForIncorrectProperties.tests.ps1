@@ -178,4 +178,29 @@ Describe "Test-ResourcesForIncorrectProperties" -Tag Unit, Runner, Rules, PrePar
 
     }
 
+    It "Should report every invalid resource, not just the first" {
+        # Three resources, each with a property the resource does not declare.
+        # All three must be reported before the run stops (regression for #8).
+        $resources = @(
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'ResourceA'
+                properties = @{ Property1 = 'Value1'; InvalidProp = 'x' }
+            }
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'ResourceB'
+                properties = @{ Property1 = 'Value1'; InvalidProp = 'y' }
+            }
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'ResourceC'
+                properties = @{ Property1 = 'Value1'; InvalidProp = 'z' }
+            }
+        )
+
+        { . $preParseFilePath -PipelineResources $resources } | Should -Throw
+        Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*does not exist in resource*" } -Exactly 3
+    }
+
 }

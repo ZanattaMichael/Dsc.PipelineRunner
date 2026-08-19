@@ -33,27 +33,39 @@ Describe "Build-DatumConfiguration Function Tests" -Tag Unit {
 
         It "Should clear the output directory" {
 
+            # The compile step writes a fresh output file, so the empty-output guard
+            # passes and we can verify the pre-existing file was cleared beforehand.
+            Mock -CommandName Get-Command -MockWith {
+                return [PSCustomObject]@{
+                    ScriptBlock = {
+                        param($outputPath, $configurationPath)
+                        New-Item -ItemType File -Path (Join-Path $outputPath 'compiled.mof') -Force | Out-Null
+                    }
+                }
+            }
+
             # Capture the filecount before the function is executed
             $fileCountBefore = (Get-ChildItem -Path $outputPath).Count
 
             # Execute the function
             Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath
 
-
-            # Assert: Check that the output directory is cleared
-            (Get-ChildItem -Path $outputPath).Count | Should -Be 0
+            # Assert: the pre-existing TestFile.txt was cleared before compilation
+            Test-Path (Join-Path $outputPath 'TestFile.txt') | Should -Be $false
             $fileCountBefore | Should -BeGreaterThan 0
 
         }
 
         It "Should invoke the script block asynchronously" {
 
-            # Mock the Get-Command function
-            Mock -CommandName Get-Command -MockWith { 
-                return [PSCustomObject]@{ 
-                    ScriptBlock = { 
+            # Mock the Get-Command function; the script block writes an output file
+            # (so the empty-output guard passes) and returns a result object.
+            Mock -CommandName Get-Command -MockWith {
+                return [PSCustomObject]@{
+                    ScriptBlock = {
                         param($outputPath, $configurationPath)
-    
+
+                            New-Item -ItemType File -Path (Join-Path $outputPath 'compiled.mof') -Force | Out-Null
                             @{
                                 OutputPath = $outputPath
                                 ConfigurationPath = $configurationPath
@@ -69,6 +81,36 @@ Describe "Build-DatumConfiguration Function Tests" -Tag Unit {
             $result.OutputPath | Should -Be $outputPath
             $result.ConfigurationPath | Should -Be $configurationPath
 
+        }
+
+        It "Should throw if the compilation script block raises an error" {
+
+            Mock -CommandName Get-Command -MockWith {
+                return [PSCustomObject]@{
+                    ScriptBlock = {
+                        param($outputPath, $configurationPath)
+                        Write-Error "simulated Datum compile failure"
+                    }
+                }
+            }
+
+            { Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath } |
+                Should -Throw -ErrorId "*failed in the script block*"
+        }
+
+        It "Should throw if the compilation produces no output" {
+
+            # Script block succeeds but writes nothing to the output directory
+            Mock -CommandName Get-Command -MockWith {
+                return [PSCustomObject]@{
+                    ScriptBlock = {
+                        param($outputPath, $configurationPath)
+                    }
+                }
+            }
+
+            { Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath } |
+                Should -Throw -ErrorId "*produced no output*"
         }
     }
 

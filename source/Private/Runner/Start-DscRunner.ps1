@@ -178,9 +178,27 @@ function Start-DscRunner {
 
         Write-Verbose "Prepared parameters for 'Test' invocation of DSC resource"
 
-        # Execute the 'Test' method to determine if the state is as desired
-        $result = Invoke-DscResource @resourceParameters
-        Write-Verbose "Executed 'Test' method for DSC resource: [$($task.type)/$($task.name)]"
+        # Execute the 'Test' method to determine if the state is as desired.
+        # A single resource that throws must not abort the entire run, so trap the
+        # error, record it as a failed resource, and move on to the next task.
+        try {
+            $result = Invoke-DscResource @resourceParameters
+            Write-Verbose "Executed 'Test' method for DSC resource: [$($task.type)/$($task.name)]"
+        }
+        catch {
+            Write-Error "[Start-DscRunner] 'Test' method failed for resource [$($task.type)/$($task.name)]: $($_.Exception.Message)" -ErrorAction Continue
+            $null = $reporting.Add([PSCustomObject]@{
+                Counter = $TaskCounter
+                Name    = $task.name
+                Type    = $task.type
+                Method  = 'TEST'
+                Status  = "Error"
+                Result  = "FAIL"
+                Message = $_.Exception.Message
+            })
+            # Skip Set/Get for this resource and continue with the remaining tasks
+            continue
+        }
 
         # Update the reporting list with the result of the 'Test' operation
         $null = $reporting.Add([PSCustomObject]@{
@@ -208,7 +226,10 @@ function Start-DscRunner {
                 $Result = "PASS"
             }
             catch {
-                Write-Error "Failed to apply changes with 'Set' method: [$($task.type)/$($task.name)]"
+                # -ErrorAction Continue keeps this non-terminating even when a caller
+                # runs under $ErrorActionPreference='Stop' (e.g. an advanced-function
+                # wrapper), so one failed 'Set' does not abort the whole run.
+                Write-Error "[Start-DscRunner] Failed to apply changes with 'Set' method: [$($task.type)/$($task.name)]: $($_.Exception.Message)" -ErrorAction Continue
                 $Message = $_.Exception.Message
                 $Result = "FAIL"
             }
@@ -240,10 +261,17 @@ function Start-DscRunner {
             . $sbPostExecutionScript
         }
 
-        # Execute the 'Get' method to retrieve the current state of the resource
+        # Execute the 'Get' method to retrieve the current state of the resource.
+        # A failed 'Get' should not abort the run; record $null and continue.
         $resourceParameters.Method = 'get'
-        $output_var = Invoke-DscResource @resourceParameters
-        Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$($task.type)/$($task.name)]"
+        try {
+            $output_var = Invoke-DscResource @resourceParameters
+            Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$($task.type)/$($task.name)]"
+        }
+        catch {
+            Write-Error "[Start-DscRunner] 'Get' method failed for resource [$($task.type)/$($task.name)]: $($_.Exception.Message)" -ErrorAction Continue
+            $output_var = $null
+        }
 
         # Store the output of the 'Get' operation in a reference table for later use
         $references.Add($task.name, $output_var)
@@ -268,8 +296,11 @@ function Start-DscRunner {
 
         Write-Verbose "[Start-DscRunner] FilePath $FilePath"
 
-        # Construct the full path for the report file
-        $FilePath = "{0}\{1}.csv" -f $ReportPath, $($FilePath | Split-Path -Leaf).TrimEnd('.yml')
+        # Construct the full path for the report file. Use GetFileNameWithoutExtension
+        # (TrimEnd('.yml') stripped any trailing y/m/l characters, not the extension) and
+        # Join-Path so the report path is correct on every platform, not just Windows.
+        $reportFileName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
+        $FilePath = Join-Path -Path $ReportPath -ChildPath ("{0}.csv" -f $reportFileName)
 
         # Convert the reporting data to CSV format and write it to the specified path
         $reporting | Export-Csv -Path $FilePath -NoTypeInformation

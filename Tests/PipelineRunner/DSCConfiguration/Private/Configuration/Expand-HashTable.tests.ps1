@@ -55,6 +55,16 @@ Describe "Expand-HashTable Function Tests" -Tag Unit, Runner, Configuration {
         }
     }
 
+    Context "With Null Values" {
+        It "should preserve null values without throwing" {
+            $inputHashTable = @{ NullKey = $null }
+            { Expand-HashTable -InputHashTable $inputHashTable } | Should -Not -Throw
+            $result = Expand-HashTable -InputHashTable $inputHashTable
+            $result.ContainsKey('NullKey') | Should -Be $true
+            $result.NullKey | Should -Be $null
+        }
+    }
+
     Context "With Mixed Types" {
         It "should handle mixed types correctly" {
             $inputHashTable = @{
