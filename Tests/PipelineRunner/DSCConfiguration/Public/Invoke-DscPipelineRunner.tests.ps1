@@ -7,7 +7,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
         $preParseFilePath = (Get-FunctionPath 'Invoke-DscPipelineRunner.ps1').FullName
 
         @(
-            (Get-FunctionPath 'Start-LCM.ps1')
+            (Get-FunctionPath 'Start-DscRunner.ps1')
             (Get-FunctionPath 'Build-DatumConfiguration.ps1')
             (Get-FunctionPath 'Clone-Repository.ps1')
         ) | ForEach-Object {
@@ -27,7 +27,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
         Mock -CommandName Get-Module -MockWith { @{ Name = 'AzureDevOpsDsc' } }
         Mock -CommandName Import-Module
         Mock -CommandName New-AzDoAuthenticationProvider
-        Mock -CommandName Start-LCM
+        Mock -CommandName Start-DscRunner
         Mock -CommandName Build-DatumConfiguration
         Mock -CommandName Get-ChildItem -MockWith { @() }
         Mock -CommandName Split-Path -MockWith {
@@ -127,7 +127,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
             Should -Invoke 'Clone-Repository' -Exactly 0
             Should -InvokeVerifiable
-            Should -Invoke 'Start-LCM' -Exactly 0
+            Should -Invoke 'Start-DscRunner' -Exactly 0
 
         }
 
@@ -141,7 +141,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*Invalid ConfigurationSourcePath*"
             Should -Invoke 'Clone-Repository' -Exactly 0
             Should -InvokeVerifiable
-            Should -Invoke 'Start-LCM' -Exactly 0            
+            Should -Invoke 'Start-DscRunner' -Exactly 0            
 
         }
 

@@ -1,4 +1,4 @@
-Describe "Start-LCM Function Tests" -Tag Unit {
+Describe "Build-DatumConfiguration Function Tests" -Tag Unit {
 
     BeforeAll {
 

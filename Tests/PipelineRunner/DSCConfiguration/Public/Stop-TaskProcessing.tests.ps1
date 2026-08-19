@@ -19,7 +19,7 @@ Describe "Stop-TaskProcessing Function Tests" -Tag Unit {
 
             Mock -CommandName Get-PSCallStack -MockWith {
                 @(
-                    [PSCustomObject]@{ Command = 'Start-LCM' }
+                    [PSCustomObject]@{ Command = 'Start-DscRunner' }
                     [PSCustomObject]@{ Command = 'SomeOtherFunction' }
                 )
             }
