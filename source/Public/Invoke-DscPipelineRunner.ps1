@@ -155,7 +155,7 @@ function Invoke-DscPipelineRunner {
     }
 
     Get-ChildItem -LiteralPath $exportConfigDir -File -Filter "*.yml" | ForEach-Object { 
-        Start-LCM -FilePath $_.Fullname @params
+        Start-DscRunner -FilePath $_.Fullname @params
     }
 
     <#

@@ -57,27 +57,27 @@ ForEach ($task in $PipelineResources)
 
     # Throw an error is the properties key does not exist
     if ($null -eq $task.properties) {
-        Write-Host "[Start-LCM] 'Properties' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
+        Write-Host "[Dsc.PipelineRunner] 'Properties' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
         $isFail = $true
     }
 
     # Throw an error is the name key does not exist
     if ($null -eq $task.name) {
-        Write-Host "[Start-LCM] 'Name' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
+        Write-Host "[Dsc.PipelineRunner] 'Name' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
         $isFail = $true
     }
 
     <#
     # Throw an error is the type key does not exist
     if ($null -eq $task.type) {
-        Write-Host "[Start-LCM] 'Type' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
+        Write-Host "[Dsc.PipelineRunner] 'Type' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
         $isFail = $true
     }
     #>
 
     # If there is a failure, skip the rest of the tests
     if ($isFail) {
-        Write-Host "[Start-LCM] Skipping [$($task.type)/$($task.name)]" -ForegroundColor Yellow
+        Write-Host "[Dsc.PipelineRunner] Skipping [$($task.type)/$($task.name)]" -ForegroundColor Yellow
         break
     }
 
@@ -90,7 +90,7 @@ ForEach ($task in $PipelineResources)
 
     # If the resource is not found, throw an error
     if ($null -eq $resource) {
-        Write-Host "[Start-LCM] Resource [$resourceType] was not found in module [$module]" -ForegroundColor Red
+        Write-Host "[Dsc.PipelineRunner] Resource [$resourceType] was not found in module [$module]" -ForegroundColor Red
         $isFail = $true
     }
 
@@ -102,7 +102,7 @@ ForEach ($task in $PipelineResources)
     {
         # If the property does not exist in the resource, throw an error
         if ($Property -notin $resource.Properties.Name) {
-            Write-Host "[Start-LCM] Property [$($property)] does not exist in resource [$resourceType] in module [$module]" -ForegroundColor Red
+            Write-Host "[Dsc.PipelineRunner] Property [$($property)] does not exist in resource [$resourceType] in module [$module]" -ForegroundColor Red
             $isFail = $true
         }
         # Ensure that the property is the correct type to the resource.
@@ -114,26 +114,26 @@ ForEach ($task in $PipelineResources)
         <#
         # If the property is not the correct type, throw an error
         if ($configurationPropertyValue.GetType().Name -ne $resourcePropertyType) {
-            Write-Host "[Start-LCM] Property [$($property)] is not the correct type in resource [$resourceType] in module [$module]" -ForegroundColor Red
+            Write-Host "[Dsc.PipelineRunner] Property [$($property)] is not the correct type in resource [$resourceType] in module [$module]" -ForegroundColor Red
             $isFail = $true
         }
         #>
         
         # If the ResourceProperty is mandatory, ensure that the propertyValue is not null
         if ($resourceProperty.IsMandatory -and $null -eq $configurationPropertyValue) {
-            Write-Host "[Start-LCM] Property [$($property)] is mandatory in resource [$resourceType] in module [$module]" -ForegroundColor Red
+            Write-Host "[Dsc.PipelineRunner] Property [$($property)] is mandatory in resource [$resourceType] in module [$module]" -ForegroundColor Red
             $isFail = $true
         }
 
         # If the Property is a caculated variable, ignore the property
         if ($configurationPropertyValue -match "\$") {
-            Write-Host "[Start-LCM] Property [$($property)] is a caculated variable in resource [$resourceType] in module [$module]" -ForegroundColor Yellow
+            Write-Host "[Dsc.PipelineRunner] Property [$($property)] is a caculated variable in resource [$resourceType] in module [$module]" -ForegroundColor Yellow
             continue
         }
 
         # If the ResourceProperty has selected values, ensure that the propertyValue is in the list
         if ($resourceProperty.Values -and $configurationPropertyValue -notin $resourceProperty.Values) {
-            Write-Host "[Start-LCM] Property [$($property)] with the value [$($configurationPropertyValue)] does not match the selected values in resource [$resourceType][$property]. Values can be: $($resourceProperty.Values -join ',')" -ForegroundColor Red
+            Write-Host "[Dsc.PipelineRunner] Property [$($property)] with the value [$($configurationPropertyValue)] does not match the selected values in resource [$resourceType][$property]. Values can be: $($resourceProperty.Values -join ',')" -ForegroundColor Red
             $isFail = $true
         }
 
@@ -142,7 +142,7 @@ ForEach ($task in $PipelineResources)
 }
 
 if ($isFail) {
-    Throw "[Test-ResourcesForIncorrectProperties] Stopping LCM. Tests Failed."
+    Throw "[Test-ResourcesForIncorrectProperties] Tests Failed. Stopping runner."
 } else {
     Write-Host "[Test-ResourcesForIncorrectProperties] Tests Passed" -ForegroundColor Green
 }

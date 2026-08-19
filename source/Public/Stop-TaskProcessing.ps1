@@ -1,10 +1,10 @@
 # Public Function to Stop the Processing of the Script for the current yaml file
 <#
 .SYNOPSIS
-Stops the processing of the script when called within the Start-LCM function.
+Stops the processing of the script when called within the Start-DscRunner function.
 
 .DESCRIPTION
-The Stop-TaskProcessing function is designed to halt the execution of a script. It ensures that it is only called within the context of the Start-LCM function by checking the call stack. If called outside of this context, it will throw an error.
+The Stop-TaskProcessing function is designed to halt the execution of a script. It ensures that it is only called within the context of the Start-DscRunner function by checking the call stack. If called outside of this context, it will throw an error.
 
 .PARAMETERS
 None.
@@ -13,11 +13,11 @@ None.
 Example 1:
 #>
 Function Stop-TaskProcessing {
-    # Check to make sure that Stop-TaskProcessing is being called within Start-LCM
+    # Check to make sure that Stop-TaskProcessing is being called within Start-DscRunner
     # Get the call-stack
     $callStack = Get-PSCallStack
-    if ($callStack.Command -notcontains 'Start-LCM') {
-        Write-Error "[Dsc.PipelineRunner\Stop-TaskProcessing] Stop-TaskProcessing can only be called within the Start-LCM function."
+    if ($callStack.Command -notcontains 'Start-DscRunner') {
+        Write-Error "[Dsc.PipelineRunner\Stop-TaskProcessing] Stop-TaskProcessing can only be called within the Start-DscRunner function."
         return
     }
 

@@ -7,7 +7,7 @@ Remove-Variable -Name TestPaths -Scope Global -ErrorAction SilentlyContinue
 
 $config = New-PesterConfiguration
 
-$config.Run.Path = ".\Tests\LCM"
+$config.Run.Path = ".\Tests\PipelineRunner"
 $config.CodeCoverage.Enabled = $true
 $config.CodeCoverage.Path = @( ".\source\Private", ".\source\Public", ".\Pipeline Rules\" )
 $config.Output.Verbosity = "Detailed"
