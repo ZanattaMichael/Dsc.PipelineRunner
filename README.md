@@ -161,7 +161,7 @@ In the realm of configuration, there are specialized commands designed to modify
 
 ## Getting Started
 
-1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/AzDO-DSC-LCM' C:\Your-Path`
+1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
 
    > **Note:** The repository will be renamed to `Dsc.PipelineRunner` in a future update.
 1. Using the `Example Configuration` Directory, create a custom datum directory structure following these guidelines:
