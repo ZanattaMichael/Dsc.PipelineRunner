@@ -4,6 +4,11 @@
 
 `Dsc.PipelineRunner` is a platform-agnostic DSC pipeline runner designed to execute DSC configurations within any CI/CD pipeline (GitHub Actions, GitLab, Jenkins, Azure DevOps, and more). It utilizes Datum to merge configuration stubs into larger pieces of configuration, which are then parsed and applied by the runner.
 
+> ⚠️ **Security — read this first.** The runner executes your configuration repository as
+> **fully-trusted code** (a DSC `Configuration` block is code, not just data). There is no
+> sandbox. Protect the configuration repository with the same controls as the runner's own
+> source. See [SECURITY.md](SECURITY.md) and [docs/trust-model.md](docs/trust-model.md).
+
 ## Datum
 
 This module utilizes Datum from Gael Colas to streamline configuration. For more information on how to implement and use it, please refer to the [official documentation or Gael Colas' resources.](https://github.com/gaelcolas/Datum)

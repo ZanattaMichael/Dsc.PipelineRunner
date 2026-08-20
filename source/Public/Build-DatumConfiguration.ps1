@@ -44,8 +44,21 @@ Function Build-DatumConfiguration {
         # is used so an ad-hoc call cannot be steered outside temp. See issue #33.
         [Parameter()]
         [String]
-        $AllowedRoot
+        $AllowedRoot,
+
+        # Set by callers when the configuration was cloned from a remote URL. The compile step
+        # executes the configuration as arbitrary PowerShell (a DSC Configuration block is code),
+        # so remote configuration content runs in the runner's own security context. There is no
+        # sandbox; this surfaces a one-line reminder that the configuration repository must be
+        # trusted and protected like the runner's own source. See issue #27 and SECURITY.md.
+        [Parameter()]
+        [Switch]
+        $SourceIsRemote
     )
+
+    if ($SourceIsRemote) {
+        Write-Warning "[Build-DatumConfiguration] The configuration was cloned from a remote source and will be executed as trusted PowerShell code in this process. Dsc.PipelineRunner does not sandbox configuration content — protect the configuration repository with the same controls as the runner's own source (branch protection, required reviews). See SECURITY.md ('Trust model')."
+    }
 
     # Path-traversal guard (#33). This function deletes the contents of $OutputPath, so a
     # crafted or misconfigured path (e.g. one with '..' segments that escape the scratch area)

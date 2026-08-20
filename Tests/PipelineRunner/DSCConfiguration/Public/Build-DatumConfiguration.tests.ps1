@@ -196,4 +196,38 @@ Describe "Build-DatumConfiguration Function Tests" -Tag Unit {
         }
     }
 
+    Context "Trust-boundary warning (#27)" {
+
+        BeforeEach {
+            $outputPath = Join-Path $TestDrive "warn-output"
+            $configurationPath = Join-Path $TestDrive "warn-config"
+            New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
+            New-Item -ItemType Directory -Path $configurationPath -Force | Out-Null
+
+            # A minimal compile that writes an output file so the empty-output guard passes.
+            Mock -CommandName Get-Command -MockWith {
+                return [PSCustomObject]@{
+                    ScriptBlock = {
+                        param($outputPath, $configurationPath)
+                        New-Item -ItemType File -Path (Join-Path $outputPath 'compiled.mof') -Force | Out-Null
+                    }
+                }
+            }
+        }
+
+        It "warns that remote configuration executes as trusted code when -SourceIsRemote is set" {
+            Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath `
+                -AllowedRoot $outputPath -SourceIsRemote -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+
+            ($warnings -join "`n") | Should -Match 'executed as trusted PowerShell code'
+        }
+
+        It "does not warn for a local (non-remote) configuration source" {
+            Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath `
+                -AllowedRoot $outputPath -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+
+            $warnings | Should -BeNullOrEmpty
+        }
+    }
+
 }

@@ -169,7 +169,11 @@ function Invoke-DscRunner {
     # 4. Compile Datum and run the core loop over each compiled configuration file.
     # The resolved cache directory is the trusted scratch root; pass it as -AllowedRoot so the
     # compile step's path-traversal guard (#33) permits it while still rejecting an escaping path.
-    Build-DatumConfiguration -OutputPath $resolvedCacheDirectory -ConfigurationPath $configurationDirectory -AllowedRoot $resolvedCacheDirectory
+    # A Git source resolves the configuration from a remote clone, so flag it for the compile
+    # step's trust-boundary warning (#27). Inline/custom Source actions that fetch remotely are
+    # opaque here; the SECURITY.md trust model documents the requirement for those.
+    $sourceIsRemote = ($Source -eq 'Git') -or ($SourceContext.ContainsKey('Url') -and -not [string]::IsNullOrWhiteSpace([string]$SourceContext['Url']) -and ([string]$SourceContext['Url'] -match '^(http|https|git|ssh):'))
+    Build-DatumConfiguration -OutputPath $resolvedCacheDirectory -ConfigurationPath $configurationDirectory -AllowedRoot $resolvedCacheDirectory -SourceIsRemote:$sourceIsRemote
 
     $params = @{ Mode = $Mode; Engine = $Engine }
     if ($ReportPath)    { $params.ReportPath    = $ReportPath }

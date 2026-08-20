@@ -14,6 +14,12 @@ Specifies the directory where configuration files are exported by Datum. This pa
 .PARAMETER ConfigurationSourcePath
 Specifies the URL or directory path for the configuration source. This parameter is mandatory.
 
+SECURITY: the configuration is executed as arbitrary PowerShell — a Datum/DSC Configuration
+block is code, not just data — in the runner's own process and security context. There is no
+sandbox or content validation. Treat the configuration repository (or the cloned URL) as
+fully-trusted code and protect it with the same controls as the runner's own source: branch
+protection, required reviews, and (ideally) signed commits. See SECURITY.md, "Trust model".
+
 .PARAMETER JITToken
 Specifies the Just-In-Time (JIT) access token. This parameter is mandatory.
 
@@ -119,15 +125,20 @@ function Invoke-DscPipelineRunner {
     #
     # Clone the Datum Configuration from the Configuration URL
 
+    # Track whether the configuration came from a remote URL so the compile step can warn that
+    # remote content executes as trusted code in this process (#27).
+    $sourceIsRemote = $false
+
     # Test ConfigurationSourcePath if it is a URL. If URL attempt to clone.
     if ($ConfigurationSourcePath -match '^(http|https):\/\/') {
         # Cone from URL
         $DatumConfigurationPath = Clone-Repository -DatumURLConfig $ConfigurationSourcePath
+        $sourceIsRemote = $true
     }
     # Test if ConfigurationSourcePath is a directory path that exists.
     elseif (Test-Path -Path $ConfigurationSourcePath -PathType Container) {
         $DatumConfigurationPath = $ConfigurationSourcePath
-    } 
+    }
     # Else. Throw an error for bad data.
     else {
         throw "[Invoke-DscPipelineRunner] Invalid ConfigurationSourcePath: $ConfigurationSourcePath"
@@ -137,7 +148,7 @@ function Invoke-DscPipelineRunner {
     # Compile the Datum Configuration. The caller-supplied export directory is the trusted
     # scratch root; pass it as -AllowedRoot so the compile step's path-traversal guard (#33)
     # permits it while still rejecting a path that escapes it.
-    Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath -AllowedRoot $exportConfigDir
+    Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath -AllowedRoot $exportConfigDir -SourceIsRemote:$sourceIsRemote
 
     #
     # Determine the Authentication Type and create the Authentication Provider.
