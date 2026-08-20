@@ -3,26 +3,37 @@ Describe "Actions/Engine/DscV2 Tests" -Tag Unit, Engine {
     BeforeAll {
         $script:DscV2Path = (Get-FunctionPath 'DscV2.ps1').FullName
 
-        # Establish the Invoke-DscResource mock at the Describe scope. The engine is run
-        # via '& $DscV2Path' (a child script scope); an It-only mock of a module cmdlet
-        # applies its behavior there but Assert-MockCalled cannot count the deeper call.
-        # A Describe-scoped mock (as Start-DscRunner's tests do) makes the count visible.
+        # The engine runs via '& $DscV2Path' (a child script scope). Assert-MockCalled
+        # cannot attribute an Invoke-DscResource call (a module cmdlet) made across that
+        # boundary directly from an It, so instead of counting we capture the bound
+        # parameters into a global list from the mock body and assert on them. The mock
+        # body is proven to execute (the return value flows back in the tests below), and
+        # a $Global: list is writable from any session state, so this is scope-proof.
+        $Global:DscV2CapturedCalls = [System.Collections.Generic.List[object]]::new()
         Mock -CommandName Invoke-DscResource -MockWith {
+            param($Name, $ModuleName, $Method, $Property)
+            $Global:DscV2CapturedCalls.Add([pscustomobject]@{
+                Name = $Name; ModuleName = $ModuleName; Method = $Method; Property = $Property
+            })
             return [pscustomobject]@{ InDesiredState = $true; Message = 'default' }
         }
     }
 
+    AfterAll {
+        Remove-Variable -Name DscV2CapturedCalls -Scope Global -ErrorAction SilentlyContinue
+    }
+
     It "Calls Invoke-DscResource with the context's method and property" {
-        Mock -CommandName Invoke-DscResource -MockWith {
-            param($Name, $ModuleName, $Method, $Property)
-            return [pscustomobject]@{ InDesiredState = $true; Message = 'ok' }
-        }
+        $Global:DscV2CapturedCalls.Clear()
 
         $null = & $script:DscV2Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{ p = 1 } }
 
-        Assert-MockCalled -CommandName Invoke-DscResource -Exactly 1 -ParameterFilter {
-            $Method -eq 'Test' -and $ModuleName -eq 'Mod' -and $Name -eq 'Res' -and $Property.p -eq 1
-        }
+        $Global:DscV2CapturedCalls.Count | Should -Be 1
+        $call = $Global:DscV2CapturedCalls[0]
+        $call.Method     | Should -Be 'Test'
+        $call.ModuleName | Should -Be 'Mod'
+        $call.Name       | Should -Be 'Res'
+        $call.Property.p | Should -Be 1
     }
 
     It "Surfaces InDesiredState and keeps the raw Invoke-DscResource output" {
