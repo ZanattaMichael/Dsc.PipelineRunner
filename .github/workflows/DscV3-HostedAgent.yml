@@ -1,0 +1,54 @@
+name: DSC v3 Hosted Agent
+
+# Proves the DSC v3 (dsc.exe) engine path works on a clean hosted Linux agent:
+# bootstrap the dsc executable, then drive a real resource through the runner's
+# DscV3 engine and assert a contract-valid result. This is the Phase 3 hosted-agent
+# validation gate — Invoke-DscResource (DSC v2) is Windows-first, so the v3 path is
+# what makes Linux/macOS agents genuinely useful.
+
+on:
+  push:
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+jobs:
+  dsc-v3-linux:
+    name: DSC v3 engine on Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install the DSC v3 command-line engine using the repo's bootstrap script. The
+      # script appends dsc's directory to $GITHUB_PATH, so later steps find it on PATH.
+      - name: Bootstrap DSC v3 (dsc)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/Install-DscV3.ps1 -Verbose
+
+      - name: Report dsc version and available resources
+        shell: pwsh
+        run: |
+          dsc --version
+          dsc resource list
+
+      # Exercise the module's real DscV3 engine action against a live resource.
+      - name: Run DSC v3 engine smoke test
+        shell: pwsh
+        run: ./scripts/Test-DscV3Smoke.ps1 -Verbose
+
+  # Validate the hosted-agent container image builds and its dsc bootstrap works.
+  dsc-agent-image:
+    name: Build DSC v3 agent image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the hosted-agent image
+        run: docker build -f containers/dsc-agent/Dockerfile -t dsc-pipelinerunner-agent:ci .
+
+      - name: Verify dsc runs inside the image
+        run: docker run --rm dsc-pipelinerunner-agent:ci dsc --version

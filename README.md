@@ -161,6 +161,10 @@ In the realm of configuration, there are specialized commands designed to modify
 
 ## Getting Started
 
+> **Running on a hosted Linux agent with DSC v3?** See
+> [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for bootstrapping the `dsc`
+> engine, pipeline-native authentication, and workload-identity federation (no stored PAT).
+
 1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
 
    > **Note:** The repository will be renamed to `Dsc.PipelineRunner` in a future update.
