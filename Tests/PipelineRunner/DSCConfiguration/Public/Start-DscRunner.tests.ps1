@@ -373,8 +373,11 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
             } -Verifiable
             Mock -CommandName Get-Content -MockWith { "---\nparameters: {}\nvariables: {}\nresources: []" }
 
-            $result = $null
-            { $result = Start-DscRunner -FilePath "test.json" -Mode "Set" } | Should -Not -Throw
+            # Assign outside a Should -Throw scriptblock: a scriptblock passed to Should runs
+            # in a child scope, so a $result set inside it would not propagate here. A failed
+            # 'Set' is caught internally (non-terminating), so calling directly must not throw;
+            # if it did, the It would fail, which is the assertion we want.
+            $result = Start-DscRunner -FilePath "test.json" -Mode "Set"
             Should -InvokeVerifiable
             $result.FailCount | Should -Be 1
 
