@@ -13,6 +13,7 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1')
             (Get-FunctionPath 'Test-DscExecutableAvailable.ps1')
             (Get-FunctionPath 'Resolve-DscEngine.ps1')
+            (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
         ) | ForEach-Object { . $_.FullName }
 
         . (Get-FunctionPath 'Invoke-DscRunner.ps1').FullName
@@ -104,8 +105,27 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
         }
 
         It "Defaults the cache directory to a temporary directory when none is supplied" {
+            # No cache env var set, so the resolver returns nothing and the temp dir is used.
+            Remove-Item Env:PIPELINERUNNER_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+            Remove-Item Env:AZDODSC_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+
             Invoke-DscRunner -ConfigurationSourcePath $configDir
             Assert-MockCalled -CommandName New-TemporaryDirectory -Exactly 1 -Scope It
+        }
+
+        It "Uses the cache directory environment variable instead of a temp dir when set" {
+            $env:PIPELINERUNNER_CACHE_DIRECTORY = $cacheDir
+            try {
+                Invoke-DscRunner -ConfigurationSourcePath $configDir
+            }
+            finally {
+                Remove-Item Env:PIPELINERUNNER_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+            }
+
+            Assert-MockCalled -CommandName New-TemporaryDirectory -Exactly 0 -Scope It
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Scope It -ParameterFilter {
+                $OutputPath -eq $cacheDir
+            }
         }
 
         It "Forwards the report path to Start-DscRunner when supplied" {

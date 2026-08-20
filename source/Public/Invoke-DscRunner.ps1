@@ -40,8 +40,10 @@ Inline Connect action scriptblock. Takes precedence over -Connect.
 Hashtable passed to the Connect action.
 
 .PARAMETER CacheDirectory
-Directory Datum compiles into. Defaults to a new temporary directory. Replaces the
-old AZDODSC_CACHE_DIRECTORY hard requirement.
+Directory Datum compiles into. When omitted, the generic PIPELINERUNNER_CACHE_DIRECTORY
+environment variable is used (with AZDODSC_CACHE_DIRECTORY honoured as a back-compat
+alias); failing that, a new temporary directory is created. Replaces the old
+AZDODSC_CACHE_DIRECTORY hard requirement.
 
 .PARAMETER Mode
 'Test' (default) or 'Set'.
@@ -146,10 +148,18 @@ function Invoke-DscRunner {
     $null = Invoke-Action -Hook Connect -Name $Connect -ScriptBlock $ConnectAction -Context $ConnectContext
 
     #
-    # 3. Determine the compile/cache directory (generic; no AZDODSC_* requirement).
+    # 3. Determine the compile/cache directory. An explicit -CacheDirectory wins, then the
+    # generic PIPELINERUNNER_CACHE_DIRECTORY (with AZDODSC_CACHE_DIRECTORY kept as a
+    # back-compat alias), and finally a fresh temporary directory — no env var is required.
     if ([string]::IsNullOrWhiteSpace($CacheDirectory)) {
-        $CacheDirectory = (New-TemporaryDirectory).Path
-        Write-Verbose "[Invoke-DscRunner] Using temporary cache directory: $CacheDirectory"
+        $CacheDirectory = Resolve-CacheDirectory
+        if ([string]::IsNullOrWhiteSpace($CacheDirectory)) {
+            $CacheDirectory = (New-TemporaryDirectory).Path
+            Write-Verbose "[Invoke-DscRunner] Using temporary cache directory: $CacheDirectory"
+        }
+        else {
+            Write-Verbose "[Invoke-DscRunner] Using cache directory from environment: $CacheDirectory"
+        }
     }
 
     #

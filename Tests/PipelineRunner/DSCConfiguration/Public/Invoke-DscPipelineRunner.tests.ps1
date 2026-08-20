@@ -10,6 +10,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             (Get-FunctionPath 'Start-DscRunner.ps1')
             (Get-FunctionPath 'Build-DatumConfiguration.ps1')
             (Get-FunctionPath 'Clone-Repository.ps1')
+            (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
         ) | ForEach-Object {
             . $_.FullName
         }
@@ -44,22 +45,29 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
 
             BeforeAll {
                 Mock -CommandName Test-Path -MockWith { return $true }
-                $Env:AZDODSC_CACHE_DIRECTORY = $null
             }
 
-            AfterAll {
-                $Env:AZDODSC_CACHE_DIRECTORY = $null
+            AfterEach {
+                # Clear both the generic name and the back-compat alias between cases.
+                Remove-Item Env:PIPELINERUNNER_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+                Remove-Item Env:AZDODSC_CACHE_DIRECTORY -ErrorAction SilentlyContinue
             }
 
-        It "Should throw an error if AZDODSC_CACHE_DIRECTORY environment variable is not set" {
+        It "Should throw an error if no cache directory environment variable is set" {
+            Remove-Item Env:PIPELINERUNNER_CACHE_DIRECTORY -ErrorAction SilentlyContinue
             Remove-Item Env:AZDODSC_CACHE_DIRECTORY -ErrorAction SilentlyContinue
-            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*The Environment Variable AZDODSC_CACHE_DIRECTORY is not set. Please set the environment variable before running this script*"
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Throw "*No cache directory is set*"
         }
 
-        It "Should not throw an error if AZDODSC_CACHE_DIRECTORY environment variable is set" {
+        It "Should not throw when the legacy AZDODSC_CACHE_DIRECTORY alias is set" {
             $env:AZDODSC_CACHE_DIRECTORY = "SomePath"
             { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
-        } 
+        }
+
+        It "Should not throw when the generic PIPELINERUNNER_CACHE_DIRECTORY is set" {
+            $env:PIPELINERUNNER_CACHE_DIRECTORY = "SomePath"
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir $exportConfigDir -JITToken "abc123" -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
+        }
     }
 
     Context "Execution Logic" {

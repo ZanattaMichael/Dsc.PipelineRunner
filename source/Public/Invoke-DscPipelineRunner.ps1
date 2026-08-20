@@ -35,7 +35,7 @@ Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir "
 This example invokes the DSC Pipeline Runner process using a PAT for authentication.
 
 .NOTES
-Ensure that the environment variable AZDODSC_CACHE_DIRECTORY is set before running this function. The function will throw an error if this environment variable is not set.
+Ensure that a cache directory environment variable is set before running this function. The generic PIPELINERUNNER_CACHE_DIRECTORY is preferred; the legacy AZDODSC_CACHE_DIRECTORY is still honoured as a back-compat alias. The function will throw an error if neither is set.
 
 #>
 
@@ -103,10 +103,12 @@ function Invoke-DscPipelineRunner {
     #$ExecutionPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 
     #
-    # Test to make sure that the Enviroment Variable is Set
+    # Test to make sure a cache directory is configured. The generic
+    # PIPELINERUNNER_CACHE_DIRECTORY is preferred; the legacy AZDODSC_CACHE_DIRECTORY is
+    # still honoured as a back-compat alias for existing Azure DevOps pipelines.
 
-    if (-not $ENV:AZDODSC_CACHE_DIRECTORY) {
-        throw "The Environment Variable AZDODSC_CACHE_DIRECTORY is not set. Please set the environment variable before running this script."
+    if (-not (Resolve-CacheDirectory)) {
+        throw "No cache directory is set. Set the PIPELINERUNNER_CACHE_DIRECTORY environment variable (AZDODSC_CACHE_DIRECTORY is also accepted) before running this script."
     }
 
     #
