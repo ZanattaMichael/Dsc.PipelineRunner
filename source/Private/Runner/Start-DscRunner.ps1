@@ -298,9 +298,11 @@ function Start-DscRunner {
 
         # Construct the full path for the report file. Use GetFileNameWithoutExtension
         # (TrimEnd('.yml') stripped any trailing y/m/l characters, not the extension) and
-        # Join-Path so the report path is correct on every platform, not just Windows.
+        # [System.IO.Path]::Combine for pure string composition. Join-Path resolves the
+        # path's drive qualifier, so a Windows-style ReportPath (e.g. 'C:\Reports') throws
+        # DriveNotFoundException on a Linux runner; Combine never touches the drive list.
         $reportFileName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
-        $FilePath = Join-Path -Path $ReportPath -ChildPath ("{0}.csv" -f $reportFileName)
+        $FilePath = [System.IO.Path]::Combine($ReportPath, ("{0}.csv" -f $reportFileName))
 
         # Convert the reporting data to CSV format and write it to the specified path
         $reporting | Export-Csv -Path $FilePath -NoTypeInformation

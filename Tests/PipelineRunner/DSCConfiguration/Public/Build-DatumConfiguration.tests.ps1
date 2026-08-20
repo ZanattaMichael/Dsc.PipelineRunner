@@ -50,8 +50,10 @@ Describe "Build-DatumConfiguration Function Tests" -Tag Unit {
             # Execute the function
             Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath
 
-            # Assert: the pre-existing TestFile.txt was cleared before compilation
-            Test-Path (Join-Path $outputPath 'TestFile.txt') | Should -Be $false
+            # Assert: the pre-existing TestFile.txt was cleared before compilation.
+            # Test-Path is mocked to $true in this context, so query the real filesystem
+            # directly to confirm the clear actually happened.
+            [System.IO.File]::Exists((Join-Path $outputPath 'TestFile.txt')) | Should -BeFalse
             $fileCountBefore | Should -BeGreaterThan 0
 
         }
