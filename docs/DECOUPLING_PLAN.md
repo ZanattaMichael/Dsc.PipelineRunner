@@ -298,7 +298,7 @@ grep-guard enforces "no new LCM" going forward.
 - [ ] Engines load via `Actions/Engine/` and every engine passes the shared typed-contract Pester test (#21)
 - [x] `dsc.exe` (DSC v3) engine selectable (`Engine: DscV3`) and green in CI on Linux (#21)
 - [x] Pipeline-native auth: SecureString tokens, `System.AccessToken`, no token in logs (#22)
-- [ ] Runner returns a machine-readable result and a non-zero exit on failure (#19)
+- [x] Runner returns a machine-readable result and a non-zero exit on failure (#19)
 - [ ] Phase-0 correctness bugs fixed with Pester coverage (#7–#14, #18, #28)
 - [ ] Zero "LCM" occurrences in source/manifest/config; CI grep-guard in place
 - [ ] Code-signing & supply-chain (#38, #36) landed **after** the above
