@@ -22,5 +22,13 @@ Function Stop-TaskProcessing {
     }
 
     Write-Verbose "Stopping the processing of the script"
+
+    # Cross-file script-scope contract (#26): $script:StopTaskProcessing is the single flag
+    # that signals "skip all remaining resources in the current file". Start-DscRunner OWNS it —
+    # it resets the flag to $false at the top of each file and reads it once per resource. This
+    # function is the only other writer, and only ever sets it to $true. The flag works across the
+    # file boundary because, in the built module, every function shares one module script scope;
+    # the call-stack guard above guarantees this writer only runs while Start-DscRunner is the
+    # active reader, so the two files are never loaded/used independently of that contract.
     $script:StopTaskProcessing = $true
 }

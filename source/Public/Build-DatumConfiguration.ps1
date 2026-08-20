@@ -25,6 +25,13 @@
 # .NOTES
 # The function uses runspaces to run the script block in a separate thread.
 # Ensure that the 'powershell-yaml', 'datum', and 'datum.invokecommand' modules are available.
+#
+# Caller contract (#26): the compile step is the module-internal function
+# 'DatumConfigurationScriptBlock' (source/Private/Configuration/DatumConfigurationScriptBlock.ps1).
+# It is resolved by name via Get-Command, so it must be loaded in the session — which it is
+# whenever Dsc.PipelineRunner is imported as a module. Tests that dot-source this function in
+# isolation must therefore also provide a 'DatumConfigurationScriptBlock' function (the existing
+# Pester suite defines a stub), otherwise the Get-Command lookup fails.
 
 Function Build-DatumConfiguration {
     [CmdletBinding()]

@@ -89,7 +89,11 @@ function Start-DscRunner {
     $engineArgs = @{ Engine = $resolvedEngine }
     if ($EngineAction) { $engineArgs.EngineAction = $EngineAction }
 
-    # Clear StopTaskProcessing variable
+    # Reset the run-control flag for this file. $script:StopTaskProcessing is a documented
+    # cross-file, module-script-scope contract (#26): Start-DscRunner owns it (resets here,
+    # reads it once per resource below), and Stop-TaskProcessing is the only other writer,
+    # setting it $true to skip the rest of the file. See Stop-TaskProcessing.ps1 for the guard
+    # that keeps the two in lock-step.
     $script:StopTaskProcessing = $false
 
     # Determine the file extension of the provided FilePath
