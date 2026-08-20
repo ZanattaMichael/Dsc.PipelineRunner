@@ -24,6 +24,20 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
+      # Guard against the deprecated 'LCM' name creeping back into live code. The
+      # rename to Dsc.PipelineRunner is complete; only the CHANGELOG migration guide
+      # (and this plan's docs) may reference the old AZDO-DSC-LCM identifiers.
+      - name: Guard against reintroduced 'LCM' references
+        shell: bash
+        run: |
+          matches=$(grep -rniI 'lcm' source Actions "Pipeline Rules" || true)
+          if [ -n "$matches" ]; then
+            echo "Found 'LCM' references in live code — the module was renamed to Dsc.PipelineRunner:"
+            echo "$matches"
+            exit 1
+          fi
+          echo "No 'LCM' references in live code."
+
       - name: Download PowerShell Dependencies
         shell: pwsh
         run: Install-Module Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Force

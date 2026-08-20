@@ -1,6 +1,5 @@
 output/*
 internal-tests/
-LCM/Datum/*
 
 **.bak
 *.local.*

@@ -128,13 +128,13 @@
             Tags         = @('DesiredStateConfiguration', 'DSC', 'DSCResourceKit', 'DSCResource', 'PipelineRunner', 'CI-CD')
 
             # A URL to the license for this module.
-            LicenseUri   = 'https://github.com/ZanattaMichael/AzDO-DSC-LCM/blob/main/LICENSE'
+            LicenseUri   = 'https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/LICENSE'
 
             # A URL to the main website for this project.
-            ProjectUri   = 'https://github.com/ZanattaMichael/AzDO-DSC-LCM'
+            ProjectUri   = 'https://github.com/ZanattaMichael/Dsc.PipelineRunner'
 
             # A URL to an icon representing this module.
-            IconUri      = 'https://github.com/ZanattaMichael/AzDO-DSC-LCM/blob/main/icon.png'
+            IconUri      = 'https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/icon.png'
 
             # ReleaseNotes of this module
             ReleaseNotes = ''
