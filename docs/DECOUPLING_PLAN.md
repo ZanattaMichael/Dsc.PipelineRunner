@@ -296,8 +296,8 @@ grep-guard enforces "no new LCM" going forward.
 - [ ] A custom `Source`/`Connect`/`Engine` action (drop-in file or inline scriptblock) works without forking (#20)
 - [ ] Integration test: core runs against a local dir with `Connect: None`, no AzDO connection (#20)
 - [ ] Engines load via `Actions/Engine/` and every engine passes the shared typed-contract Pester test (#21)
-- [ ] `dsc.exe` (DSC v3) engine selectable (`Engine: DscV3`) and green in CI on Linux (#21)
-- [ ] Pipeline-native auth: SecureString tokens, `System.AccessToken`, no token in logs (#22)
+- [x] `dsc.exe` (DSC v3) engine selectable (`Engine: DscV3`) and green in CI on Linux (#21)
+- [x] Pipeline-native auth: SecureString tokens, `System.AccessToken`, no token in logs (#22)
 - [ ] Runner returns a machine-readable result and a non-zero exit on failure (#19)
 - [ ] Phase-0 correctness bugs fixed with Pester coverage (#7–#14, #18, #28)
 - [ ] Zero "LCM" occurrences in source/manifest/config; CI grep-guard in place
