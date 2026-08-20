@@ -12,7 +12,9 @@ Describe "Unprotect-SecureString Function Tests" -Tag Unit, Auth {
     }
 
     It "Returns an empty string for an empty SecureString" {
-        $secure = ConvertTo-SecureString -String '' -AsPlainText -Force
+        # ConvertTo-SecureString rejects an empty -String, so build the empty
+        # SecureString directly to exercise the empty-credential path.
+        $secure = [System.Security.SecureString]::new()
 
         Unprotect-SecureString -SecureString $secure | Should -Be ''
     }
