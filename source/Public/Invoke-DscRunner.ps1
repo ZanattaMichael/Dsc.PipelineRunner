@@ -53,7 +53,9 @@ Optional directory to write the per-configuration CSV report into.
 Name of the execution engine action (a file under Actions/Engine/). 'DscV2' (default)
 wraps Invoke-DscResource; 'DscV3' drives dsc.exe. 'Auto' opts in to detection, choosing
 DscV3 when the dsc executable is present (or the version hint asks for it) and DscV2
-otherwise.
+otherwise. When -Engine is not passed explicitly, the configuration's
+PipelineRunnerSettings drive selection: an 'Engine' key names the engine, otherwise the
+back-compat 'DSCResourceVersion' major version maps (2.x -> DscV2, 3.x -> DscV3).
 
 .PARAMETER EngineVersion
 Optional resource version hint used to bias 'Auto' engine selection by major version
@@ -118,6 +120,26 @@ function Invoke-DscRunner {
         throw "[Invoke-DscRunner] The Source action returned no configuration directory."
     }
     Write-Verbose "[Invoke-DscRunner] Configuration directory: $configurationDirectory"
+
+    #
+    # 1b. Engine selection. An inline -EngineAction or an explicit -Engine always wins.
+    # Otherwise the configuration decides: PipelineRunnerSettings.Engine names the engine,
+    # and failing that the back-compat DSCResourceVersion major maps through Resolve-DscEngine
+    # (2.x -> DscV2, 3.x -> DscV3, otherwise dsc.exe auto-detection). This keeps the version
+    # gate out of the core loop while honouring the field configs already carry.
+    if (-not $EngineAction -and -not $PSBoundParameters.ContainsKey('Engine')) {
+        $settings = Get-PipelineRunnerSetting -ConfigurationDirectory $configurationDirectory
+        if ($settings) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$settings['Engine'])) {
+                $Engine = [string]$settings['Engine']
+                Write-Verbose "[Invoke-DscRunner] Engine from PipelineRunnerSettings.Engine: $Engine"
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace([string]$settings['DSCResourceVersion'])) {
+                $Engine = Resolve-DscEngine -Engine 'Auto' -Version ([string]$settings['DSCResourceVersion'])
+                Write-Verbose "[Invoke-DscRunner] Engine auto-selected from DSCResourceVersion '$($settings['DSCResourceVersion'])': $Engine"
+            }
+        }
+    }
 
     #
     # 2. Connect — establish any required auth/session (default: None).
