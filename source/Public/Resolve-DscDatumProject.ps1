@@ -30,7 +30,7 @@ Function Resolve-DscDatumProject {
         [Parameter(Mandatory=$true)]
         [Object]$AllNodes
     )
-    Write-Host "Processing node: $($NodeName.Name)"
+    Write-Information "Processing node: $($NodeName.Name)" -Tags 'Dsc.PipelineRunner'
 
     # Retrieve the NodeGroups for the current node and store them in an array
 

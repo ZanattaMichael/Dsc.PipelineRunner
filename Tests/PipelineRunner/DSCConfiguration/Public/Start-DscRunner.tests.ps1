@@ -38,7 +38,11 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         # real Actions/ tree lives.
         Mock -CommandName Get-Module -MockWith { return @{ moduleBase = $Global:RepositoryRoot } }
 
+        # #30: the runner must not use Write-Host at all; all human-readable output goes
+        # through Write-Information (tag 'Dsc.PipelineRunner'). Mock both so we can assert
+        # Write-Host never fires and the information stream carries the expected tag.
         Mock -CommandName Write-Host
+        Mock -CommandName Write-Information
 
         Mock -CommandName ConvertFrom-Yaml -MockWith {
             param ($content)
@@ -60,7 +64,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 )
             }
         }
-    
+
         Mock -CommandName ConvertFrom-Json -MockWith {
             param ($content)
             return @{
@@ -81,7 +85,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 )
             }
         }
-    
+
         Mock -CommandName Invoke-DscResource -MockWith {
             param ($Name, $ModuleName, $Method, $Property)
             return @{
@@ -89,7 +93,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 Message = "Mocked message"
             }
         }
-    
+
         Mock -CommandName Invoke-CustomTask -MockWith {
             param(
                 [Parameter(Mandatory=$true)]
@@ -129,6 +133,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         }
 
         Mock -CommandName Export-Csv
+        Mock -CommandName Set-Content
 
     }
 
@@ -156,6 +161,66 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         }
     }
 
+    Context "output stream hygiene (#30)" {
+
+        BeforeAll {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+        }
+
+        It "should never call Write-Host" {
+            Start-DscRunner -FilePath "test.json" | Out-Null
+            Assert-MockCalled -CommandName Write-Host -Exactly 0
+        }
+
+        It "should emit informational output tagged 'Dsc.PipelineRunner'" {
+            Start-DscRunner -FilePath "test.json" | Out-Null
+            Assert-MockCalled -CommandName Write-Information -ParameterFilter { $Tags -contains 'Dsc.PipelineRunner' } -Times 1
+        }
+    }
+
+    Context "structured run result (#19, #29)" {
+
+        It "should return a structured result object describing the run" {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+
+            $result = Start-DscRunner -FilePath "test.json"
+
+            $result | Should -Not -BeNullOrEmpty
+            $result.Status | Should -Be 'Completed'
+            $result.ConfigurationFile | Should -Be 'test.json'
+            $result.PSObject.Properties.Name | Should -Contain 'PassCount'
+            $result.PSObject.Properties.Name | Should -Contain 'FailCount'
+            $result.PSObject.Properties.Name | Should -Contain 'SkipCount'
+            $result.PSObject.Properties.Name | Should -Contain 'FailedResources'
+        }
+
+        It "should report a single passing resource in Test mode" {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+            Mock -CommandName Invoke-DscResource -MockWith {
+                [PSCustomObject]@{ InDesiredState = $true; Message = "Tested successfully." }
+            }
+
+            $result = Start-DscRunner -FilePath "test.json"
+
+            $result.PassCount | Should -Be 1
+            $result.FailCount | Should -Be 0
+            $result.TotalResources | Should -Be 1
+        }
+
+        It "should mark a resource FAIL and record it when drift is detected in Test mode" {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+            Mock -CommandName Invoke-DscResource -MockWith {
+                [PSCustomObject]@{ InDesiredState = $false; Message = "Not in desired state." }
+            }
+
+            $result = Start-DscRunner -FilePath "test.json"
+
+            $result.FailCount | Should -Be 1
+            $result.FailedResources.Count | Should -Be 1
+            $result.FailedResources[0].InstanceName | Should -Be 'Resource1'
+        }
+    }
+
     Context "when operating in different modes" {
 
         BeforeAll {
@@ -167,7 +232,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 [PSCustomObject]@{ InDesiredState = $true; Message = "Tested successfully." }
             }
 
-            Start-DscRunner -FilePath "test.json"
+            Start-DscRunner -FilePath "test.json" | Out-Null
 
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq "Test" } -Exactly 1
         }
@@ -177,7 +242,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 [PSCustomObject]@{ InDesiredState = $false; Message = "Not in desired state." }
             }
 
-            Start-DscRunner -FilePath "test.json" -Mode "Set"
+            Start-DscRunner -FilePath "test.json" -Mode "Set" | Out-Null
 
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq "Test" } -Exactly 1
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq "Set" } -Exactly 1
@@ -214,16 +279,17 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 }
             }
 
-            Start-DscRunner -FilePath "test.json"
+            $result = Start-DscRunner -FilePath "test.json"
 
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq "Test" } -Exactly 1
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq "Get" } -Exactly 1
-            Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -eq "Tasks Skipped: 1" } -Exactly 1
+            $result.SkipCount | Should -Be 1
+            $result.Status | Should -Be 'StoppedByRequest'
 
         }
 
         It "should skip resources if the condition is met" {
-                
+
             Mock -CommandName ConvertFrom-Json -MockWith {
                 param ($content)
                 return @{
@@ -254,12 +320,12 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                 }
             }
 
-            Start-DscRunner -FilePath "test.json"
+            Start-DscRunner -FilePath "test.json" | Out-Null
 
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Property.prop1 -eq "value1" } -Exactly 0
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Property.prop2 -eq "value2" } -Exactly 2
 
-        }        
+        }
 
     }
 
@@ -269,28 +335,18 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
             Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
         }
 
-        AfterAll {
-            Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*Total Tasks Executed*" } -Times 1
-            Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*Tasks Passed*" } -Times 1
-            Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*Tasks Failed*" } -Times 1
-            Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*Tasks Skipped*" } -Times 1
-            Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*Total Tasks*" } -Times 1
-        }
-
-        It "should generate a report if ReportPath is specified" {
-            Mock -CommandName Export-Csv -MockWith {}
-
-            Start-DscRunner -FilePath "test.json" -ReportPath "C:\Reports"
+        It "should generate a CSV and a JSON report if ReportPath is specified" {
+            Start-DscRunner -FilePath "test.json" -ReportPath "C:\Reports" | Out-Null
 
             Assert-MockCalled -CommandName Export-Csv -Exactly 1
+            Assert-MockCalled -CommandName Set-Content -Exactly 1
         }
 
         It "should not generate a report if ReportPath is not specified" {
-            Mock -CommandName Export-Csv -MockWith {}
-
-            Start-DscRunner -FilePath "test.json"
+            Start-DscRunner -FilePath "test.json" | Out-Null
 
             Assert-MockCalled -CommandName Export-Csv -Exactly 0
+            Assert-MockCalled -CommandName Set-Content -Exactly 0
         }
     }
 
@@ -312,16 +368,17 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
             }
             Mock -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Test' } -MockWith {
                 @{
-                    InDesiredState = $false 
+                    InDesiredState = $false
                 }
             } -Verifiable
             Mock -CommandName Get-Content -MockWith { "---\nparameters: {}\nvariables: {}\nresources: []" }
 
-            { Start-DscRunner -FilePath "test.json" -Mode "Set" } | Should -Not -Throw
+            $result = $null
+            { $result = Start-DscRunner -FilePath "test.json" -Mode "Set" } | Should -Not -Throw
             Should -InvokeVerifiable
+            $result.FailCount | Should -Be 1
 
         }
     }
-    
-}    
-    
+
+}

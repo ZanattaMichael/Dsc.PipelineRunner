@@ -91,7 +91,12 @@ function Invoke-DscPipelineRunner {
         # It includes a validation script to ensure the provided path points to a file (leaf) and not a directory.
         [Parameter()]
         [ValidateScript({Test-Path -Path $_ -PathType Container})]
-        [String]$ReportPath
+        [String]$ReportPath,
+
+        # Opt-in: set a non-zero process exit code when the run reports a failure, so a
+        # pipeline step fails loudly instead of silently succeeding.
+        [Parameter()]
+        [switch]$FailOnError
 
     )
 
@@ -169,9 +174,17 @@ function Invoke-DscPipelineRunner {
         $params.ReportPath = $ReportPath
     }
 
-    Get-ChildItem -LiteralPath $exportConfigDir -File -Filter "*.yml" | ForEach-Object { 
+    # Collect each configuration's structured result so the run can be summarized as a single
+    # machine-readable object and, with -FailOnError, surface a non-zero exit code (#19).
+    $runResults = Get-ChildItem -LiteralPath $exportConfigDir -File -Filter "*.yml" | ForEach-Object {
         Start-DscRunner -FilePath $_.Fullname @params
     }
+
+    $summaryArgs = @{ Result = $runResults }
+    if ($ReportPath)  { $summaryArgs.ReportPath  = $ReportPath }
+    if ($FailOnError) { $summaryArgs.FailOnError = $true }
+
+    return Merge-DscRunnerResult @summaryArgs
 
     <#
     return

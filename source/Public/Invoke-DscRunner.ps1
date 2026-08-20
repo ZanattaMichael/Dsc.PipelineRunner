@@ -103,7 +103,9 @@ function Invoke-DscRunner {
 
         [string]$Engine = 'DscV2',
         [string]$EngineVersion,
-        [scriptblock]$EngineAction
+        [scriptblock]$EngineAction,
+
+        [switch]$FailOnError
     )
 
     $ErrorActionPreference = 'Stop'
@@ -172,7 +174,15 @@ function Invoke-DscRunner {
     if ($EngineVersion) { $params.EngineVersion = $EngineVersion }
     if ($EngineAction)  { $params.EngineAction  = $EngineAction }
 
-    Get-ChildItem -LiteralPath $resolvedCacheDirectory -File -Filter '*.yml' | ForEach-Object {
+    # Collect each configuration's structured result so the run can be summarized as a single
+    # machine-readable object and, with -FailOnError, surface a non-zero exit code (#19).
+    $runResults = Get-ChildItem -LiteralPath $resolvedCacheDirectory -File -Filter '*.yml' | ForEach-Object {
         Start-DscRunner -FilePath $_.FullName @params
     }
+
+    $summaryArgs = @{ Result = $runResults }
+    if ($ReportPath)  { $summaryArgs.ReportPath  = $ReportPath }
+    if ($FailOnError) { $summaryArgs.FailOnError = $true }
+
+    return Merge-DscRunnerResult @summaryArgs
 }

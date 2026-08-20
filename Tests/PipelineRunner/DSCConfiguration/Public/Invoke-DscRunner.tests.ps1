@@ -9,6 +9,7 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Invoke-Action.ps1')
             (Get-FunctionPath 'Build-DatumConfiguration.ps1')
             (Get-FunctionPath 'Start-DscRunner.ps1')
+            (Get-FunctionPath 'Merge-DscRunnerResult.ps1')
             (Get-FunctionPath 'New-TemporaryDirectory.ps1')
             (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1')
             (Get-FunctionPath 'Test-DscExecutableAvailable.ps1')
@@ -181,6 +182,108 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
                 $Engine -eq 'DscV2'
             }
             Assert-MockCalled -CommandName Get-PipelineRunnerSetting -Exactly 0 -Scope It
+        }
+    }
+
+    Context "Run summary and exit contract (#19)" {
+
+        It "Returns an aggregate summary across every configuration" {
+            Mock -CommandName Start-DscRunner -MockWith {
+                [pscustomobject]@{
+                    ConfigurationFile = $FilePath
+                    Status            = 'Completed'
+                    TotalResources    = 1
+                    PassCount         = 1
+                    FailCount         = 0
+                    SkipCount         = 0
+                    DurationSeconds   = 0.1
+                    FailedResources   = @()
+                    Results           = @()
+                }
+            }
+
+            $summary = Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir
+
+            $summary.Status | Should -Be 'Completed'
+            $summary.TotalConfigurations | Should -Be 2
+            $summary.PassCount | Should -Be 2
+            $summary.FailCount | Should -Be 0
+        }
+
+        It "Reports a Failed status and collects the failed resources when a configuration fails" {
+            Mock -CommandName Start-DscRunner -MockWith {
+                [pscustomobject]@{
+                    ConfigurationFile = $FilePath
+                    Status            = 'Completed'
+                    TotalResources    = 1
+                    PassCount         = 0
+                    FailCount         = 1
+                    SkipCount         = 0
+                    DurationSeconds   = 0.1
+                    FailedResources   = @([pscustomobject]@{ InstanceName = 'Resource1' })
+                    Results           = @()
+                }
+            }
+
+            $summary = Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir
+
+            $summary.Status | Should -Be 'Failed'
+            $summary.FailCount | Should -Be 2
+            $summary.FailedResources.Count | Should -Be 2
+        }
+
+        It "Sets a non-zero process exit code with -FailOnError when the run fails" {
+            Mock -CommandName Start-DscRunner -MockWith {
+                [pscustomobject]@{
+                    ConfigurationFile = $FilePath
+                    Status            = 'Completed'
+                    TotalResources    = 1
+                    PassCount         = 0
+                    FailCount         = 1
+                    SkipCount         = 0
+                    DurationSeconds   = 0.1
+                    FailedResources   = @([pscustomobject]@{ InstanceName = 'Resource1' })
+                    Results           = @()
+                }
+            }
+
+            # Save and restore the process exit code so a deliberately-failing run in this test
+            # does not leak a red exit code into the CI process.
+            $previousExitCode = [System.Environment]::ExitCode
+            try {
+                [System.Environment]::ExitCode = 0
+                Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -FailOnError | Out-Null
+                [System.Environment]::ExitCode | Should -Be 1
+            }
+            finally {
+                [System.Environment]::ExitCode = $previousExitCode
+            }
+        }
+
+        It "Leaves the exit code unchanged on failure when -FailOnError is not supplied" {
+            Mock -CommandName Start-DscRunner -MockWith {
+                [pscustomobject]@{
+                    ConfigurationFile = $FilePath
+                    Status            = 'Completed'
+                    TotalResources    = 1
+                    PassCount         = 0
+                    FailCount         = 1
+                    SkipCount         = 0
+                    DurationSeconds   = 0.1
+                    FailedResources   = @([pscustomobject]@{ InstanceName = 'Resource1' })
+                    Results           = @()
+                }
+            }
+
+            $previousExitCode = [System.Environment]::ExitCode
+            try {
+                [System.Environment]::ExitCode = 0
+                Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir | Out-Null
+                [System.Environment]::ExitCode | Should -Be 0
+            }
+            finally {
+                [System.Environment]::ExitCode = $previousExitCode
+            }
         }
     }
 
