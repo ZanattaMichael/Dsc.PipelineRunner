@@ -11,6 +11,14 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         $InvokeFormatTasksPath = (Get-FunctionPath 'Invoke-FormatTasks.ps1').FullName
         $InvokeExpandHashTablePath = (Get-FunctionPath 'Expand-HashTable.ps1').FullName
         $StopTaskProcessingPath = (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
+        # Engine seam: Start-DscRunner now routes Test/Set/Get through Invoke-EngineAction,
+        # which dispatches to Actions/Engine/DscV2.ps1 (the default engine that wraps
+        # Invoke-DscResource). Load the loader, the wrapper, the normalizer and the
+        # DscMethodResult class so the real engine path runs against the mocks below.
+        . (Get-FunctionPath 'DscMethodResult.ps1').FullName
+        . (Get-FunctionPath 'Invoke-Action.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-DscMethodResult.ps1').FullName
+        . (Get-FunctionPath 'Invoke-EngineAction.ps1').FullName
 
         . $preParseFilePath
         . $getDefaultValuesPath
@@ -24,6 +32,11 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         $references = @{}
         $variables = @{}
         $parameters = @{}
+
+        # Invoke-Action resolves Actions/<Hook>/<Name>.ps1 from the module base; in the
+        # test there is no imported module, so point it at the repository root where the
+        # real Actions/ tree lives.
+        Mock -CommandName Get-Module -MockWith { return @{ moduleBase = $Global:RepositoryRoot } }
 
         Mock -CommandName Write-Host
 

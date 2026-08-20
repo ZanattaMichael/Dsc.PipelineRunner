@@ -49,6 +49,13 @@ old AZDODSC_CACHE_DIRECTORY hard requirement.
 .PARAMETER ReportPath
 Optional directory to write the per-configuration CSV report into.
 
+.PARAMETER Engine
+Name of the execution engine action (a file under Actions/Engine/). 'DscV2' (default)
+wraps Invoke-DscResource; 'DscV3' drives dsc.exe.
+
+.PARAMETER EngineAction
+Inline engine scriptblock. Takes precedence over -Engine.
+
 .EXAMPLE
 Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Mode Test
 Runs against a local directory with no authentication (Source: Local, Connect: None).
@@ -82,7 +89,10 @@ function Invoke-DscRunner {
         [string]$Mode = 'Test',
 
         [ValidateScript({ Test-Path -Path $_ -PathType Container })]
-        [string]$ReportPath
+        [string]$ReportPath,
+
+        [string]$Engine = 'DscV2',
+        [scriptblock]$EngineAction
     )
 
     $ErrorActionPreference = 'Stop'
@@ -117,8 +127,9 @@ function Invoke-DscRunner {
     # 4. Compile Datum and run the core loop over each compiled configuration file.
     Build-DatumConfiguration -OutputPath $CacheDirectory -ConfigurationPath $configurationDirectory
 
-    $params = @{ Mode = $Mode }
-    if ($ReportPath) { $params.ReportPath = $ReportPath }
+    $params = @{ Mode = $Mode; Engine = $Engine }
+    if ($ReportPath)   { $params.ReportPath   = $ReportPath }
+    if ($EngineAction) { $params.EngineAction = $EngineAction }
 
     Get-ChildItem -LiteralPath $CacheDirectory -File -Filter '*.yml' | ForEach-Object {
         Start-DscRunner -FilePath $_.FullName @params

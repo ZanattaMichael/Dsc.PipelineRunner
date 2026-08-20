@@ -38,8 +38,14 @@ function Start-DscRunner {
         [string] $FilePath, # The path to the configuration file (.yaml/.yml or .json)
         [ValidateSet("Test", "Set")] # Ensures that Mode can only be 'Test' or 'Set'
         [string] $Mode = "Test", # Default mode is 'Test', can be set to 'Set' for applying changes,
-        [String] $ReportPath = $null # Optional parameter for specifying a report path
+        [String] $ReportPath = $null, # Optional parameter for specifying a report path
+        [string] $Engine = 'DscV2', # Execution engine action (Actions/Engine/<Engine>.ps1). Default: Invoke-DscResource.
+        [scriptblock] $EngineAction # Optional inline engine override; takes precedence over -Engine.
     )
+
+    # Build the engine selector once; every Test/Set/Get for this file runs through it.
+    $engineArgs = @{ Engine = $Engine }
+    if ($EngineAction) { $engineArgs.EngineAction = $EngineAction }
 
     # Clear StopTaskProcessing variable
     $script:StopTaskProcessing = $false
@@ -168,21 +174,15 @@ function Start-DscRunner {
 
         Write-Verbose "Replaced variables in properties with actual values"
 
-        # Prepare parameters for invoking the DSC resource using the 'Test' method
-        $resourceParameters = @{
-            Name = $resourceType
-            ModuleName = $module
-            Method = "Test"
-            Property = $Property
-        }
-
         Write-Verbose "Prepared parameters for 'Test' invocation of DSC resource"
 
         # Execute the 'Test' method to determine if the state is as desired.
+        # The resource is evaluated through the selected engine (DscV2 / DscV3 / custom),
+        # which returns a normalized [DscMethodResult] regardless of the underlying tool.
         # A single resource that throws must not abort the entire run, so trap the
         # error, record it as a failed resource, and move on to the next task.
         try {
-            $result = Invoke-DscResource @resourceParameters
+            $result = Invoke-EngineAction -Method 'Test' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
             Write-Verbose "Executed 'Test' method for DSC resource: [$($task.type)/$($task.name)]"
         }
         catch {
@@ -217,10 +217,8 @@ function Start-DscRunner {
         }
         elseif ($Mode -eq "Set") {
 
-            $resourceParameters.Method = "Set"
-
             try {
-                $setResult = Invoke-DscResource @resourceParameters
+                $setResult = Invoke-EngineAction -Method 'Set' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
                 Write-Verbose "Executed 'Set' method to make changes: [$($task.type)/$($task.name)]"
                 $Message = "Resource set to desired state"
                 $Result = "PASS"
@@ -263,9 +261,11 @@ function Start-DscRunner {
 
         # Execute the 'Get' method to retrieve the current state of the resource.
         # A failed 'Get' should not abort the run; record $null and continue.
-        $resourceParameters.Method = 'get'
         try {
-            $output_var = Invoke-DscResource @resourceParameters
+            $getResult = Invoke-EngineAction -Method 'Get' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
+            # Store the engine's raw current-state output so downstream reference
+            # expansion sees exactly the same shape it did before the engine seam.
+            $output_var = $getResult.Raw
             Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$($task.type)/$($task.name)]"
         }
         catch {
