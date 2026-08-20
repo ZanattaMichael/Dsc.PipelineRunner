@@ -18,6 +18,7 @@ The executable to run. Defaults to 'dsc' (resolved on PATH).
 #>
 function Invoke-DscExecutable {
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]
         [string[]]$Arguments,

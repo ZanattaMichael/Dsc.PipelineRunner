@@ -23,6 +23,11 @@ A hashtable. Recognized keys:
 .OUTPUTS
 [string] The local directory the repository was cloned into.
 #>
+# $JITToken is assigned here and read by the module's `git` wrapper from this scope
+# (dynamic scoping) to build the HTTP Authorization header — the analyzer cannot see that
+# cross-function use and flags it as unused. The assignment is required.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'JITToken',
+    Justification = 'Read from this scope by the git wrapper (dynamic scoping) to build the auth header.')]
 param(
     [hashtable]$Context = @{}
 )

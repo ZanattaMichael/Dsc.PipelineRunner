@@ -280,7 +280,7 @@ function Start-DscRunner {
             elseif ($Mode -eq "Set") {
 
                 try {
-                    $setResult = Invoke-EngineAction -Method 'Set' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
+                    $null = Invoke-EngineAction -Method 'Set' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
                     Write-Verbose "Executed 'Set' method to make changes: [$resourceKey]"
                     $resourceStatus = 'OK'
                 }

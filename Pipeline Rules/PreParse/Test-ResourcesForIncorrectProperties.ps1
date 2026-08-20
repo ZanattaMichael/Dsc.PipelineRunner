@@ -37,6 +37,10 @@
 
     Test-ResourcesForIncorrectProperties -PipelineResources $resources
 #>
+# Write-Host is used deliberately for the operator-facing pass/fail banner (colored,
+# always visible on the host running the pre-parse check). It is not diagnostic output.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Intentional colored operator-facing pass/fail banner, not redirectable diagnostic output.')]
 param(
     [Object[]]$PipelineResources
 )

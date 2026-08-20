@@ -26,6 +26,14 @@ Name of the environment variable to read when -Token is empty. Defaults to
 #>
 function Get-PipelineAuthToken {
     [CmdletBinding()]
+    # The token genuinely arrives as plaintext — a plain [string] parameter or the
+    # pipeline-provided environment variable (e.g. SYSTEM_ACCESSTOKEN, which the CI host
+    # exposes as an env string). Wrapping it into a [SecureString] with -AsPlainText is the
+    # only way to normalize it, the plaintext is never written to any output stream, and the
+    # function exists precisely so this conversion lives in one audited place. The analyzer
+    # rule assumes a hard-coded secret in source, which is not the case here.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
+        Justification = 'Token arrives as plaintext from a caller argument or a pipeline-provided environment variable; SecureString conversion is required and the plaintext is never emitted.')]
     [OutputType([securestring])]
     param(
         [object]$Token,

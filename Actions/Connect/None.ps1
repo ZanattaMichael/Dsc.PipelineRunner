@@ -13,6 +13,10 @@ Ignored. Present so every action shares the same signature.
 .OUTPUTS
 $null
 #>
+# $Context is intentionally ignored: every Connect action shares one signature so the
+# runner can invoke them uniformly. This action establishes no session.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Context',
+    Justification = 'Present so every Connect action shares the same signature; the no-auth action ignores it by design.')]
 param(
     [hashtable]$Context = @{}
 )
