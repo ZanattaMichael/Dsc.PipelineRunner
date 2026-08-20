@@ -51,7 +51,13 @@ Optional directory to write the per-configuration CSV report into.
 
 .PARAMETER Engine
 Name of the execution engine action (a file under Actions/Engine/). 'DscV2' (default)
-wraps Invoke-DscResource; 'DscV3' drives dsc.exe.
+wraps Invoke-DscResource; 'DscV3' drives dsc.exe. 'Auto' opts in to detection, choosing
+DscV3 when the dsc executable is present (or the version hint asks for it) and DscV2
+otherwise.
+
+.PARAMETER EngineVersion
+Optional resource version hint used to bias 'Auto' engine selection by major version
+(major >= 3 selects DscV3, major 2 selects DscV2). Ignored unless -Engine is 'Auto'.
 
 .PARAMETER EngineAction
 Inline engine scriptblock. Takes precedence over -Engine.
@@ -92,6 +98,7 @@ function Invoke-DscRunner {
         [string]$ReportPath,
 
         [string]$Engine = 'DscV2',
+        [string]$EngineVersion,
         [scriptblock]$EngineAction
     )
 
@@ -128,8 +135,9 @@ function Invoke-DscRunner {
     Build-DatumConfiguration -OutputPath $CacheDirectory -ConfigurationPath $configurationDirectory
 
     $params = @{ Mode = $Mode; Engine = $Engine }
-    if ($ReportPath)   { $params.ReportPath   = $ReportPath }
-    if ($EngineAction) { $params.EngineAction = $EngineAction }
+    if ($ReportPath)    { $params.ReportPath    = $ReportPath }
+    if ($EngineVersion) { $params.EngineVersion = $EngineVersion }
+    if ($EngineAction)  { $params.EngineAction  = $EngineAction }
 
     Get-ChildItem -LiteralPath $CacheDirectory -File -Filter '*.yml' | ForEach-Object {
         Start-DscRunner -FilePath $_.FullName @params

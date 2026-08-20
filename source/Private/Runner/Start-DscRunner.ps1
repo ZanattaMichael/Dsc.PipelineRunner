@@ -39,12 +39,23 @@ function Start-DscRunner {
         [ValidateSet("Test", "Set")] # Ensures that Mode can only be 'Test' or 'Set'
         [string] $Mode = "Test", # Default mode is 'Test', can be set to 'Set' for applying changes,
         [String] $ReportPath = $null, # Optional parameter for specifying a report path
-        [string] $Engine = 'DscV2', # Execution engine action (Actions/Engine/<Engine>.ps1). Default: Invoke-DscResource.
+        [string] $Engine = 'DscV2', # Execution engine action (Actions/Engine/<Engine>.ps1). 'Auto' opts in to detection; default is Invoke-DscResource.
+        [string] $EngineVersion, # Optional resource version hint that biases 'Auto' engine selection by major version.
         [scriptblock] $EngineAction # Optional inline engine override; takes precedence over -Engine.
     )
 
+    # Resolve the engine once so any dsc.exe probe / auto-selection warning happens a
+    # single time per file rather than per resource. An inline EngineAction override
+    # bypasses selection entirely (it takes precedence over -Engine); an explicit engine
+    # name is honoured verbatim, and only 'Auto' triggers detection.
+    $resolvedEngine = $Engine
+    if (-not $EngineAction -and $Engine -eq 'Auto') {
+        $resolvedEngine = Resolve-DscEngine -Engine $Engine -Version $EngineVersion
+        Write-Verbose "Auto-selected DSC engine: $resolvedEngine"
+    }
+
     # Build the engine selector once; every Test/Set/Get for this file runs through it.
-    $engineArgs = @{ Engine = $Engine }
+    $engineArgs = @{ Engine = $resolvedEngine }
     if ($EngineAction) { $engineArgs.EngineAction = $EngineAction }
 
     # Clear StopTaskProcessing variable
