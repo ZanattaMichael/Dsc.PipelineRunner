@@ -11,6 +11,8 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         $InvokeFormatTasksPath = (Get-FunctionPath 'Invoke-FormatTasks.ps1').FullName
         $InvokeExpandHashTablePath = (Get-FunctionPath 'Expand-HashTable.ps1').FullName
         $StopTaskProcessingPath = (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
+        # #35: conditions are validated as side-effect-free predicates before they run.
+        $AssertSafeConditionPath = (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
         # Engine seam: Start-DscRunner now routes Test/Set/Get through Invoke-EngineAction,
         # which dispatches to Actions/Engine/DscV2.ps1 (the default engine that wraps
         # Invoke-DscResource). Load the loader, the wrapper, the normalizer and the
@@ -28,6 +30,7 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         . $InvokeFormatTasksPath
         . $InvokeExpandHashTablePath
         . $StopTaskProcessingPath
+        . $AssertSafeConditionPath
 
         $references = @{}
         $variables = @{}
@@ -327,6 +330,76 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
 
         }
 
+    }
+
+    Context "configuration script sandboxing (#35)" {
+
+        BeforeAll {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+        }
+
+        It "rejects a condition that invokes a command, aborting before the resource is evaluated" {
+
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{
+                            type      = "Module/Resource"
+                            name      = "Resource1"
+                            properties = @{ prop1 = "value1" }
+                            # A command invocation is not a predicate; it must be rejected (#35).
+                            condition = 'Stop-TaskProcessing'
+                        }
+                    )
+                }
+            }
+
+            $result = Start-DscRunner -FilePath "test.json"
+
+            $result.Status | Should -Be 'AbortedByException'
+            $result.ErrorMessage | Should -Match 'side-effect-free predicate'
+            # The offending resource is never evaluated.
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Test' } -Exactly 0 -Scope It
+        }
+
+        It "does not let a postExecutionScript assignment change the mode of later resources" {
+
+            # Every resource reports drift; in Test mode that means no Set is ever invoked.
+            Mock -CommandName Invoke-DscResource -MockWith {
+                param ($Name, $ModuleName, $Method, $Property)
+                @{ InDesiredState = $false; Message = "drift" }
+            }
+
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{
+                            type      = "Module/Resource"
+                            name      = "Resource1"
+                            properties = @{ prop1 = "value1" }
+                            # If this leaked into Start-DscRunner's scope (as dot-sourcing would
+                            # allow), Resource2 would run in Set mode and a Set would fire.
+                            postExecutionScript = '$Mode = ''Set'''
+                        }
+                        @{
+                            type      = "Module/Resource"
+                            name      = "Resource2"
+                            properties = @{ prop2 = "value2" }
+                        }
+                    )
+                }
+            }
+
+            Start-DscRunner -FilePath "test.json" | Out-Null
+
+            # The call operator keeps $Mode local to the script block, so the run stays in Test
+            # mode throughout and no Set is invoked.
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' } -Exactly 0 -Scope It
+        }
     }
 
     Context "when handling report paths" {

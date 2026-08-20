@@ -134,8 +134,10 @@ function Invoke-DscPipelineRunner {
     }
 
     #
-    # Compile the Datum Configuration
-    Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath
+    # Compile the Datum Configuration. The caller-supplied export directory is the trusted
+    # scratch root; pass it as -AllowedRoot so the compile step's path-traversal guard (#33)
+    # permits it while still rejecting a path that escapes it.
+    Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath -AllowedRoot $exportConfigDir
 
     #
     # Determine the Authentication Type and create the Authentication Provider.

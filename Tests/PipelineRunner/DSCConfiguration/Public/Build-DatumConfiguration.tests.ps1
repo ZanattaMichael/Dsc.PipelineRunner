@@ -134,10 +134,66 @@ Describe "Build-DatumConfiguration Function Tests" -Tag Unit {
 
             New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
 
-            { Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $invalidPath } | 
+            { Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $invalidPath } |
             Should -Throw -ErrorId "ParameterArgumentValidationError,Build-DatumConfiguration"
         }
-    }    
- 
+    }
+
+    Context "Path-traversal guard (#33)" {
+
+        # The guard runs before any file is touched, so a rejected OutputPath must throw
+        # without ever reaching the clear/compile machinery. These tests assert the refusal
+        # message and, on the happy path, that a permitted OutputPath is still processed.
+
+        It "Should refuse an OutputPath that escapes an explicit -AllowedRoot" {
+            # Two real sibling directories: the output path is NOT beneath the allowed root.
+            $allowedRoot = Join-Path $TestDrive "root"
+            $configurationPath = Join-Path $TestDrive "config"
+            $escapingOutput = Join-Path $TestDrive "escape"
+            New-Item -ItemType Directory -Path $allowedRoot -Force | Out-Null
+            New-Item -ItemType Directory -Path $configurationPath -Force | Out-Null
+            New-Item -ItemType Directory -Path $escapingOutput -Force | Out-Null
+
+            { Build-DatumConfiguration -OutputPath $escapingOutput -ConfigurationPath $configurationPath -AllowedRoot $allowedRoot } |
+                Should -Throw -ExpectedMessage "*outside the permitted working-directory root*"
+        }
+
+        It "Should refuse an OutputPath outside the system temp directory when -AllowedRoot is omitted" {
+            # With no -AllowedRoot, the guard defaults to the system temp directory. Build a
+            # path that resolves to a sibling of temp (via '..') so it lands outside it. The
+            # directories do not need to exist — Test-Path is mocked so the ValidateScript
+            # passes and the guard, not the filesystem, is what rejects the path.
+            Mock -CommandName Test-Path -MockWith { $true }
+
+            $tempRoot = [System.IO.Path]::GetTempPath()
+            $escapingOutput = Join-Path $tempRoot ('..' + [System.IO.Path]::DirectorySeparatorChar + "pipelinerunner-escape-$([guid]::NewGuid())")
+            $configurationPath = Join-Path $TestDrive "config-temp"
+
+            { Build-DatumConfiguration -OutputPath $escapingOutput -ConfigurationPath $configurationPath } |
+                Should -Throw -ExpectedMessage "*outside the permitted working-directory root*"
+        }
+
+        It "Should permit an OutputPath that sits beneath -AllowedRoot" {
+            # OutputPath nested inside the allowed root must be accepted and compiled.
+            $allowedRoot = Join-Path $TestDrive "permitted-root"
+            $outputPath = Join-Path $allowedRoot "output"
+            $configurationPath = Join-Path $TestDrive "permitted-config"
+            New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
+            New-Item -ItemType Directory -Path $configurationPath -Force | Out-Null
+
+            # The compile step writes a file so the empty-output guard passes.
+            Mock -CommandName Get-Command -MockWith {
+                return [PSCustomObject]@{
+                    ScriptBlock = {
+                        param($outputPath, $configurationPath)
+                        New-Item -ItemType File -Path (Join-Path $outputPath 'compiled.mof') -Force | Out-Null
+                    }
+                }
+            }
+
+            { Build-DatumConfiguration -OutputPath $outputPath -ConfigurationPath $configurationPath -AllowedRoot $allowedRoot } |
+                Should -Not -Throw
+        }
+    }
 
 }

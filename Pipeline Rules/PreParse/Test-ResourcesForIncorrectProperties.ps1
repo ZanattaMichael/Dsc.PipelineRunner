@@ -127,9 +127,15 @@ ForEach ($task in $PipelineResources)
             continue
         }
 
-        # If the ResourceProperty has selected values, ensure that the propertyValue is in the list
+        # If the ResourceProperty has selected values, ensure that the propertyValue is in the list.
+        # The offending value is deliberately NOT interpolated into the diagnostic: property
+        # values routinely carry secrets, and this log is readable by a wider audience than the
+        # configuration repository (#34). Name the property, the resource and the permitted set;
+        # an operator who needs the value can read the configuration they already have access to.
         if ($resourceProperty.Values -and $configurationPropertyValue -notin $resourceProperty.Values) {
-            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] with the value [$($configurationPropertyValue)] does not match the selected values in resource [$resourceType][$property]. Values can be: $($resourceProperty.Values -join ',')")
+            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] does not match the selected values in resource [$resourceType][$property]. Permitted values: $($resourceProperty.Values -join ', ')")
+            # Opt-in breadcrumb on the verbose stream only, redacted for sensitive property names.
+            Write-Verbose "[Dsc.PipelineRunner] Property [$property] provided value: $(Protect-SensitiveValue -Name $property -Value $configurationPropertyValue)"
         }
 
     }

@@ -37,11 +37,41 @@ Function Build-DatumConfiguration {
         [Parameter(Mandatory)]
         [ValidateScript({ Test-Path $_ -PathType 'Container' })]
         [String]
-        $ConfigurationPath
+        $ConfigurationPath,
+
+        # The working-directory root the output path must stay inside. Callers that resolve a
+        # trusted scratch/cache directory pass it here; when omitted, the system temp directory
+        # is used so an ad-hoc call cannot be steered outside temp. See issue #33.
+        [Parameter()]
+        [String]
+        $AllowedRoot
     )
 
+    # Path-traversal guard (#33). This function deletes the contents of $OutputPath, so a
+    # crafted or misconfigured path (e.g. one with '..' segments that escape the scratch area)
+    # must never be allowed to point deletion at arbitrary files on the agent. Canonicalize the
+    # requested output path and the permitted root and refuse to proceed unless the output path
+    # is the root itself or a directory beneath it. [System.IO.Path]::GetFullPath collapses '..'
+    # without touching the filesystem, so the check is cross-platform and side-effect-free.
+    if ([string]::IsNullOrWhiteSpace($AllowedRoot)) {
+        $AllowedRoot = [System.IO.Path]::GetTempPath()
+    }
+
+    $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+    $fullAllowedRoot = [System.IO.Path]::GetFullPath($AllowedRoot)
+
+    $trimChars = @([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $rootWithSeparator = $fullAllowedRoot.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
+    $outputWithSeparator = $fullOutputPath.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
+
+    if (-not $outputWithSeparator.StartsWith($rootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "[Build-DatumConfiguration] Refusing to clear '$OutputPath': it resolves to '$fullOutputPath', which is outside the permitted working-directory root '$fullAllowedRoot'. Point -OutputPath inside the scratch/cache directory (or pass a matching -AllowedRoot)."
+    }
+
     # Clear the output directory
-    Get-ChildItem -LiteralPath $OutputPath -File | Remove-Item -Force -ErrorAction SilentlyContinue
+    $filesToClear = @(Get-ChildItem -LiteralPath $OutputPath -File)
+    Write-Verbose "Clearing $($filesToClear.Count) file(s) from the output directory at path: $OutputPath"
+    $filesToClear | Remove-Item -Force -ErrorAction SilentlyContinue
     Write-Verbose "Cleared the output directory at path: $OutputPath"
 
     # Load the DatumConfigurationScriptBlock function from the DatumConfigurationScriptBlock.ps1 file

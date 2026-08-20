@@ -217,10 +217,19 @@ function Start-DscRunner {
             # Evaluate the Condition script block if it exists, and skip the task if the condition returns false
             if ($null -ne $task.Condition) {
 
+                # A condition is a predicate, not a program: reject any command, assignment or
+                # method call before it runs, so configuration code cannot use a condition to
+                # mutate the runner's state or its audit record (#35).
+                Assert-SafeConditionExpression -Expression $task.Condition
+
                 # Create a script block from the condition property
                 $sbCondition = [scriptblock]::Create($task.Condition)
 
-                if ((. $sbCondition) -eq $false) {
+                # Invoke with the call operator (&), not dot-sourcing (.), so the block runs in a
+                # child scope. It can still read the runner's variables through dynamic scoping
+                # (which is all the example configurations need), but any assignment it makes stays
+                # local instead of overwriting Start-DscRunner's own state (#35).
+                if ((& $sbCondition) -eq $false) {
 
                     Write-Verbose "Skipping resource due to condition: [$resourceKey]"
                     & $recordResult $task.type $task.name 'SKIP' $resourceStopwatch.ElapsedMilliseconds "Resource skipped due to condition {$($task.Condition)}."
@@ -293,8 +302,12 @@ function Start-DscRunner {
                 # Create a script block from the postExecutionScript property
                 $sbPostExecutionScript = [scriptblock]::Create($task.postExecutionScript)
 
-                # Dot-Source the postExecutionScript script block
-                . $sbPostExecutionScript
+                # Invoke in a child scope with the call operator (&) rather than dot-sourcing (.).
+                # postExecutionScript is imperative by design and may still read runner variables
+                # and call control verbs such as Stop-TaskProcessing (which sets module-scope
+                # state, so it keeps working across the scope boundary), but it can no longer
+                # reach in and rewrite Start-DscRunner's locals or its report (#35).
+                & $sbPostExecutionScript
             }
 
             # Execute the 'Get' method to retrieve the current state of the resource.

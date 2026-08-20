@@ -167,7 +167,9 @@ function Invoke-DscRunner {
 
     #
     # 4. Compile Datum and run the core loop over each compiled configuration file.
-    Build-DatumConfiguration -OutputPath $resolvedCacheDirectory -ConfigurationPath $configurationDirectory
+    # The resolved cache directory is the trusted scratch root; pass it as -AllowedRoot so the
+    # compile step's path-traversal guard (#33) permits it while still rejecting an escaping path.
+    Build-DatumConfiguration -OutputPath $resolvedCacheDirectory -ConfigurationPath $configurationDirectory -AllowedRoot $resolvedCacheDirectory
 
     $params = @{ Mode = $Mode; Engine = $Engine }
     if ($ReportPath)    { $params.ReportPath    = $ReportPath }
