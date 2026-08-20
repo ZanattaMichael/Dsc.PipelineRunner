@@ -151,27 +151,28 @@ function Invoke-DscRunner {
     # 3. Determine the compile/cache directory. An explicit -CacheDirectory wins, then the
     # generic PIPELINERUNNER_CACHE_DIRECTORY (with AZDODSC_CACHE_DIRECTORY kept as a
     # back-compat alias), and finally a fresh temporary directory — no env var is required.
-    if ([string]::IsNullOrWhiteSpace($CacheDirectory)) {
-        $CacheDirectory = Resolve-CacheDirectory
-        if ([string]::IsNullOrWhiteSpace($CacheDirectory)) {
-            $CacheDirectory = (New-TemporaryDirectory).Path
-            Write-Verbose "[Invoke-DscRunner] Using temporary cache directory: $CacheDirectory"
-        }
-        else {
-            Write-Verbose "[Invoke-DscRunner] Using cache directory from environment: $CacheDirectory"
-        }
+    # Resolve into a local: the -CacheDirectory parameter carries a ValidateScript that
+    # re-fires on every assignment, so writing an unresolved ($null) value back to it would
+    # throw before the temp-dir fallback ever runs.
+    $resolvedCacheDirectory = Resolve-CacheDirectory -CacheDirectory $CacheDirectory
+    if ([string]::IsNullOrWhiteSpace($resolvedCacheDirectory)) {
+        $resolvedCacheDirectory = (New-TemporaryDirectory).Path
+        Write-Verbose "[Invoke-DscRunner] Using temporary cache directory: $resolvedCacheDirectory"
+    }
+    else {
+        Write-Verbose "[Invoke-DscRunner] Using cache directory: $resolvedCacheDirectory"
     }
 
     #
     # 4. Compile Datum and run the core loop over each compiled configuration file.
-    Build-DatumConfiguration -OutputPath $CacheDirectory -ConfigurationPath $configurationDirectory
+    Build-DatumConfiguration -OutputPath $resolvedCacheDirectory -ConfigurationPath $configurationDirectory
 
     $params = @{ Mode = $Mode; Engine = $Engine }
     if ($ReportPath)    { $params.ReportPath    = $ReportPath }
     if ($EngineVersion) { $params.EngineVersion = $EngineVersion }
     if ($EngineAction)  { $params.EngineAction  = $EngineAction }
 
-    Get-ChildItem -LiteralPath $CacheDirectory -File -Filter '*.yml' | ForEach-Object {
+    Get-ChildItem -LiteralPath $resolvedCacheDirectory -File -Filter '*.yml' | ForEach-Object {
         Start-DscRunner -FilePath $_.FullName @params
     }
 }
