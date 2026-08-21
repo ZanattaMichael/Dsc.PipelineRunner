@@ -349,7 +349,16 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
                         retryCount      = @{ defaultValue = 3 }
                     }
                     variables  = @{}
-                    resources  = @()
+                    # A single resource keeps the mocked task pipeline non-empty (its
+                    # mandatory [Object[]] parameters reject an empty array); the assertion
+                    # below is about the parameter table, populated before the resource loop.
+                    resources  = @(
+                        @{
+                            type = "Module/Resource"
+                            name = "Resource1"
+                            properties = @{ prop1 = "value1" }
+                        }
+                    )
                 }
             }
 
