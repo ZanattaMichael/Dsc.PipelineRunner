@@ -202,6 +202,16 @@ See §5. Add the `Actions/Engine/` hook with its typed `[DscMethodResult]` contr
 what makes Linux/macOS hosted agents genuinely useful, since `Invoke-DscResource` is
 Windows/PS-DSC-v2-first.
 
+**Compiled-configuration compliance (done).** The compiled Datum output is a
+runner-specific shape, not a DSC v3 configuration document, so it cannot be handed to
+`dsc config get|test|set` directly. `ConvertTo-DscV3ConfigurationDocument` (public)
+bridges the two — it stamps the `$schema`, keeps only `name`/`type`/`properties`, drops
+the pipeline-only keys, validates each `type` as a DSC v3 identifier (structural, plus an
+optional existence check against `dsc resource list`), and aggregates problems into one
+throw. `Test-DscV3ResourceType` backs the structural check and the `DscV3` engine gained a
+fail-fast pre-flight on the type. `scripts/Test-DscV3ConfigDocument.ps1` proves the output
+against a real `dsc config get` in the DSC v3 Ubuntu CI job. See `docs/dsc-v3.md`.
+
 ### Phase 3 — Pipeline-native auth & hosted-agent story [21, 22]
 
 - `-JITToken` / `-PATToken` → `[SecureString]`; no token in any output stream [22]
