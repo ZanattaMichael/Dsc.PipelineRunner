@@ -29,6 +29,7 @@ A structure mirroring the input with every dictionary replaced by a case-insensi
 #>
 function ConvertTo-CaseInsensitiveHashtable {
     [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable], [System.Object[]], [System.Object])]
     param(
         [Parameter(Position = 0)]
         $InputObject
