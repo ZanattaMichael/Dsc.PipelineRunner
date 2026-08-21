@@ -14,6 +14,12 @@ Specifies the directory where configuration files are exported by Datum. This pa
 .PARAMETER ConfigurationSourcePath
 Specifies the URL or directory path for the configuration source. This parameter is mandatory.
 
+SECURITY: the configuration is executed as arbitrary PowerShell — a Datum/DSC Configuration
+block is code, not just data — in the runner's own process and security context. There is no
+sandbox or content validation. Treat the configuration repository (or the cloned URL) as
+fully-trusted code and protect it with the same controls as the runner's own source: branch
+protection, required reviews, and (ideally) signed commits. See SECURITY.md, "Trust model".
+
 .PARAMETER JITToken
 Specifies the Just-In-Time (JIT) access token. This parameter is mandatory.
 
@@ -35,7 +41,7 @@ Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -exportConfigDir "
 This example invokes the DSC Pipeline Runner process using a PAT for authentication.
 
 .NOTES
-Ensure that the environment variable AZDODSC_CACHE_DIRECTORY is set before running this function. The function will throw an error if this environment variable is not set.
+Ensure that a cache directory environment variable is set before running this function. The generic PIPELINERUNNER_CACHE_DIRECTORY is preferred; the legacy AZDODSC_CACHE_DIRECTORY is still honoured as a back-compat alias. The function will throw an error if neither is set.
 
 #>
 
@@ -91,7 +97,12 @@ function Invoke-DscPipelineRunner {
         # It includes a validation script to ensure the provided path points to a file (leaf) and not a directory.
         [Parameter()]
         [ValidateScript({Test-Path -Path $_ -PathType Container})]
-        [String]$ReportPath
+        [String]$ReportPath,
+
+        # Opt-in: set a non-zero process exit code when the run reports a failure, so a
+        # pipeline step fails loudly instead of silently succeeding.
+        [Parameter()]
+        [switch]$FailOnError
 
     )
 
@@ -103,35 +114,57 @@ function Invoke-DscPipelineRunner {
     #$ExecutionPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 
     #
-    # Test to make sure that the Enviroment Variable is Set
+    # Test to make sure a cache directory is configured. The generic
+    # PIPELINERUNNER_CACHE_DIRECTORY is preferred; the legacy AZDODSC_CACHE_DIRECTORY is
+    # still honoured as a back-compat alias for existing Azure DevOps pipelines.
 
-    if (-not $ENV:AZDODSC_CACHE_DIRECTORY) {
-        throw "The Environment Variable AZDODSC_CACHE_DIRECTORY is not set. Please set the environment variable before running this script."
+    if (-not (Resolve-CacheDirectory)) {
+        throw "No cache directory is set. Set the PIPELINERUNNER_CACHE_DIRECTORY environment variable (AZDODSC_CACHE_DIRECTORY is also accepted) before running this script."
     }
 
     #
     # Clone the Datum Configuration from the Configuration URL
 
+    # Track whether the configuration came from a remote URL so the compile step can warn that
+    # remote content executes as trusted code in this process (#27).
+    $sourceIsRemote = $false
+
     # Test ConfigurationSourcePath if it is a URL. If URL attempt to clone.
     if ($ConfigurationSourcePath -match '^(http|https):\/\/') {
         # Cone from URL
         $DatumConfigurationPath = Clone-Repository -DatumURLConfig $ConfigurationSourcePath
+        $sourceIsRemote = $true
     }
     # Test if ConfigurationSourcePath is a directory path that exists.
     elseif (Test-Path -Path $ConfigurationSourcePath -PathType Container) {
         $DatumConfigurationPath = $ConfigurationSourcePath
-    } 
+    }
     # Else. Throw an error for bad data.
     else {
         throw "[Invoke-DscPipelineRunner] Invalid ConfigurationSourcePath: $ConfigurationSourcePath"
     }
 
     #
-    # Compile the Datum Configuration
-    Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath
+    # Compile the Datum Configuration. The caller-supplied export directory is the trusted
+    # scratch root; pass it as -AllowedRoot so the compile step's path-traversal guard (#33)
+    # permits it while still rejecting a path that escapes it.
+    Build-DatumConfiguration -OutputPath $exportConfigDir -ConfigurationPath $DatumConfigurationPath -AllowedRoot $exportConfigDir -SourceIsRemote:$sourceIsRemote
 
     #
-    # Determine the Authentication Type and create the Authentication Provider
+    # Determine the Authentication Type and create the Authentication Provider.
+    #
+    # Azure DevOps is no longer a hard dependency of the module (it is not listed in
+    # RequiredModules). This back-compat entry point therefore imports the provider on
+    # demand and fails clearly if it is absent — new callers should prefer
+    # Invoke-DscRunner with `-Connect AzureDevOps` (or a custom Connect action).
+    if (-not (Get-Command -Name New-AzDoAuthenticationProvider -ErrorAction SilentlyContinue)) {
+        if (Get-Module -ListAvailable -Name AzureDevOpsDsc.Common) {
+            Import-Module -Name AzureDevOpsDsc.Common -ErrorAction Stop
+        }
+        else {
+            throw "[Invoke-DscPipelineRunner] Azure DevOps support requires the 'AzureDevOpsDsc.Common' module. Install it, or use Invoke-DscRunner with a custom Connect action."
+        }
+    }
 
     if ($AuthenticationType -eq 'PAT') {
         New-AzDoAuthenticationProvider -OrganizationName $AzureDevopsOrganizationName -PersonalAccessToken $PATToken
@@ -154,9 +187,17 @@ function Invoke-DscPipelineRunner {
         $params.ReportPath = $ReportPath
     }
 
-    Get-ChildItem -LiteralPath $exportConfigDir -File -Filter "*.yml" | ForEach-Object { 
+    # Collect each configuration's structured result so the run can be summarized as a single
+    # machine-readable object and, with -FailOnError, surface a non-zero exit code (#19).
+    $runResults = Get-ChildItem -LiteralPath $exportConfigDir -File -Filter "*.yml" | ForEach-Object {
         Start-DscRunner -FilePath $_.Fullname @params
     }
+
+    $summaryArgs = @{ Result = $runResults }
+    if ($ReportPath)  { $summaryArgs.ReportPath  = $ReportPath }
+    if ($FailOnError) { $summaryArgs.FailOnError = $true }
+
+    return Merge-DscRunnerResult @summaryArgs
 
     <#
     return

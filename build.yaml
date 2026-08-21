@@ -29,6 +29,7 @@ BuildWorkflow:
     - Clean
     - Build_Module_ModuleBuilder
     - Copy_Pipeline_Rules
+    - Copy_Actions
 
   pack:
     - build

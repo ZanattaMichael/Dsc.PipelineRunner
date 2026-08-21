@@ -25,6 +25,13 @@
 # .NOTES
 # The function uses runspaces to run the script block in a separate thread.
 # Ensure that the 'powershell-yaml', 'datum', and 'datum.invokecommand' modules are available.
+#
+# Caller contract (#26): the compile step is the module-internal function
+# 'DatumConfigurationScriptBlock' (source/Private/Configuration/DatumConfigurationScriptBlock.ps1).
+# It is resolved by name via Get-Command, so it must be loaded in the session — which it is
+# whenever Dsc.PipelineRunner is imported as a module. Tests that dot-source this function in
+# isolation must therefore also provide a 'DatumConfigurationScriptBlock' function (the existing
+# Pester suite defines a stub), otherwise the Get-Command lookup fails.
 
 Function Build-DatumConfiguration {
     [CmdletBinding()]
@@ -37,11 +44,54 @@ Function Build-DatumConfiguration {
         [Parameter(Mandatory)]
         [ValidateScript({ Test-Path $_ -PathType 'Container' })]
         [String]
-        $ConfigurationPath
+        $ConfigurationPath,
+
+        # The working-directory root the output path must stay inside. Callers that resolve a
+        # trusted scratch/cache directory pass it here; when omitted, the system temp directory
+        # is used so an ad-hoc call cannot be steered outside temp. See issue #33.
+        [Parameter()]
+        [String]
+        $AllowedRoot,
+
+        # Set by callers when the configuration was cloned from a remote URL. The compile step
+        # executes the configuration as arbitrary PowerShell (a DSC Configuration block is code),
+        # so remote configuration content runs in the runner's own security context. There is no
+        # sandbox; this surfaces a one-line reminder that the configuration repository must be
+        # trusted and protected like the runner's own source. See issue #27 and SECURITY.md.
+        [Parameter()]
+        [Switch]
+        $SourceIsRemote
     )
 
+    if ($SourceIsRemote) {
+        Write-Warning "[Build-DatumConfiguration] The configuration was cloned from a remote source and will be executed as trusted PowerShell code in this process. Dsc.PipelineRunner does not sandbox configuration content — protect the configuration repository with the same controls as the runner's own source (branch protection, required reviews). See SECURITY.md ('Trust model')."
+    }
+
+    # Path-traversal guard (#33). This function deletes the contents of $OutputPath, so a
+    # crafted or misconfigured path (e.g. one with '..' segments that escape the scratch area)
+    # must never be allowed to point deletion at arbitrary files on the agent. Canonicalize the
+    # requested output path and the permitted root and refuse to proceed unless the output path
+    # is the root itself or a directory beneath it. [System.IO.Path]::GetFullPath collapses '..'
+    # without touching the filesystem, so the check is cross-platform and side-effect-free.
+    if ([string]::IsNullOrWhiteSpace($AllowedRoot)) {
+        $AllowedRoot = [System.IO.Path]::GetTempPath()
+    }
+
+    $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+    $fullAllowedRoot = [System.IO.Path]::GetFullPath($AllowedRoot)
+
+    $trimChars = @([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $rootWithSeparator = $fullAllowedRoot.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
+    $outputWithSeparator = $fullOutputPath.TrimEnd($trimChars) + [System.IO.Path]::DirectorySeparatorChar
+
+    if (-not $outputWithSeparator.StartsWith($rootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "[Build-DatumConfiguration] Refusing to clear '$OutputPath': it resolves to '$fullOutputPath', which is outside the permitted working-directory root '$fullAllowedRoot'. Point -OutputPath inside the scratch/cache directory (or pass a matching -AllowedRoot)."
+    }
+
     # Clear the output directory
-    Get-ChildItem -LiteralPath $OutputPath -File | Remove-Item -Force -ErrorAction SilentlyContinue
+    $filesToClear = @(Get-ChildItem -LiteralPath $OutputPath -File)
+    Write-Verbose "Clearing $($filesToClear.Count) file(s) from the output directory at path: $OutputPath"
+    $filesToClear | Remove-Item -Force -ErrorAction SilentlyContinue
     Write-Verbose "Cleared the output directory at path: $OutputPath"
 
     # Load the DatumConfigurationScriptBlock function from the DatumConfigurationScriptBlock.ps1 file
@@ -57,20 +107,40 @@ Function Build-DatumConfiguration {
     $runspace.Open()
 
     # Create a PowerShell instance and attach the script block and runspace
-    $powerShellInstance = [powershell]::Create().AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath)
+    $powerShellInstance = [powershell]::Create()
+    $powerShellInstance.Runspace = $runspace
+    $null = $powerShellInstance.AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath)
 
-    # Run the PowerShell script asynchronously
-    $asyncResult = $powerShellInstance.BeginInvoke()
+    try {
+        # Run the PowerShell script asynchronously and wait for completion
+        $asyncResult = $powerShellInstance.BeginInvoke()
+        $scriptOutput = $powerShellInstance.EndInvoke($asyncResult)
 
-    # Optionally, you can handle the output of the script after it has completed
-    $scriptOutput = $powerShellInstance.EndInvoke($asyncResult)
+        # Surface any errors raised inside the runspace instead of discarding them.
+        # Without this a failed Datum compile returns silently and the caller proceeds
+        # to Start-DscRunner with an empty output directory, reporting a clean run.
+        if ($powerShellInstance.HadErrors -or $powerShellInstance.Streams.Error.Count -gt 0) {
+            $firstError = $powerShellInstance.Streams.Error | Select-Object -First 1
+            throw "[Build-DatumConfiguration] Datum compilation failed in the script block: $firstError"
+        }
 
-    # Output the results from the script block
-    foreach ($output in $scriptOutput) {
-        Write-Output $output
+        # Output the results from the script block
+        foreach ($output in $scriptOutput) {
+            Write-Output $output
+        }
+    }
+    finally {
+        # Always release the runspace/instance, even on failure
+        $powerShellInstance.Dispose()
+        $runspace.Close()
+        $runspace.Dispose()
     }
 
-    # Close the runspace when done
-    $runspace.Close()
+    # Datum must have produced at least one compiled output file; an empty directory
+    # means compilation silently failed to merge the hierarchy or resolve a resource.
+    $producedOutput = Get-ChildItem -LiteralPath $OutputPath -File -ErrorAction SilentlyContinue
+    if (-not $producedOutput) {
+        throw "[Build-DatumConfiguration] Datum compilation produced no output in '$OutputPath' — check the configuration path and YAML syntax."
+    }
 
 }

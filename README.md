@@ -4,6 +4,11 @@
 
 `Dsc.PipelineRunner` is a platform-agnostic DSC pipeline runner designed to execute DSC configurations within any CI/CD pipeline (GitHub Actions, GitLab, Jenkins, Azure DevOps, and more). It utilizes Datum to merge configuration stubs into larger pieces of configuration, which are then parsed and applied by the runner.
 
+> ⚠️ **Security — read this first.** The runner executes your configuration repository as
+> **fully-trusted code** (a DSC `Configuration` block is code, not just data). There is no
+> sandbox. Protect the configuration repository with the same controls as the runner's own
+> source. See [SECURITY.md](SECURITY.md) and [docs/trust-model.md](docs/trust-model.md).
+
 ## Datum
 
 This module utilizes Datum from Gael Colas to streamline configuration. For more information on how to implement and use it, please refer to the [official documentation or Gael Colas' resources.](https://github.com/gaelcolas/Datum)
@@ -157,9 +162,13 @@ In the realm of configuration, there are specialized commands designed to modify
 | `PATToken` | When using PAT | 52-character alphanumeric Personal Access Token. |
 | `ReportPath` | No | Directory path where a per-project CSV report is written after execution. |
 
-> The environment variable `AZDODSC_CACHE_DIRECTORY` must be set before calling `Invoke-DscPipelineRunner`.
+> A cache directory environment variable must be set before calling `Invoke-DscPipelineRunner`. Prefer the generic `PIPELINERUNNER_CACHE_DIRECTORY`; the legacy `AZDODSC_CACHE_DIRECTORY` is still honoured as a back-compat alias. `Invoke-DscRunner` needs neither — pass `-CacheDirectory`, set one of those variables, or let it use a temporary directory.
 
 ## Getting Started
+
+> **Running on a hosted Linux agent with DSC v3?** See
+> [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for bootstrapping the `dsc`
+> engine, pipeline-native authentication, and workload-identity federation (no stored PAT).
 
 1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
 
@@ -298,8 +307,8 @@ In the realm of configuration, there are specialized commands designed to modify
 
     steps:
       - pwsh: |
-          $env:AZDODSC_CACHE_DIRECTORY = "$(Agent.TempDirectory)\AzDODSCCache"
-          New-Item -Path $env:AZDODSC_CACHE_DIRECTORY -ItemType Directory -Force | Out-Null
+          $env:PIPELINERUNNER_CACHE_DIRECTORY = "$(Agent.TempDirectory)\PipelineRunnerCache"
+          New-Item -Path $env:PIPELINERUNNER_CACHE_DIRECTORY -ItemType Directory -Force | Out-Null
 
           Import-Module Dsc.PipelineRunner
 

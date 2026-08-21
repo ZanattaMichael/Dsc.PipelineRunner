@@ -58,10 +58,20 @@ Function Get-FunctionPath {
         }
     }
 
-    # Perform a lookup for all BeforeEach FileNames
+    # Perform a lookup for all BeforeEach FileNames. Prefer an exact, case-sensitive
+    # match so files that differ only by case (e.g. the low-level DatumHelper 'git.ps1'
+    # and the higher-level Source action 'Git.ps1') resolve to the intended one. Only
+    # fall back to a case-insensitive match when no exact-case file exists, so existing
+    # lookups keep working unchanged.
     $BeforeEachPath = @()
     ForEach ($FileName in $FileNames) {
-        $BeforeEachPath += $Global:TestPaths | Where-Object { $_.Name -eq $FileName }
+        $exactMatches = $Global:TestPaths | Where-Object { $_.Name -ceq $FileName }
+        if ($exactMatches) {
+            $BeforeEachPath += $exactMatches
+        }
+        else {
+            $BeforeEachPath += $Global:TestPaths | Where-Object { $_.Name -eq $FileName }
+        }
     }
 
     return $BeforeEachPath

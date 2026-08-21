@@ -6,6 +6,9 @@ Describe "Test-ResourcesForIncorrectProperties" -Tag Unit, Runner, Rules, PrePar
         $preParseFilePath = (Get-FunctionPath 'Test-ResourcesForIncorrectProperties.ps1').FullName
         . $preParseFilePath
 
+        # #34: the rule routes its (verbose) value breadcrumb through the redaction helper.
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
+
         # Mock Get-DscResource for testing purposes
         Mock -CommandName Get-DscResource -MockWith {
             @{
@@ -176,6 +179,64 @@ Describe "Test-ResourcesForIncorrectProperties" -Tag Unit, Runner, Rules, PrePar
         { . $preParseFilePath -PipelineResources $resources } | Should -Not -Throw
         Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*is a caculated variable in resource*" } -Exactly 2
 
+    }
+
+    It "Should not print the offending property value in any output stream (#34)" {
+        # A resource whose secret-bearing property carries a value outside the permitted set.
+        Mock -CommandName Get-DscResource -MockWith {
+            @{
+                Name = 'MyResourceType'
+                Properties = @(
+                    [PSCustomObject]@{ Name = 'Password'; PropertyType = 'String'; IsMandatory = $false; Values = @('Vaulted') }
+                )
+            }
+        }
+
+        $secret = 'S3cr3t-Do-Not-Log'
+        $resources = @(
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'MyResource'
+                properties = @{ Password = $secret }
+            }
+        )
+
+        $verboseMessages = [System.Collections.Generic.List[string]]::new()
+        Mock -CommandName Write-Verbose -MockWith { $verboseMessages.Add($Message) }
+
+        { . $preParseFilePath -PipelineResources $resources } | Should -Throw
+
+        # The value must never reach the (default) Write-Host stream...
+        Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*$secret*" } -Exactly 0
+        # ...and the redacted verbose breadcrumb must mask a sensitively-named property too.
+        ($verboseMessages -join "`n") | Should -Not -Match ([regex]::Escape($secret))
+        # The diagnostic still names the property and resource.
+        Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*does not match the selected values in resource*" }
+    }
+
+    It "Should report every invalid resource, not just the first" {
+        # Three resources, each with a property the resource does not declare.
+        # All three must be reported before the run stops (regression for #8).
+        $resources = @(
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'ResourceA'
+                properties = @{ Property1 = 'Value1'; InvalidProp = 'x' }
+            }
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'ResourceB'
+                properties = @{ Property1 = 'Value1'; InvalidProp = 'y' }
+            }
+            [PSCustomObject]@{
+                type = 'Module/MyResourceType'
+                name = 'ResourceC'
+                properties = @{ Property1 = 'Value1'; InvalidProp = 'z' }
+            }
+        )
+
+        { . $preParseFilePath -PipelineResources $resources } | Should -Throw
+        Assert-MockCalled -CommandName Write-Host -ParameterFilter { $Message -like "*does not exist in resource*" } -Exactly 3
     }
 
 }

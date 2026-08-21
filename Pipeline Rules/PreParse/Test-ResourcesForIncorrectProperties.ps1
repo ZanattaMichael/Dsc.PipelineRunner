@@ -37,11 +37,18 @@
 
     Test-ResourcesForIncorrectProperties -PipelineResources $resources
 #>
+# Write-Host is used deliberately for the operator-facing pass/fail banner (colored,
+# always visible on the host running the pre-parse check). It is not diagnostic output.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Intentional colored operator-facing pass/fail banner, not redirectable diagnostic output.')]
 param(
     [Object[]]$PipelineResources
 )
 
-$isFail = $false
+# Collect every validation error across all resources, then fail once at the end.
+# Previously $isFail persisted across iterations and a `break` aborted the loop, so
+# only the first offending resource was ever reported.
+$allErrors = [System.Collections.Generic.List[string]]::new()
 
 Write-Host "[Test-ResourcesForIncorrectProperties] Testing Resources for Incorrect Properties:" -ForegroundColor Green
 
@@ -51,34 +58,30 @@ ForEach ($task in $PipelineResources)
 
     Write-Host "[Test-ResourcesForIncorrectProperties] Testing Resource: [$($task.type)/$($task.name)]" -ForegroundColor Green
 
+    # Track failures for this resource only, so a missing key skips the deeper
+    # checks for this resource without aborting validation of the remaining ones.
+    $resourceHasError = $false
+
     #
     # The name, type and properties keys are required for each task.
-    # If any of these keys are missing, an error will be thrown.
 
-    # Throw an error is the properties key does not exist
+    # Report an error if the properties key does not exist
     if ($null -eq $task.properties) {
-        Write-Host "[Dsc.PipelineRunner] 'Properties' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
-        $isFail = $true
+        $allErrors.Add("[Dsc.PipelineRunner] 'Properties' key does not exist for resource: [$($task.type)/$($task.name)]")
+        $resourceHasError = $true
     }
 
-    # Throw an error is the name key does not exist
+    # Report an error if the name key does not exist
     if ($null -eq $task.name) {
-        Write-Host "[Dsc.PipelineRunner] 'Name' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
-        $isFail = $true
+        $allErrors.Add("[Dsc.PipelineRunner] 'Name' key does not exist for resource: [$($task.type)/$($task.name)]")
+        $resourceHasError = $true
     }
 
-    <#
-    # Throw an error is the type key does not exist
-    if ($null -eq $task.type) {
-        Write-Host "[Dsc.PipelineRunner] 'Type' key does not exist for resource: [$($task.type)/$($task.name)]" -ForegroundColor Red
-        $isFail = $true
-    }
-    #>
-
-    # If there is a failure, skip the rest of the tests
-    if ($isFail) {
+    # If a required key is missing, skip the deeper checks for THIS resource only
+    # (continue to the next resource rather than break out of the whole loop).
+    if ($resourceHasError) {
         Write-Host "[Dsc.PipelineRunner] Skipping [$($task.type)/$($task.name)]" -ForegroundColor Yellow
-        break
+        continue
     }
 
     # Extract the module name and resource type from the task's type property
@@ -88,10 +91,10 @@ ForEach ($task in $PipelineResources)
     # Perform a lookup of the resource:
     $resource = Get-DscResource -Name $resourceType -Module $module
 
-    # If the resource is not found, throw an error
+    # If the resource is not found, report an error and skip its property checks
     if ($null -eq $resource) {
-        Write-Host "[Dsc.PipelineRunner] Resource [$resourceType] was not found in module [$module]" -ForegroundColor Red
-        $isFail = $true
+        $allErrors.Add("[Dsc.PipelineRunner] Resource [$resourceType] was not found in module [$module]")
+        continue
     }
 
     # If the resource is found, check to see if the properties are correct
@@ -100,10 +103,9 @@ ForEach ($task in $PipelineResources)
     # Iterate through each of the properties
     ForEach ($property in $properties.keys)
     {
-        # If the property does not exist in the resource, throw an error
+        # If the property does not exist in the resource, report an error
         if ($Property -notin $resource.Properties.Name) {
-            Write-Host "[Dsc.PipelineRunner] Property [$($property)] does not exist in resource [$resourceType] in module [$module]" -ForegroundColor Red
-            $isFail = $true
+            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] does not exist in resource [$resourceType] in module [$module]")
         }
         # Ensure that the property is the correct type to the resource.
         $resourceProperty       = $resource.Properties | Where-Object { $_.Name -eq $property }
@@ -112,17 +114,15 @@ ForEach ($task in $PipelineResources)
         $configurationPropertyValue  = $properties[$property]
 
         <#
-        # If the property is not the correct type, throw an error
+        # If the property is not the correct type, report an error
         if ($configurationPropertyValue.GetType().Name -ne $resourcePropertyType) {
-            Write-Host "[Dsc.PipelineRunner] Property [$($property)] is not the correct type in resource [$resourceType] in module [$module]" -ForegroundColor Red
-            $isFail = $true
+            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] is not the correct type in resource [$resourceType] in module [$module]")
         }
         #>
-        
+
         # If the ResourceProperty is mandatory, ensure that the propertyValue is not null
         if ($resourceProperty.IsMandatory -and $null -eq $configurationPropertyValue) {
-            Write-Host "[Dsc.PipelineRunner] Property [$($property)] is mandatory in resource [$resourceType] in module [$module]" -ForegroundColor Red
-            $isFail = $true
+            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] is mandatory in resource [$resourceType] in module [$module]")
         }
 
         # If the Property is a caculated variable, ignore the property
@@ -131,18 +131,28 @@ ForEach ($task in $PipelineResources)
             continue
         }
 
-        # If the ResourceProperty has selected values, ensure that the propertyValue is in the list
+        # If the ResourceProperty has selected values, ensure that the propertyValue is in the list.
+        # The offending value is deliberately NOT interpolated into the diagnostic: property
+        # values routinely carry secrets, and this log is readable by a wider audience than the
+        # configuration repository (#34). Name the property, the resource and the permitted set;
+        # an operator who needs the value can read the configuration they already have access to.
         if ($resourceProperty.Values -and $configurationPropertyValue -notin $resourceProperty.Values) {
-            Write-Host "[Dsc.PipelineRunner] Property [$($property)] with the value [$($configurationPropertyValue)] does not match the selected values in resource [$resourceType][$property]. Values can be: $($resourceProperty.Values -join ',')" -ForegroundColor Red
-            $isFail = $true
+            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] does not match the selected values in resource [$resourceType][$property]. Permitted values: $($resourceProperty.Values -join ', ')")
+            # Opt-in breadcrumb on the verbose stream only, redacted for sensitive property names.
+            Write-Verbose "[Dsc.PipelineRunner] Property [$property] provided value: $(Protect-SensitiveValue -Name $property -Value $configurationPropertyValue)"
         }
 
     }
 
 }
 
-if ($isFail) {
-    Throw "[Test-ResourcesForIncorrectProperties] Tests Failed. Stopping runner."
+# Emit every collected error, then stop the run once — so an operator sees all
+# offending resources/properties in a single pass instead of fix-and-rerun.
+if ($allErrors.Count -gt 0) {
+    foreach ($validationError in $allErrors) {
+        Write-Host $validationError -ForegroundColor Red
+    }
+    Throw "[Test-ResourcesForIncorrectProperties] Tests Failed ($($allErrors.Count) issue(s)). Stopping runner."
 } else {
     Write-Host "[Test-ResourcesForIncorrectProperties] Tests Passed" -ForegroundColor Green
 }

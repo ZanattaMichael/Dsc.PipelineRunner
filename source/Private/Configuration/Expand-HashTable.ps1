@@ -39,15 +39,20 @@ Function Expand-HashTable {
     # Iterate through each key in the hashtable
     foreach ($key in $InputHashTable.Keys) {
         
-        if ($InputHashTable[$key] -is [Bool]) {
+        if ($null -eq $InputHashTable[$key]) {
+            # Preserve nulls rather than calling .GetType() on them (which throws)
+            $inputValue = $null
+        }
+        elseif ($InputHashTable[$key] -is [Bool]) {
             # Keep the boolean value as is
             $inputValue = $InputHashTable[$key]
-        } 
+        }
         # Test if the property is a list
         elseif ($InputHashTable[$key].GetType().Name -eq 'List`1') {
-            # Expand the string in the list
-            $inputValue = Expand-StringInArray $task.properties[$key]
-        } 
+            # Expand the string in the list (read from this hashtable, not the
+            # caller-scope $task, so nested/recursive expansion uses the right values)
+            $inputValue = Expand-StringInArray $InputHashTable[$key]
+        }
         elseif ($InputHashTable[$key] -is [hashtable]) {
             # Recursively expand the hashtable
             $inputValue = Expand-HashTable -InputHashTable $InputHashTable[$key]
