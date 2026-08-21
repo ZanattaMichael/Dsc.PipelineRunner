@@ -333,4 +333,52 @@ Describe "Start-DscRunner pipeline integration" -Tag Integration {
             $document.PassCount | Should -Be $result.PassCount
         }
     }
+
+    Context "DIAGNOSTIC (temporary) - locate where multi-resource collapses" {
+
+        It "DIAG multi-line JSON parses all three resources" {
+            $json = @'
+{
+  "parameters": {},
+  "variables": {},
+  "resources": [
+    { "type": "Test/A", "name": "A", "properties": {} },
+    { "type": "Test/B", "name": "B", "properties": {} },
+    { "type": "Test/C", "name": "C", "properties": {} }
+  ]
+}
+'@
+            $p = New-ConfigFile -Name 'diag-parse.json' -Json $json
+            $parsed = Get-Content $p | ConvertFrom-Json -AsHashtable
+            @($parsed.resources).Count | Should -Be 3
+        }
+
+        It "DIAG real Sort-DependsOn returns all three in order" {
+            $resources = @(
+                @{ type = 'Test/C'; name = 'C'; DependsOn = @('Test/B'); properties = @{} },
+                @{ type = 'Test/A'; name = 'A'; properties = @{} },
+                @{ type = 'Test/B'; name = 'B'; DependsOn = @('Test/A'); properties = @{} }
+            )
+            $sorted = & $script:SortDependsOnPath -PipelineResources $resources
+            @($sorted).Count | Should -Be 3
+            @($sorted | ForEach-Object { $_.name }) | Should -Be @('A', 'B', 'C')
+        }
+
+        It "DIAG Invoke-CustomTask mock returns all resources it is given" {
+            $resources = @(
+                @{ type = 'Test/A'; name = 'A'; properties = @{} },
+                @{ type = 'Test/B'; name = 'B'; properties = @{} }
+            )
+            $out = Invoke-CustomTask -Tasks $resources -CustomTaskName 'Sort-DependsOn'
+            @($out).Count | Should -Be 2
+        }
+
+        It "DIAG parsed hashtable exposes the condition key" {
+            $json = '{ "parameters": {}, "variables": {}, "resources": [ { "type": "Test/S", "name": "S", "condition": "1 -ne 1", "properties": {} } ] }'
+            $p = New-ConfigFile -Name 'diag-cond.json' -Json $json
+            $parsed = Get-Content $p | ConvertFrom-Json -AsHashtable
+            $first = @($parsed.resources)[0]
+            $first.Condition | Should -Be '1 -ne 1'
+        }
+    }
 }
