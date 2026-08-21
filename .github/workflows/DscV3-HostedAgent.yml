@@ -39,6 +39,12 @@ jobs:
         shell: pwsh
         run: ./scripts/Test-DscV3Smoke.ps1 -Verbose
 
+      # Prove a compiled configuration, converted by ConvertTo-DscV3ConfigurationDocument,
+      # is a valid DSC v3 document that dsc.exe accepts and evaluates.
+      - name: Verify compiled configuration is DSC v3-compliant
+        shell: pwsh
+        run: ./scripts/Test-DscV3ConfigDocument.ps1 -Verbose
+
   # Validate the hosted-agent container image builds and its dsc bootstrap works.
   dsc-agent-image:
     name: Build DSC v3 agent image

@@ -28,6 +28,16 @@ param(
 # DSC v3 resource types are namespaced 'Owner/Resource', matching the runner's task type.
 $resourceType = '{0}/{1}' -f $Context.ModuleName, $Context.Name
 
+# Fail fast on a type that is not even shaped like a DSC v3 identifier. Without this the
+# only signal is an opaque non-zero exit from dsc.exe ('resource not found'); this points the
+# operator straight at the compiled configuration. The check is structural (namespace/name);
+# whether the type truly exists is still confirmed by dsc.exe itself below. Kept inline so the
+# engine action stays self-contained (it is also driven directly by the CI smoke test).
+$v3TypePattern = '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*/[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$'
+if ($resourceType -notmatch $v3TypePattern) {
+    throw "[Actions/Engine/DscV3] Resource type '$resourceType' is not a DSC v3 identifier. DSC v3 types are 'namespace/name' (for example 'Microsoft.Windows/Registry'); a compiled configuration targeting the DscV3 engine must use DSC v3 resource types."
+}
+
 $verb = switch ($Context.Method) {
     'Test' { 'test' }
     'Set'  { 'set' }
