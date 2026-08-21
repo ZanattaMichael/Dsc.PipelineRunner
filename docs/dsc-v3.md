@@ -72,8 +72,9 @@ Use **`ConvertTo-DscV3ConfigurationDocument`** to turn compiled resources into a
 $types = (dsc resource list --output-format json | ConvertFrom-Json).type
 $doc   = ConvertTo-DscV3ConfigurationDocument -Resource $compiled.resources -AvailableResourceType $types
 
-# Hand it to dsc.exe:
-$doc | ConvertTo-Json -Depth 32 | dsc config get
+# Hand it to dsc.exe (write to a file and use --file; the config subcommands read a path):
+$doc | ConvertTo-Json -Depth 32 | Set-Content ./config.dsc.json -Encoding utf8
+dsc config get --file ./config.dsc.json
 ```
 
 Two things the runner keeps as its own responsibility, by design:

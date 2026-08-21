@@ -52,7 +52,10 @@ Describe "ConvertTo-DscV3ConfigurationDocument Function Tests" -Tag Unit, Action
             $doc = ConvertTo-DscV3ConfigurationDocument -Resource @(
                 @{ type = 'Microsoft/OSInfo'; name = 'os' }
             )
-            $doc.resources[0].properties | Should -Not -BeNullOrEmpty -Because 'an empty hashtable is emitted'
+            # An empty hashtable is emitted (Pester treats @{} as "empty", so assert the
+            # shape and key-count rather than -Not -BeNullOrEmpty).
+            $doc.resources[0].Contains('properties') | Should -BeTrue
+            $doc.resources[0].properties | Should -BeOfType [System.Collections.IDictionary]
             @($doc.resources[0].properties.Keys).Count | Should -Be 0
         }
 

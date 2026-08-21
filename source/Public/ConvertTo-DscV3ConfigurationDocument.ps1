@@ -47,7 +47,8 @@ serialize to YAML or JSON (ConvertTo-Yaml / ConvertTo-Json) and pass to `dsc con
 
 .EXAMPLE
 $doc = ConvertTo-DscV3ConfigurationDocument -Resource $pipeline.resources
-$doc | ConvertTo-Yaml | dsc config get -f -
+$doc | ConvertTo-Json -Depth 32 | Set-Content ./config.dsc.json -Encoding utf8
+dsc config get --file ./config.dsc.json
 
 .EXAMPLE
 $types = (dsc resource list --output-format json | ConvertFrom-Json).type

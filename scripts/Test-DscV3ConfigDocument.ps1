@@ -90,11 +90,20 @@ $json = $document | ConvertTo-Json -Depth 32
 Write-Host "[Test-DscV3ConfigDocument] Document:"
 Write-Host $json
 
-# 5. The real proof: dsc.exe must accept and evaluate the document. Pass it on stdin, which
-#    every DSC v3 release accepts for `dsc config` subcommands.
-$configOutput = $json | & dsc config get 2>&1 | Out-String
-if ($LASTEXITCODE -ne 0) {
-    throw "[Test-DscV3ConfigDocument] 'dsc config get' rejected the generated document (exit $LASTEXITCODE): $configOutput"
+# 5. The real proof: dsc.exe must accept and evaluate the document. Write it to a temp file and
+#    pass it with --file, which every DSC v3 release accepts for `dsc config` subcommands and
+#    avoids stdin-delivery quirks under pwsh.
+$configPath = Join-Path ([System.IO.Path]::GetTempPath()) ("dsc-v3-config-{0}.json" -f ([guid]::NewGuid()))
+Set-Content -LiteralPath $configPath -Value $json -Encoding utf8
+try {
+    $configOutput = & dsc config get --file $configPath 2>&1 | Out-String
+    $configExit = $LASTEXITCODE
+}
+finally {
+    Remove-Item -LiteralPath $configPath -ErrorAction SilentlyContinue
+}
+if ($configExit -ne 0) {
+    throw "[Test-DscV3ConfigDocument] 'dsc config get' rejected the generated document (exit $configExit): $configOutput"
 }
 if ([string]::IsNullOrWhiteSpace($configOutput)) {
     throw "[Test-DscV3ConfigDocument] 'dsc config get' returned no output for the generated document."
