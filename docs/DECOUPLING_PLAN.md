@@ -143,22 +143,33 @@ interface — `DscV2` and `DscV3` ship in the box, custom engines are first-clas
 Ordered so each phase is independently shippable and the runner stays green
 throughout. Numbers in brackets are the GitHub issues each phase closes/advances.
 
-### Phase 0 — Stabilize the core loop (prerequisite bug-fixes) [7, 8, 10, 11, 12, 13, 14, 18, 28]
+### Phase 0 — Stabilize the core loop (prerequisite bug-fixes) [7, 8, 10, 11, 12, 13, 14, 18, 28] — done
 
 Decoupling is pointless on top of a loop that miscomputes paths and swallows
 errors. These are self-contained and unblock everything:
 
 - Report filename `TrimEnd('.yml')` → `GetFileNameWithoutExtension`; `Join-Path`
-  instead of `\` — `Start-DscRunner.ps1:272` [7, 18]
-- `SetVariables` literal `varName` env var [10]
-- `Test-DatumConfiguration` permanent no-op version gate [11]
-- `Build-DatumConfiguration` swallows runspace errors [12]
-- `Expand-HashTable` null props / caller-scope `$task` read [13]
+  instead of `\` — `Start-DscRunner.ps1:272` [7, 18] — **done** (`GetFileNameWithoutExtension`
+  plus `[System.IO.Path]::Combine`, so a Windows-style `ReportPath` no longer throws on Linux).
+- `SetVariables` literal `varName` env var [10] — **done** (`env:$varName` + `Set-Item`).
+- `Test-DatumConfiguration` permanent no-op version gate [11] — **done** (real version bounds).
+- `Build-DatumConfiguration` swallows runspace errors [12] — **done** (surfaces `Streams.Error`,
+  throws on empty output, disposes the runspace).
+- `Expand-HashTable` null props / caller-scope `$task` read [13] — **done** (null-guard; reads the
+  passed-in hashtable rather than a caller-scope `$task`).
 - One throwing resource aborts the whole run; `Write-Error` terminates under the
-  advanced-function caller — `Start-DscRunner.ps1:210–214` [14, 28]
-- `Test-ResourcesForIncorrectProperties` stops after first failure [8]
+  advanced-function caller — `Start-DscRunner.ps1:210–214` [14, 28] — **done** (per-resource
+  try/catch records a `FAIL` and continues; `Write-Error -ErrorAction Continue`).
+- `Test-ResourcesForIncorrectProperties` stops after first failure [8] — **done** (collects every
+  offending property and throws once).
+- Pipeline parameter **defaults never reached `$parameters`** — a prior refactor bound
+  `GetDefaultValues` to an unused local and fed `$null` to `$parameters`
+  (`Start-DscRunner.ps1:169–173`) — **done** (defaults now load into `$parameters` so
+  expansion and conditions can resolve them; regression test added).
 
-Exit criterion: full Pester suite green on Linux and Windows hosted agents.
+Exit criterion: full Pester suite green on Linux and Windows hosted agents. (CI runs the full
+Pester suite on the Linux hosted agent on every push and pull request; a Windows leg is tracked
+separately as CI infrastructure, not a core-loop code change.)
 
 ### Phase 1 — Core decoupling via the Actions loader (single module) [20]
 

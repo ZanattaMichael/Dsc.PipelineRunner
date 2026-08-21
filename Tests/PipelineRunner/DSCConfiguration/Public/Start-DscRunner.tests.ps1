@@ -332,6 +332,34 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
 
     }
 
+    Context "pipeline parameter defaults" {
+
+        # Regression guard: a prior refactor bound GetDefaultValues to an unused local and fed
+        # $null to $parameters, so pipeline parameter defaults never took effect. The default
+        # values must be resolved from each parameter's 'defaultValue' and loaded into the
+        # runner's $parameters table so property/variable expansion and conditions can read them.
+        It "loads each parameter's defaultValue into the runner's parameters table" {
+
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                param ($content)
+                return @{
+                    parameters = @{
+                        environmentName = @{ defaultValue = 'Production' }
+                        retryCount      = @{ defaultValue = 3 }
+                    }
+                    variables  = @{}
+                    resources  = @()
+                }
+            }
+
+            Start-DscRunner -FilePath "test.json" | Out-Null
+
+            $parameters['environmentName'] | Should -Be 'Production'
+            $parameters['retryCount'] | Should -Be 3
+        }
+    }
+
     Context "configuration script sandboxing (#35)" {
 
         BeforeAll {

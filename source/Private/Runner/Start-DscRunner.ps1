@@ -165,9 +165,12 @@ function Start-DscRunner {
     Write-Information "---------------------------------------------------------------------" -Tags $infoTag
     Write-Information "--> Setting Variables:" -Tags $infoTag
 
-    # Retrieve default values for parameters and set variables based on the pipeline's content
-    #$defaultValues = GetDefaultValues -Source $pipeline.parameters
-    $parameterizedProperties = GetDefaultValues -Source $pipeline.parameters
+    # Retrieve default values for parameters and set variables based on the pipeline's content.
+    # The pipeline's parameter default values must land in $parameters so that later
+    # property/variable expansion (Expand-HashTable) and conditions can resolve them; a prior
+    # refactor left the result bound to an unused local and fed a $null source to $parameters,
+    # so parameter defaults never took effect. Bind the defaults to $parameters directly.
+    $defaultValues = GetDefaultValues -Source $pipeline.parameters
 
     SetVariables -Source $pipeline.variables -Target $variables
     SetVariables -Source $defaultValues -Target $parameters
