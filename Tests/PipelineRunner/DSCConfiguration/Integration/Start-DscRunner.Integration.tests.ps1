@@ -39,6 +39,7 @@ Describe "Start-DscRunner pipeline integration" -Tag Integration {
         . (Get-FunctionPath 'Start-DscRunner.ps1').FullName
         . (Get-FunctionPath 'GetDefaultValues.ps1').FullName
         . (Get-FunctionPath 'SetVariables.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
         . (Get-FunctionPath 'Expand-HashTable.ps1').FullName
         . (Get-FunctionPath 'Expand-StringInArray.ps1').FullName
         . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
@@ -133,15 +134,17 @@ Describe "Start-DscRunner pipeline integration" -Tag Integration {
         It "executes resources in topological order regardless of their order in the file" {
 
             # Listed C, A, B; A has no dependency, B depends on A, C depends on B.
-            # A valid topological order is therefore A, B, C.
+            # A valid topological order is therefore A, B, C. A resource's identity in
+            # Sort-DependsOn is its full "Type/Name" pair, so a DependsOn entry names that
+            # same pair (e.g. resource type "Test/B" name "B" has identity "Test/B/B").
             $json = @'
 {
   "parameters": {},
   "variables": {},
   "resources": [
-    { "type": "Test/C", "name": "C", "dependsOn": [ "Test/B" ], "properties": {} },
+    { "type": "Test/C", "name": "C", "dependsOn": [ "Test/B/B" ], "properties": {} },
     { "type": "Test/A", "name": "A", "properties": {} },
-    { "type": "Test/B", "name": "B", "dependsOn": [ "Test/A" ], "properties": {} }
+    { "type": "Test/B", "name": "B", "dependsOn": [ "Test/A/A" ], "properties": {} }
   ]
 }
 '@
@@ -334,51 +337,38 @@ Describe "Start-DscRunner pipeline integration" -Tag Integration {
         }
     }
 
-    Context "DIAGNOSTIC (temporary) - locate where multi-resource collapses" {
+    Context "JSON keys resolve regardless of case (case-insensitive load)" {
 
-        It "DIAG multi-line JSON parses all three resources" {
+        It "matches a resource's members even when the runner reads them with different casing" {
+
+            # ConvertFrom-Json -AsHashtable is case-sensitive on PowerShell 7.3+, but the runner
+            # and the rules read members with mixed casing (Sort-DependsOn uses $Resource.Type /
+            # $Resource.Name / $Resource.DependsOn; the runner uses $task.Condition). The JSON
+            # loader normalizes to case-insensitive hashtables so every consumer resolves. This
+            # config leans on that: dependency ordering (capitalized reads) and a false condition
+            # (capitalized read) must both take effect for a lower-cased JSON payload.
             $json = @'
 {
   "parameters": {},
   "variables": {},
   "resources": [
-    { "type": "Test/A", "name": "A", "properties": {} },
-    { "type": "Test/B", "name": "B", "properties": {} },
-    { "type": "Test/C", "name": "C", "properties": {} }
+    { "type": "Test/Beta", "name": "Beta", "dependsOn": [ "Test/Alpha/Alpha" ], "properties": {} },
+    { "type": "Test/Alpha", "name": "Alpha", "properties": {} },
+    { "type": "Test/Gamma", "name": "Gamma", "condition": "1 -ne 1", "properties": {} }
   ]
 }
 '@
-            $p = New-ConfigFile -Name 'diag-parse.json' -Json $json
-            $parsed = Get-Content $p | ConvertFrom-Json -AsHashtable
-            @($parsed.resources).Count | Should -Be 3
-        }
+            $config = New-ConfigFile -Name 'case.json' -Json $json
+            $calls  = [System.Collections.Generic.List[object]]::new()
 
-        It "DIAG real Sort-DependsOn returns all three in order" {
-            $resources = @(
-                @{ type = 'Test/C'; name = 'C'; DependsOn = @('Test/B'); properties = @{} },
-                @{ type = 'Test/A'; name = 'A'; properties = @{} },
-                @{ type = 'Test/B'; name = 'B'; DependsOn = @('Test/A'); properties = @{} }
-            )
-            $sorted = & $script:SortDependsOnPath -PipelineResources $resources
-            @($sorted).Count | Should -Be 3
-            @($sorted | ForEach-Object { $_.name }) | Should -Be @('A', 'B', 'C')
-        }
+            $result = Start-DscRunner -FilePath $config -EngineAction (New-RecordingEngine -Calls $calls)
 
-        It "DIAG Invoke-CustomTask mock returns all resources it is given" {
-            $resources = @(
-                @{ type = 'Test/A'; name = 'A'; properties = @{} },
-                @{ type = 'Test/B'; name = 'B'; properties = @{} }
-            )
-            $out = Invoke-CustomTask -Tasks $resources -CustomTaskName 'Sort-DependsOn'
-            @($out).Count | Should -Be 2
-        }
+            # Alpha before Beta (DependsOn honoured), Gamma skipped by its false condition.
+            $testOrder = @($calls | Where-Object { $_.Method -eq 'Test' } | ForEach-Object { $_.Name })
+            $testOrder | Should -Be @('Alpha', 'Beta')
 
-        It "DIAG parsed hashtable exposes the condition key" {
-            $json = '{ "parameters": {}, "variables": {}, "resources": [ { "type": "Test/S", "name": "S", "condition": "1 -ne 1", "properties": {} } ] }'
-            $p = New-ConfigFile -Name 'diag-cond.json' -Json $json
-            $parsed = Get-Content $p | ConvertFrom-Json -AsHashtable
-            $first = @($parsed.resources)[0]
-            $first.Condition | Should -Be '1 -ne 1'
+            $result.SkipCount | Should -Be 1
+            $result.PassCount | Should -Be 2
         }
     }
 }
