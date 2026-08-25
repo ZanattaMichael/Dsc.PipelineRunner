@@ -76,3 +76,13 @@ jobs:
       - name: Run Azure DevOps real-lifecycle integration tests
         shell: pwsh
         run: ./scripts/Invoke-AzureDevOpsSelfHostedTests.ps1
+
+      # Publish the invocation results (NUnit XML) as a build artifact, even when the suite fails,
+      # so the record of the real build/teardown run is downloadable from the run summary.
+      - name: Publish invocation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azuredevops-real-lifecycle-results
+          path: output/testResults/AzureDevOps-RealLifecycle.TestResults.xml
+          if-no-files-found: warn

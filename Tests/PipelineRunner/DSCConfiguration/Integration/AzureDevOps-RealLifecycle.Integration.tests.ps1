@@ -83,7 +83,11 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
         . (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
 
-        # Dot-sourced so Pester has real commands to Mock; the mocks below replace their bodies.
+        # Dot-sourced so the runner calls the REAL pre-parse / format / custom-task rules. Each of
+        # these resolves its rule directory from (Get-Module 'Dsc.PipelineRunner').ModuleBase, which
+        # the Get-Module mock below points at the repository root, so they execute the shipped
+        # Pipeline Rules (PreParse validation, Format tasks, and the Sort-DependsOn custom task) over
+        # the compiled Example Configuration -- none of them are mocked.
         . (Get-FunctionPath 'Invoke-CustomTask.ps1').FullName
         . (Get-FunctionPath 'Invoke-PreParseRules.ps1').FullName
         . (Get-FunctionPath 'Invoke-FormatTasks.ps1').FullName
@@ -92,8 +96,6 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         $references = @{}
         $variables  = @{}
         $parameters = @{}
-
-        $script:SortDependsOnPath = (Get-FunctionPath 'Sort-DependsOn.ps1').FullName
 
         # ------------------------------------------------------------------------------------------
         # Compile the REAL Example Configuration through the REAL Datum pipeline (no mocks active yet).
@@ -177,21 +179,6 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
 
         Mock -CommandName Write-Host
         Mock -CommandName Write-Information
-
-        # Loader stand-ins. Invoke-CustomTask runs the REAL Sort-DependsOn so dependency ordering is
-        # genuinely exercised over the compiled Example Configuration resources.
-        Mock -CommandName Invoke-CustomTask -MockWith {
-            param(
-                [Parameter(Mandatory = $true)] [Object[]]$Tasks,
-                [Parameter(Mandatory = $true)] [String]$CustomTaskName
-            )
-            if ($CustomTaskName -eq 'Sort-DependsOn') {
-                return (& $script:SortDependsOnPath -PipelineResources $Tasks)
-            }
-            return $Tasks
-        }
-        Mock -CommandName Invoke-PreParseRules -MockWith { param([Parameter(Mandatory = $true)] [Object[]]$Tasks) }
-        Mock -CommandName Invoke-FormatTasks   -MockWith { param([Parameter(Mandatory = $true)] [Object[]]$Tasks) return $Tasks }
 
         # Establish the ambient Azure DevOps session exactly as the provider-agnostic runner does:
         # Invoke-Action -Hook Connect runs the real Actions/Connect/AzureDevOps.ps1, which calls

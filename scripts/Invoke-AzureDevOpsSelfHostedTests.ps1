@@ -34,10 +34,25 @@ Import-Module -Name (Join-Path $RepositoryRoot 'Tests/TestHelpers/CommonTestFunc
 Remove-Variable -Name RepositoryRoot -Scope Global -ErrorAction SilentlyContinue
 Remove-Variable -Name TestPaths      -Scope Global -ErrorAction SilentlyContinue
 
-$config = New-PesterConfiguration
-$config.Run.Path         = Join-Path $RepositoryRoot 'Tests/PipelineRunner/DSCConfiguration/Integration/AzureDevOps-RealLifecycle.Integration.tests.ps1'
-$config.Filter.Tag       = @('AzureDevOpsSelfHosted')
-$config.Output.Verbosity = 'Detailed'
-$config.Run.Exit         = $true
+# Write the run's results to output/testResults so the workflow can publish them as a build
+# artifact (the record of the real build/teardown invocation against the live org).
+$resultDir = Join-Path $RepositoryRoot 'output/testResults'
+New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
 
-Invoke-Pester -Configuration $config
+$config = New-PesterConfiguration
+$config.Run.Path            = Join-Path $RepositoryRoot 'Tests/PipelineRunner/DSCConfiguration/Integration/AzureDevOps-RealLifecycle.Integration.tests.ps1'
+$config.Filter.Tag         = @('AzureDevOpsSelfHosted')
+$config.Output.Verbosity   = 'Detailed'
+$config.TestResult.Enabled      = $true
+$config.TestResult.OutputFormat = 'NUnitXml'
+$config.TestResult.OutputPath   = Join-Path $resultDir 'AzureDevOps-RealLifecycle.TestResults.xml'
+# Emit the exit code from the invocation ourselves (below) so the results file is always
+# written even when a test fails -- Run.Exit would exit the host before the upload step.
+$config.Run.Exit           = $false
+
+$result = Invoke-Pester -Configuration $config
+
+# Turn the CI step red on any failure, after the results file has been written.
+if ($result.FailedCount -gt 0 -or $result.Result -ne 'Passed') {
+    throw "Azure DevOps real-lifecycle suite failed: $($result.FailedCount) failed / $($result.PassedCount) passed."
+}
