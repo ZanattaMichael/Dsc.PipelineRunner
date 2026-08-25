@@ -23,16 +23,19 @@ $config.CodeCoverage.OutputPath = ".\output\testResults\codeCoverage.xml"
 $config.CodeCoverage.CoveragePercentTarget = 85
 $config.Run.Exit = $true
 
-# Exclude tests that require a self-hosted runner. Two suites cannot run on the hosted Linux
-# 'build' agent:
-#  - DscV2SelfHosted drives a real Invoke-DscResource (the Windows / PowerShell-DSC engine
-#    path) against a live DSC resource.
+# The default gate is unit-only. Every integration suite is tagged 'Integration' (the
+# self-hosted ones additionally carry 'DscV2SelfHosted' / 'AzureDevOpsSelfHosted'), so excluding
+# 'Integration' keeps all of them out of this run:
+#  - The mocked integration suites (AzureDevOps-Lifecycle, Start-DscRunner) are cross-platform
+#    but belong to the integration layer, not the unit gate.
+#  - DscV2SelfHosted drives a real Invoke-DscResource (the Windows / PowerShell-DSC engine path)
+#    against a live DSC resource.
 #  - AzureDevOpsSelfHosted compiles the real Datum Example Configuration and drives a genuine
-#    build/teardown against a live Azure DevOps organization, authenticating with managed
-#    identity via the AzureDevOpsDscNative resource — it needs the IMDS endpoint and a real org.
-# Both run in their own self-hosted workflows (DscV2-SelfHosted.yml, AzureDevOps-SelfHosted.yml);
-# here they are filtered out so the default run stays green on the hosted agent.
-$config.Filter.ExcludeTag = @('DscV2SelfHosted', 'AzureDevOpsSelfHosted')
+#    build/teardown against a live Azure DevOps organization via managed identity.
+# The integration suites are run on demand and by their own workflows (DscV2-SelfHosted.yml,
+# AzureDevOps-SelfHosted.yml). The self-hosted tags are listed explicitly as well so intent is
+# clear even if an integration suite is ever added without the base 'Integration' tag.
+$config.Filter.ExcludeTag = @('Integration', 'DscV2SelfHosted', 'AzureDevOpsSelfHosted')
 
 # Get the path to the function being tested
 
