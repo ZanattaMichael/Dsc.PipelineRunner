@@ -5,7 +5,7 @@ integration tests.
 
 .DESCRIPTION
 Invoke-DscResource (the DSC v2 engine path) needs a real, discoverable DSC resource to
-drive. AzureDevOpsDsc cannot be installed on CI (it needs a live Azure DevOps org), so
+drive. AzureDevOpsDscNative cannot be installed on CI (it needs a live Azure DevOps org), so
 these tests stand up their own dependency-free resource instead: a "marker file" resource
 whose presence on disk stands in for a real cloud object existing.
 

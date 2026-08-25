@@ -247,7 +247,7 @@ In the realm of configuration, there are specialized commands designed to modify
     | `PSDesiredStateConfiguration` | `>= 2.0.0` |
     | `powershell-yaml` | `<= 1.0.0` |
     | `AzureDevOpsDsc.Common` | `<= 1.0.0` |
-    | `AzureDevOpsDsc` | `<= 1.0.0` |
+    | `AzureDevOpsDscNative` | `<= 1.0.0` |
     | `datum` | `<= 1.0.0` |
     | `Datum.InvokeCommand` | `<= 1.0.0` |
 

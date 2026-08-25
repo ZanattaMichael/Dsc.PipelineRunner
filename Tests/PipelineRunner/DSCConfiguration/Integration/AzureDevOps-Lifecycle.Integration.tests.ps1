@@ -27,7 +27,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
     # defined so it resolves, then mocked to record the organization / PAT it was handed). No real
     # Azure DevOps call is made.
     #
-    # Because real Azure DevOps (and a real dsc.exe / AzureDevOpsDsc provider) cannot run on a hosted
+    # Because real Azure DevOps (and a real dsc.exe / AzureDevOpsDscNative provider) cannot run on a hosted
     # CI agent, the platform underneath each engine is replaced by an in-memory FAKE Azure DevOps
     # organization: a shared hashtable keyed by DSC resource type, holding which resource types
     # currently "exist". The two provider seams are mocked to read and mutate that org:

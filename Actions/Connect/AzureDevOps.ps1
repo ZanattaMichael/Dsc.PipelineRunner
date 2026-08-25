@@ -4,10 +4,10 @@ Connect action: establish an Azure DevOps authentication session (opt-in).
 
 .DESCRIPTION
 Wraps New-AzDoAuthenticationProvider from AzureDevOpsDsc.Common to set up the
-ambient session that the AzureDevOpsDsc resource module consumes during Test/Set/Get.
+ambient session that the AzureDevOpsDscNative resource module consumes during Test/Set/Get.
 
 This is a soft dependency: the module is imported on demand and only if present. The
-core runner never lists AzureDevOpsDsc in RequiredModules, so Azure DevOps support is
+core runner never lists AzureDevOpsDscNative in RequiredModules, so Azure DevOps support is
 opt-in by naming this action (Connect: AzureDevOps) rather than a hard dependency for
 every consumer. If the module is not installed a clear, actionable error is thrown.
 

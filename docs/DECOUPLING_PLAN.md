@@ -13,7 +13,7 @@ dependency to one optional provider among several.
 Three outcomes define "done":
 
 1. **Decoupling** — the core runner imports, loads, and executes with **no**
-   dependency on `AzureDevOpsDsc`, no `New-AzDoAuthenticationProvider`, no
+   dependency on `AzureDevOpsDscNative`, no `New-AzDoAuthenticationProvider`, no
    `AZDODSC_*` environment variables, and no Azure-DevOps-specific parameters.
 2. **DSC v3 support** — the runner can evaluate resources through **`dsc.exe`**
    (DSC v3, cross-platform) in addition to the legacy `Invoke-DscResource` path,
@@ -29,7 +29,7 @@ gate a release, not the architecture, and should not block the decoupling work.
 
 | Coupling point | File | Detail |
 |---|---|---|
-| Requires `AzureDevOpsDsc` + `.Common` | `source/Dsc.PipelineRunner.psd1` (RequiredModules, lines 63–70) | Loaded for every consumer even when not on AzDO |
+| Requires `AzureDevOpsDscNative` + `.Common` | `source/Dsc.PipelineRunner.psd1` (RequiredModules, lines 63–70) | Loaded for every consumer even when not on AzDO |
 | AzDO auth call | `source/Public/Invoke-DscPipelineRunner.ps1:136–139` | `New-AzDoAuthenticationProvider` (PAT / ManagedIdentity) |
 | AzDO-named cache var | `Invoke-DscPipelineRunner.ps1:108` | Throws unless `$env:AZDODSC_CACHE_DIRECTORY` is set |
 | AzDO-specific params | `Invoke-DscPipelineRunner.ps1:47–68` | `AzureDevopsOrganizationName`, `JITToken`, PAT validator |
@@ -63,14 +63,14 @@ Dsc.PipelineRunner                      (core — provider-agnostic)
 │   └─ Engine/                          drive Test/Set/Get — action + typed contract (§4B, §5)
 │       ├─ DscV2.ps1                    wraps Invoke-DscResource (default)
 │       └─ DscV3.ps1                    wraps dsc.exe (DSC v3)
-└─ RequiredModules: NO AzureDevOpsDsc   (AzDO is an optional action, not a dependency)
+└─ RequiredModules: NO AzureDevOpsDscNative   (AzDO is an optional action, not a dependency)
 ```
 
 **Single module.** There is no separate `Dsc.PipelineRunner.AzureDevOps` package.
 The Azure-DevOps-specific surface in the source is one command —
 `New-AzDoAuthenticationProvider` (`Invoke-DscPipelineRunner.ps1:136–139`) — and it
 isn't even the runner's logic: it establishes an ambient session that the
-`AzureDevOpsDsc` *resource module* consumes during Test/Set/Get, exactly like a
+`AzureDevOpsDscNative` *resource module* consumes during Test/Set/Get, exactly like a
 cloud resource would need its own session. Everything else read as "AzDO" is
 generic: `Clone-Repository` is a plain `git clone`; the `git` wrapper's
 `http.extraHeader="Authorization: Basic …"` is standard git-over-HTTPS auth that
@@ -173,7 +173,7 @@ separately as CI infrastructure, not a core-loop code change.)
 
 ### Phase 1 — Core decoupling via the Actions loader (single module) [20]
 
-1. Remove `AzureDevOpsDsc` and `AzureDevOpsDsc.Common` from core
+1. Remove `AzureDevOpsDscNative` and `AzureDevOpsDsc.Common` from core
    `RequiredModules` (`Dsc.PipelineRunner.psd1:63–70`).
 2. Add the **`Actions/` loader** (§3A), reusing the `Invoke-CustomTask` /
    `Invoke-PreParseRules` idiom: a resolver that, given a hook (`Source`/`Connect`)
@@ -194,14 +194,14 @@ separately as CI infrastructure, not a core-loop code change.)
    cleanup [31, 32]), and **`Actions/Connect/None.ps1`**.
 5. Ship **`Actions/Connect/AzureDevOps.ps1`** — wraps `New-AzDoAuthenticationProvider`,
    imports `AzureDevOpsDsc.Common` only if present, otherwise throws a clear
-   "install the AzureDevOpsDsc actions pack" error. No new module, no hard dependency.
+   "install the AzureDevOpsDscNative actions pack" error. No new module, no hard dependency.
 6. Keep `Invoke-DscPipelineRunner` as a thin **back-compat shim** in the same module:
    it maps its AzDO-flavored parameters (`AzureDevopsOrganizationName`, `JITToken`,
    PAT) onto `Invoke-DscRunner -Source Git -Connect AzureDevOps`, so existing callers
    migrate with no functional change.
 
 Exit criteria (from #20): `Start-DscRunner` + `Build-DatumConfiguration` import and
-run with `AzureDevOpsDsc` absent; an integration test runs the core against a local
+run with `AzureDevOpsDscNative` absent; an integration test runs the core against a local
 directory with `Connect: None` and no AzDO connection; a third party can add a
 `Connect` action or pass a `-ConnectAction` scriptblock without forking.
 
@@ -311,8 +311,8 @@ grep-guard enforces "no new LCM" going forward.
 
 ## 7. Acceptance criteria (roll-up)
 
-- [ ] Core imports and runs with `AzureDevOpsDsc` absent (#20)
-- [ ] `AzureDevOpsDsc*` removed from core `RequiredModules` (#20)
+- [ ] Core imports and runs with `AzureDevOpsDscNative` absent (#20)
+- [ ] `AzureDevOpsDscNative` / `AzureDevOpsDsc.Common` removed from core `RequiredModules` (#20)
 - [ ] AzDO logic lives in an opt-in `Actions/Connect/AzureDevOps.ps1` — single module, no separate package, no hard dependency (#20)
 - [ ] A custom `Source`/`Connect`/`Engine` action (drop-in file or inline scriptblock) works without forking (#20)
 - [ ] Integration test: core runs against a local dir with `Connect: None`, no AzDO connection (#20)
