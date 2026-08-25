@@ -1,0 +1,64 @@
+# Static analysis for the PowerShell sources.
+#
+# CodeQL does not support PowerShell, so the previous CodeQL workflow (which was also
+# mis-configured to analyze a non-existent 'csharp' codebase) is replaced by PSScriptAnalyzer.
+# The gate fails the build only on Error-severity findings — the parse/correctness class —
+# so it catches genuinely broken script without blocking on stylistic Warnings. Findings of
+# every severity are still uploaded to the Security > Code scanning tab as SARIF for review.
+# See issue #25.
+
+name: Lint (PSScriptAnalyzer)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to upload the SARIF results to the code-scanning tab.
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer, ConvertToSARIF -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $paths = @('source', 'Pipeline Rules', 'Actions') | Where-Object { Test-Path $_ }
+          $results = foreach ($path in $paths) {
+              Invoke-ScriptAnalyzer -Path $path -Recurse
+          }
+
+          # Emit SARIF for the code-scanning tab (best effort; never fail the build on this).
+          try {
+              Import-Module ConvertToSARIF -ErrorAction Stop
+              $results | ConvertTo-SARIF -FilePath ./psscriptanalyzer.sarif
+          }
+          catch {
+              Write-Warning "SARIF conversion skipped: $_"
+          }
+
+          $results | Format-Table -AutoSize | Out-String | Write-Host
+
+          $errors = @($results | Where-Object { $_.Severity -eq 'Error' })
+          if ($errors.Count -gt 0) {
+              Write-Host "::error::PSScriptAnalyzer reported $($errors.Count) Error-severity finding(s)."
+              exit 1
+          }
+          Write-Host "No Error-severity findings from PSScriptAnalyzer."
+
+      - name: Upload SARIF results
+        if: always() && hashFiles('psscriptanalyzer.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ./psscriptanalyzer.sarif
