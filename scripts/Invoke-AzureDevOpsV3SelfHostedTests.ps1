@@ -52,6 +52,9 @@ $config.TestResult.OutputPath   = Join-Path $resultDir 'AzureDevOps-RealLifecycl
 # Emit the exit code from the invocation ourselves (below) so the results file is always
 # written even when a test fails -- Run.Exit would exit the host before the upload step.
 $config.Run.Exit           = $false
+# PassThru is required for Invoke-Pester to RETURN the result object; without it $result is
+# $null and the failure guard below trips even when every test passed.
+$config.Run.PassThru       = $true
 
 $result = Invoke-Pester -Configuration $config
 
