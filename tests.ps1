@@ -24,18 +24,21 @@ $config.CodeCoverage.CoveragePercentTarget = 85
 $config.Run.Exit = $true
 
 # The default gate is unit-only. Every integration suite is tagged 'Integration' (the
-# self-hosted ones additionally carry 'DscV2SelfHosted' / 'AzureDevOpsSelfHosted'), so excluding
-# 'Integration' keeps all of them out of this run:
+# self-hosted ones additionally carry 'DscV2SelfHosted' / 'AzureDevOpsSelfHosted' /
+# 'AzureDevOpsV3SelfHosted'), so excluding 'Integration' keeps all of them out of this run:
 #  - The mocked integration suites (AzureDevOps-Lifecycle, Start-DscRunner) are cross-platform
 #    but belong to the integration layer, not the unit gate.
 #  - DscV2SelfHosted drives a real Invoke-DscResource (the Windows / PowerShell-DSC engine path)
 #    against a live DSC resource.
 #  - AzureDevOpsSelfHosted compiles the real Datum Example Configuration and drives a genuine
-#    build/teardown against a live Azure DevOps organization via managed identity.
+#    build/teardown against a live Azure DevOps organization via managed identity (DSC v2 engine).
+#  - AzureDevOpsV3SelfHosted does the same genuine build/teardown but through the DSC v3 engine
+#    (dsc.exe), so it needs a real `dsc` executable in addition to the live org / managed identity.
 # The integration suites are run on demand and by their own workflows (DscV2-SelfHosted.yml,
-# AzureDevOps-SelfHosted.yml). The self-hosted tags are listed explicitly as well so intent is
-# clear even if an integration suite is ever added without the base 'Integration' tag.
-$config.Filter.ExcludeTag = @('Integration', 'DscV2SelfHosted', 'AzureDevOpsSelfHosted')
+# AzureDevOps-SelfHosted.yml, AzureDevOpsV3-SelfHosted.yml). The self-hosted tags are listed
+# explicitly as well so intent is clear even if an integration suite is ever added without the
+# base 'Integration' tag.
+$config.Filter.ExcludeTag = @('Integration', 'DscV2SelfHosted', 'AzureDevOpsSelfHosted', 'AzureDevOpsV3SelfHosted')
 
 # Get the path to the function being tested
 
