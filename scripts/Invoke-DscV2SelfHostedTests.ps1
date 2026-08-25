@@ -25,7 +25,7 @@ Set-Location -LiteralPath $RepositoryRoot
 
 # Use Pester v5 explicitly; a stale built-in Pester (v3 on Windows) would break
 # New-PesterConfiguration if it auto-loaded first.
-Import-Module -Name Pester -MinimumVersion '5.0.0' -Force -ErrorAction Stop
+Import-Module -Name Pester -MinimumVersion '5.0.0' -MaximumVersion '5.9999.9999' -Force -ErrorAction Stop
 
 # Provides Get-FunctionPath and (re)initializes $Global:RepositoryRoot for the test bootstrap.
 Import-Module -Name (Join-Path $RepositoryRoot 'Tests/TestHelpers/CommonTestFunctions.psm1') -Force
