@@ -23,6 +23,13 @@ $config.CodeCoverage.OutputPath = ".\output\testResults\codeCoverage.xml"
 $config.CodeCoverage.CoveragePercentTarget = 85
 $config.Run.Exit = $true
 
+# Exclude tests that require the self-hosted DSC v2 runner. The DscV2SelfHosted suite drives
+# a real Invoke-DscResource (the Windows / PowerShell-DSC engine path) against a live DSC
+# resource, which is not the target platform for the hosted Linux 'build' agent. That suite
+# runs in its own self-hosted workflow (DscV2-SelfHosted.yml); here it is filtered out so the
+# default run stays green on the hosted agent.
+$config.Filter.ExcludeTag = @('DscV2SelfHosted')
+
 # Get the path to the function being tested
 
 Invoke-Pester -Configuration $config

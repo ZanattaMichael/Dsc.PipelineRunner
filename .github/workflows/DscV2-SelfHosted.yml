@@ -1,0 +1,50 @@
+name: DSC v2 Self-Hosted Agent
+
+# Proves the DSC v2 (Invoke-DscResource) engine path works on a real PowerShell-DSC host:
+# drive a live, dependency-free DSC resource through the runner's DscV2 engine and assert a
+# contract-valid result, then run the build/teardown lifecycle integration suite. Invoke-DscResource
+# is the Windows / PowerShell-DSC path, so this runs on a self-hosted Windows + PowerShell 7
+# runner (the hosted Linux agents cover the DSC v3 path in DscV3-HostedAgent.yml).
+
+on:
+  push:
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+jobs:
+  dsc-v2-selfhosted:
+    name: DSC v2 engine on self-hosted
+    runs-on: [self-hosted]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pester v5 (for the integration suite) and PSDesiredStateConfiguration (for
+      # Invoke-DscResource on PowerShell 7). Installed only when missing so a warm runner is
+      # not re-provisioned on every run.
+      - name: Ensure PowerShell dependencies
+        shell: pwsh
+        run: |
+          foreach ($module in 'Pester', 'PSDesiredStateConfiguration') {
+            if (-not (Get-Module -ListAvailable -Name $module | Where-Object { $module -ne 'Pester' -or $_.Version.Major -ge 5 })) {
+              Write-Host "Installing $module ..."
+              Install-Module -Name $module -Force -Scope CurrentUser -AllowClobber
+            }
+          }
+
+      - name: Report DSC v2 environment
+        shell: pwsh
+        run: |
+          $PSVersionTable | Format-List
+          Get-Command Invoke-DscResource | Format-List Name, Source, Version
+
+      # Exercise the module's real DscV2 engine action against a live resource (no mocks).
+      - name: Run DSC v2 engine smoke test
+        shell: pwsh
+        run: ./scripts/Test-DscV2Smoke.ps1 -Verbose
+
+      # Run the build/teardown lifecycle integration suite through a real Invoke-DscResource.
+      - name: Run DSC v2 real-engine integration tests
+        shell: pwsh
+        run: ./scripts/Invoke-DscV2SelfHostedTests.ps1
