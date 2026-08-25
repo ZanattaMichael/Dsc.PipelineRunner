@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Tag-driven release automation (`.github/workflows/Release.yml`). Pushing a `vX.Y.Z`
+  tag (or `vX.Y.Z-preview0001` for a prerelease) validates the tag, runs the full CI
+  test suite as a release gate, and publishes the module to the GitHub Release and the
+  PowerShell Gallery. A prerelease still runs the full suite but the deployment is not
+  stopped by test failures. The version is taken from the tag and baked into the
+  manifest at build time. The existing CI workflows gained a `workflow_call` trigger so
+  the release reuses them as its gate instead of duplicating them.
+
 ### Breaking Changes — Module Renamed to `Dsc.PipelineRunner`
 
 The module has been renamed from `AZDO-DSC-LCM` to `Dsc.PipelineRunner` to better reflect its purpose as a platform-agnostic DSC pipeline runner that works with GitHub Actions, GitLab CI, Jenkins, Azure DevOps, and any other CI/CD environment.

@@ -15,6 +15,9 @@ on:
     branches: [ "*" ]
   workflow_dispatch:
 
+  # Reused as a release gate by the tag-driven Release workflow.
+  workflow_call:
+
 jobs:
   lint:
     runs-on: ubuntu-latest

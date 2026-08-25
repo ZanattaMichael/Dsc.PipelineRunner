@@ -1,0 +1,233 @@
+name: Release
+
+# Releases are tag-driven, mirroring the AzureDevOpsDsc release methodology. Pushing a tag
+# of the form vX.Y.Z (or vX.Y.Z-preview0001 for a prerelease) is the single action that cuts
+# a release: the tag is the authoritative source of the module version and is baked into the
+# manifest at build time via $env:ModuleVersion.
+#
+# Release gates, in order. A *full* release (vX.Y.Z) publishes only when all of them pass:
+#   1. validate    - the tag is a valid version tag and points at a commit contained in main.
+#   2. test suite  - the full CI test suite runs as a release gate. Each suite is REUSED from
+#                    the workflow that already maintains it (via workflow_call) rather than
+#                    duplicated here, so the release runs exactly the tests that gate a PR.
+#
+# Preview releases (vX.Y.Z-<suffix>): the full test suite STILL runs, but the publish job
+# proceeds regardless of the suite results - a preview can ship despite in-progress or flaky
+# tests. The validate gate (a well-formed version tag contained in main) always holds, in
+# both modes, so a broken or off-main tag can never publish.
+#
+# Because the gate reuses the self-hosted suites, a full release waits for the self-hosted
+# runners to be online (it queues rather than failing). A preview does not wait on their
+# results to publish, but the jobs are still dispatched so the suite runs.
+#
+# Required repository secrets:
+#   GALLERY_API_TOKEN - PowerShell Gallery API key. If unset, the Gallery publish is skipped
+#                       and only the GitHub Release is created (the publish task self-guards
+#                       on its own token being present).
+# GITHUB_TOKEN is provided automatically and is used for the GitHub Release, the wiki push,
+# and the changelog roll-over pull request.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  # Required so the reused Lint suite can upload its SARIF to the code-scanning tab.
+  security-events: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Release Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.derive.outputs.version }}
+      isPrerelease: ${{ steps.derive.outputs.isPrerelease }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive module version from tag
+        id: derive
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          # Accept X.Y.Z and X.Y.Z-<prerelease>. The PowerShell Gallery requires the
+          # prerelease suffix to be alphanumeric only - no dots, no extra hyphens.
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9]+)?$') {
+              Write-Error "Tag '$tag' is not a valid version tag. Expected vX.Y.Z (e.g. v1.2.3) or vX.Y.Z-<prerelease> (e.g. v1.2.3-preview0001)."
+              exit 1
+          }
+          $isPrerelease = $version.Contains('-')
+          Write-Host "Publishing version $version (from tag $tag). Prerelease: $isPrerelease"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "isPrerelease=$($isPrerelease.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # A tag can be pushed pointing at any commit, including one that never went through the
+      # CI suite on main. Refuse to release from such a tag.
+      - name: Verify tag is on main
+        shell: pwsh
+        run: |
+          git fetch origin +refs/heads/main:refs/remotes/origin/main --quiet
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Tag '${{ github.ref_name }}' does not point at a commit contained in main. Releases must be tagged from main."
+              exit 1
+          }
+          Write-Host "Tag commit is contained in main."
+
+  # ---- Release gate: the full test suite, reused from the workflows that maintain it. ----
+  # For a full release every gate below must pass before publish runs. For a prerelease the
+  # publish job's `if` lets it proceed regardless of these results (see below), so the suite
+  # still runs on a preview but does not stop the deployment.
+
+  unit-tests:
+    name: Unit Tests & Coverage (gate)
+    needs: validate
+    uses: ./.github/workflows/CodeCoverage.yml
+    secrets: inherit
+
+  lint:
+    name: Lint (gate)
+    needs: validate
+    uses: ./.github/workflows/Lint.yml
+    secrets: inherit
+
+  dsc-v3-hosted:
+    name: DSC v3 Hosted Agent (gate)
+    needs: validate
+    uses: ./.github/workflows/DscV3-HostedAgent.yml
+    secrets: inherit
+
+  dsc-v2-selfhosted:
+    name: DSC v2 Self-Hosted (gate)
+    needs: validate
+    uses: ./.github/workflows/DscV2-SelfHosted.yml
+    secrets: inherit
+
+  azdo-selfhosted:
+    name: Azure DevOps Self-Hosted (gate)
+    needs: validate
+    uses: ./.github/workflows/AzureDevOps-SelfHosted.yml
+    secrets: inherit
+
+  azdo-v3-selfhosted:
+    name: Azure DevOps DSC v3 Self-Hosted (gate)
+    needs: validate
+    uses: ./.github/workflows/AzureDevOpsV3-SelfHosted.yml
+    secrets: inherit
+
+  publish:
+    name: Build, Pack, and Publish Release
+    needs:
+      - validate
+      - unit-tests
+      - lint
+      - dsc-v3-hosted
+      - dsc-v2-selfhosted
+      - azdo-selfhosted
+      - azdo-v3-selfhosted
+    # Full release: publish only when validate AND every test gate succeeded.
+    # Prerelease: publish when validate succeeded, regardless of the test gate results
+    # (the suite still ran - it just does not stop the deployment for a preview).
+    if: >-
+      ${{
+        always() &&
+        needs.validate.result == 'success' &&
+        (
+          needs.validate.outputs.isPrerelease == 'true' ||
+          (
+            needs.unit-tests.result == 'success' &&
+            needs.lint.result == 'success' &&
+            needs.dsc-v3-hosted.result == 'success' &&
+            needs.dsc-v2-selfhosted.result == 'success' &&
+            needs.azdo-selfhosted.result == 'success' &&
+            needs.azdo-v3-selfhosted.result == 'success'
+          )
+        )
+      }}
+    runs-on: windows-latest
+    env:
+      # $env:ModuleVersion has to be set before the *first* `build` task runs (not just before
+      # pack), since that is what bakes the version into the psd1. Setting it at job level makes
+      # it active for every step below.
+      ModuleVersion: ${{ needs.validate.outputs.version }}
+      IsPrerelease: ${{ needs.validate.outputs.isPrerelease }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache required build modules
+        uses: actions/cache@v4
+        with:
+          path: output/RequiredModules
+          key: ${{ runner.os }}-requiredmodules-${{ hashFiles('RequiredModules.psd1') }}
+
+      - name: Build module
+        shell: pwsh
+        run: ./build.ps1 -ResolveDependency -Tasks build
+
+      - name: Package module
+        shell: pwsh
+        run: ./build.ps1 -Tasks package_module_nupkg
+
+      # Both sub-tasks self-guard on their own token being set, so this is safe to run even if
+      # GALLERY_API_TOKEN isn't configured yet - it just skips the Gallery publish and still
+      # creates the GitHub Release.
+      - name: Publish release
+        shell: pwsh
+        run: ./build.ps1 -Tasks publish
+        env:
+          GitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          GalleryApiToken: ${{ secrets.GALLERY_API_TOKEN }}
+          ReleaseBranch: main
+          MainGitBranch: main
+
+      # Non-blocking: the repository wiki has to be enabled and initialised before this can push
+      # to it. A wiki failure must not fail a release whose Gallery package has already been
+      # published, so this step is allowed to fail.
+      - name: Publish GitHub wiki content
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 -Tasks Publish_GitHub_Wiki_Content
+        env:
+          GitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          ReleaseBranch: main
+          MainGitBranch: main
+
+      # Rolls the CHANGELOG's [Unreleased] section over into a versioned section on main via a
+      # pull request. Prereleases are excluded to match UpdateChangelogOnPrerelease: false in
+      # build.yaml.
+      - name: Send changelog roll-over pull request
+        if: env.IsPrerelease == 'false'
+        shell: pwsh
+        run: ./build.ps1 -Tasks Create_ChangeLog_GitHub_PR
+        env:
+          GitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          ReleaseBranch: main
+          MainGitBranch: main
+
+      - name: Upload release package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package-${{ github.ref_name }}
+          path: |
+            output/*.nupkg
+            output/builtModule/**
+          if-no-files-found: warn
+          retention-days: 30
