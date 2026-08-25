@@ -1,0 +1,88 @@
+name: Azure DevOps Real Lifecycle Self-Hosted
+
+# Proves the full end-to-end path against a live Azure DevOps organization: compile the real
+# Datum Example Configuration through the runner, authenticate with managed identity via the
+# AzureDevOpsDscNative resource module, then genuinely build and tear down the environment
+# through the real runner + real Invoke-DscResource (no engine or auth mocks). This needs the
+# IMDS metadata endpoint (system-assigned managed identity), a real Azure DevOps org, and the
+# AzureDevOpsDscNative module, so it runs on a self-hosted runner rather than the hosted Linux
+# agents.
+#
+# Configuration:
+#   - vars.AZDO_ORGANIZATION_NAME (repository Actions variable): overrides the Example
+#     Configuration's Organization_Name at runtime. Defaults to 'akkodistestorg' when unset.
+
+on:
+  push:
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+jobs:
+  azuredevops-selfhosted:
+    name: Azure DevOps real lifecycle on self-hosted
+    runs-on: [self-hosted]
+
+    env:
+      # The AzureDevOpsDsc.Common managed-identity provider requires a writable cache directory
+      # or it throws before authenticating. Point it at a per-run workspace folder.
+      AZDODSC_CACHE_DIRECTORY: ${{ github.workspace }}/.azdodsc-cache
+      # Repo-level Actions variable; the suite falls back to the config's Organization_Name
+      # (and ultimately 'akkodistestorg') when this is unset.
+      AZDO_ORGANIZATION_NAME: ${{ vars.AZDO_ORGANIZATION_NAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure cache directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:AZDODSC_CACHE_DIRECTORY | Out-Null
+
+      # Install only what is missing so a warm runner is not re-provisioned every run.
+      #  - Pester is pinned to the 5.x line (New-PesterConfiguration's schema differs across
+      #    major versions). -SkipPublisherCheck is required because the runner ships an older
+      #    Pester (4.x) signed by a different Authenticode publisher.
+      #  - powershell-yaml / datum / datum.invokecommand compile the Example Configuration.
+      #  - AzureDevOpsDscNative provides the AzDo* DSC resources and the bundled
+      #    AzureDevOpsDsc.Common managed-identity provider; it is prerelease on the gallery.
+      - name: Ensure PowerShell dependencies
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -eq 5 })) {
+            Write-Host "Installing Pester (5.x) ..."
+            Install-Module -Name Pester -MinimumVersion '5.0.0' -MaximumVersion '5.9999.9999' `
+              -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck
+          }
+          foreach ($m in 'powershell-yaml','datum','datum.invokecommand') {
+            if (-not (Get-Module -ListAvailable -Name $m)) {
+              Write-Host "Installing $m ..."
+              Install-Module -Name $m -Force -Scope CurrentUser -AllowClobber
+            }
+          }
+          if (-not (Get-Module -ListAvailable -Name AzureDevOpsDscNative)) {
+            Write-Host "Installing AzureDevOpsDscNative (prerelease) ..."
+            Install-Module -Name AzureDevOpsDscNative -AllowPrerelease -Force -Scope CurrentUser -AllowClobber
+          }
+
+      - name: Report environment
+        shell: pwsh
+        run: |
+          $PSVersionTable | Format-List
+          Get-Module -ListAvailable -Name AzureDevOpsDscNative | Format-List Name, Version, Path
+          Get-Command Invoke-DscResource | Format-List Name, Source, Version
+
+      # Compile the real Datum Example Configuration and drive a genuine build/teardown against
+      # the live Azure DevOps org via managed identity (no mocks).
+      - name: Run Azure DevOps real-lifecycle integration tests
+        shell: pwsh
+        run: ./scripts/Invoke-AzureDevOpsSelfHostedTests.ps1
+
+      # Publish the invocation results (NUnit XML) as a build artifact, even when the suite fails,
+      # so the record of the real build/teardown run is downloadable from the run summary.
+      - name: Publish invocation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azuredevops-real-lifecycle-results
+          path: output/testResults/AzureDevOps-RealLifecycle.TestResults.xml
+          if-no-files-found: warn

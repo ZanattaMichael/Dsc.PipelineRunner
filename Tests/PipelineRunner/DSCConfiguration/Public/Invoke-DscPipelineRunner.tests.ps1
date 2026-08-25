@@ -26,7 +26,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
 
         # Mock necessary commands to prevent actual execution during tests
         Mock -CommandName Get-DSCResource -MockWith { @{ Version = @{ Major = 2 } } }
-        Mock -CommandName Get-Module -MockWith { @{ Name = 'AzureDevOpsDsc' } }
+        Mock -CommandName Get-Module -MockWith { @{ Name = 'AzureDevOpsDscNative' } }
         Mock -CommandName Import-Module
         Mock -CommandName New-AzDoAuthenticationProvider
         Mock -CommandName Start-DscRunner

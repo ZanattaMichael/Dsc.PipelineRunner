@@ -7,4 +7,15 @@ variables: {
   Project_Service_WorkBoards: 'enabled'
 }
 
-resources: {}
+# This node declares no project-specific resources of its own; it inherits the
+# ProjectPolicies/OrganizationPolicies resource arrays so the policy Project resource is
+# applied with Ensure = Absent (ProjectPresence 'Absent'), tearing the project down (its
+# postExecutionScript then calls Stop-TaskProcessing to halt the rest of the run).
+#
+# Leave this empty (null), exactly like the OrganizationPolicies fragments: Datum skips a
+# null value when it merges the 'resources' precedence chain, so the policy arrays merge in
+# unchanged. Do NOT set an empty hashtable ({}) here -- a hashtable is a different type from
+# the policy resource arrays, which makes Datum's merge_hash_array abort with "Cannot merge
+# different types" and return the empty hashtable, so the Absent node would compile to zero
+# resources and silently do nothing instead of tearing the project down.
+resources:

@@ -146,7 +146,12 @@ function Start-DscRunner {
         Write-Verbose "Loaded YAML configuration from file: $FilePath"
     }
     else {
-        $pipeline = Get-Content $FilePath | ConvertFrom-Json -AsHashtable
+        # ConvertFrom-Json -AsHashtable returns a case-SENSITIVE OrderedHashtable on
+        # PowerShell 7.3+, which breaks the runner's and the rules' mixed-case member access
+        # (e.g. Sort-DependsOn's $Resource.Type, Start-DscRunner's $task.Condition) and would
+        # silently collapse every resource onto the same empty key. Normalize to case-insensitive
+        # hashtables so a JSON configuration behaves exactly like the YAML loader's output.
+        $pipeline = ConvertTo-CaseInsensitiveHashtable -InputObject (Get-Content $FilePath | ConvertFrom-Json -AsHashtable)
         Write-Verbose "Loaded JSON configuration from file: $FilePath"
     }
 

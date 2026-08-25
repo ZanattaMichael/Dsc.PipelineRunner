@@ -231,7 +231,7 @@ function Invoke-DscPipelineRunner {
     postExecutionTask:
 
     - name: Org Group Members
-        type: AzureDevOpsDsc/AzDoProject
+        type: AzureDevOpsDscNative/AzDoProject
         properties:
         projectName: CON_$ProjectName
         projectDescription: $ProjectDescription

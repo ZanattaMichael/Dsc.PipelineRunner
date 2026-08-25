@@ -7,11 +7,11 @@ variables: {
 resources:
 
   - name: Default Git Configuration Permissions
-    type: AzureDevOpsDsc/AzDoGitPermission
+    type: AzureDevOpsDscNative/AzDoGitPermission
     dependsOn:
-      - AzureDevOpsDsc/AzDoProject/Project
-      - AzureDevOpsDsc/AzDoProjectGroup/CON Readers
-      - AzureDevOpsDsc/AzDoProjectGroup/CON Board Administrators
+      - AzureDevOpsDscNative/AzDoProject/Project
+      - AzureDevOpsDscNative/AzDoProjectGroup/CON Readers
+      - AzureDevOpsDscNative/AzDoProjectGroup/CON Board Administrators
     properties:
       ProjectName: $ProjectName
       RepositoryName: $ProjectName

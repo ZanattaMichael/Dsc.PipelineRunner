@@ -12,7 +12,7 @@
     RootModule = 'Dsc.PipelineRunner.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1'
+    ModuleVersion = '1.0.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -60,7 +60,7 @@
             ModuleName = 'powershell-yaml'
             MaximumVersion = '1.0.0'
         }
-        # AzureDevOpsDsc / AzureDevOpsDsc.Common are intentionally NOT required here.
+        # AzureDevOpsDscNative / AzureDevOpsDsc.Common are intentionally NOT required here.
         # Azure DevOps support is an opt-in Connect action (Actions/Connect/AzureDevOps.ps1)
         # that imports AzureDevOpsDsc.Common on demand, so the core runner imports and runs
         # on any platform with Azure DevOps absent.

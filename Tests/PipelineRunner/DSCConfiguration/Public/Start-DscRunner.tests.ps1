@@ -32,6 +32,11 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         . $StopTaskProcessingPath
         . $AssertSafeConditionPath
 
+        # Start-DscRunner normalizes JSON-loaded configs through this helper so a
+        # case-sensitive OrderedHashtable (ConvertFrom-Json -AsHashtable on PS 7.3+) does
+        # not break the runner's mixed-case member access; load it for the JSON-path tests.
+        . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
+
         $references = @{}
         $variables = @{}
         $parameters = @{}
