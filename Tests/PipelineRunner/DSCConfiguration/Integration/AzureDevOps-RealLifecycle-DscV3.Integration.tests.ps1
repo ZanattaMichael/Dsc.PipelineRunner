@@ -67,6 +67,22 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         $commonManifest = Join-Path (Split-Path -Parent $native.Path) 'Modules/AzureDevOpsDsc.Common/AzureDevOpsDsc.Common.psd1'
         if (Test-Path -LiteralPath $commonManifest) {
             Import-Module -Name $commonManifest -Force -ErrorAction Stop
+
+            # Importing by path loads AzureDevOpsDsc.Common into THIS process only. Under the DSC v3
+            # engine the resource runs in fresh `pwsh` child processes spawned by dsc's PowerShell
+            # adapter; those inherit environment variables but not in-process imports. The class-based
+            # AzureDevOpsDscNative resources re-import 'AzureDevOpsDsc.Common' by NAME to rehydrate auth,
+            # and it fails in the child ("no valid module file was found in any module directory")
+            # because the bundled companion lives under <ModuleBase>/Modules and is not on PSModulePath.
+            # Put that Modules directory on $env:PSModulePath (an env var, so children inherit it) so the
+            # by-name import resolves in the adapter's child processes -- the same discoverability a real
+            # DSC v3 deployment of AzureDevOpsDscNative needs.
+            $commonModulesDir = Split-Path -Parent (Split-Path -Parent $commonManifest)
+            $sep = [System.IO.Path]::PathSeparator
+            $existing = ($env:PSModulePath -split [regex]::Escape($sep))
+            if ($commonModulesDir -notin $existing) {
+                $env:PSModulePath = $commonModulesDir + $sep + $env:PSModulePath
+            }
         }
         if (-not (Get-Command -Name New-AzDoAuthenticationProvider -ErrorAction SilentlyContinue)) {
             throw "New-AzDoAuthenticationProvider is not available after importing AzureDevOpsDscNative / AzureDevOpsDsc.Common."
