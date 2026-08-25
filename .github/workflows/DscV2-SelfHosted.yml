@@ -12,6 +12,9 @@ on:
     branches: [ "*" ]
   workflow_dispatch:
 
+  # Reused as a release gate by the tag-driven Release workflow.
+  workflow_call:
+
 jobs:
   dsc-v2-selfhosted:
     name: DSC v2 engine on self-hosted

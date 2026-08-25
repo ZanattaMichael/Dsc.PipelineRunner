@@ -39,10 +39,13 @@ BuildWorkflow:
     - Pester_Tests_Stop_On_Fail
     - Pester_if_Code_Coverage_Under_Threshold
 
+  # Wiki publishing is deliberately NOT chained here. The repository wiki has to be
+  # enabled and initialised before it can be pushed to, and a wiki failure must never
+  # fail a release whose Gallery package has already been published. release.yml runs
+  # Publish_GitHub_Wiki_Content as its own non-blocking (continue-on-error) step.
   publish:
     - Publish_release_to_GitHub
     - publish_module_to_gallery
-    - Publish_GitHub_Wiki_Content
 
 ####################################################
 #       PESTER  Configuration                      #
@@ -59,6 +62,10 @@ Pester:
 ModuleBuildTasks:
   Sampler:
     - '*.build.Sampler.ib.tasks'
+  # Provides Publish_release_to_GitHub, Publish_GitHub_Wiki_Content and
+  # Create_ChangeLog_GitHub_PR, which the tag-driven release workflow invokes.
+  Sampler.GitHubTasks:
+    - '*.ib.tasks'
 
 TaskHeader: |
   param($Path)
@@ -74,8 +81,8 @@ TaskHeader: |
 GitHubConfig:
   GitHubFilesToAdd:
     - 'CHANGELOG.md'
-  GitHubConfigUserName: dscbot
-  GitHubConfigUserEmail: dsccommunity@outlook.com
+  GitHubConfigUserName: github-actions[bot]
+  GitHubConfigUserEmail: 41898282+github-actions[bot]@users.noreply.github.com
   UpdateChangelogOnPrerelease: false
 
   Generate_Conceptual_Help:

@@ -20,6 +20,9 @@ on:
     branches: [ "*" ]
   workflow_dispatch:
 
+  # Reused as a release gate by the tag-driven Release workflow.
+  workflow_call:
+
 jobs:
   azuredevops-v3-selfhosted:
     name: Azure DevOps real lifecycle (DSC v3) on self-hosted
