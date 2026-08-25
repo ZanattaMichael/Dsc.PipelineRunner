@@ -12,9 +12,9 @@ variables: {
 resources:
 
   - name: CON Readers
-    type: AzureDevOpsDsc/AzDoProjectGroup
+    type: AzureDevOpsDscNative/AzDoProjectGroup
     dependsOn: 
-      - AzureDevOpsDsc/AzDoProject/Project
+      - AzureDevOpsDscNative/AzDoProject/Project
     properties:
       ProjectName: $ProjectName
       GroupName: $ProjectGroups_Role_CONReaders
@@ -22,9 +22,9 @@ resources:
 
   - name: CON Board Administrators
     condition: $ProjectWorkBoardsStatus -eq 'enabled'
-    type: AzureDevOpsDsc/AzDoProjectGroup
+    type: AzureDevOpsDscNative/AzDoProjectGroup
     dependsOn: 
-      - AzureDevOpsDsc/AzDoProject/Project
+      - AzureDevOpsDscNative/AzDoProject/Project
     properties:
       ProjectName: $ProjectName
       GroupName: $ProjectGroups_Role_CONBoardAdministrators

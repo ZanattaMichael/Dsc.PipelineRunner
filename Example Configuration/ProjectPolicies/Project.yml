@@ -9,7 +9,7 @@ variables: {
 resources:
 
   - name: Project
-    type: AzureDevOpsDsc/AzDoProject
+    type: AzureDevOpsDscNative/AzDoProject
     postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     properties:
       projectName: $ProjectName
@@ -20,9 +20,9 @@ resources:
       Ensure: $( if ([string]::IsNullOrEmpty($Project_Ensure)) { 'Present' } else { $Project_Ensure } )
 
   - name: Project Services
-    type: AzureDevOpsDsc/AzDoProjectServices
+    type: AzureDevOpsDscNative/AzDoProjectServices
     dependsOn: 
-      - AzureDevOpsDsc/AzDoProject/Project
+      - AzureDevOpsDscNative/AzDoProject/Project
     properties:
       projectName: $ProjectName
       GitRepositories: $( if ([string]::IsNullOrEmpty($Project_Service_GitRepositories)) { 'disabled' } else { $Project_Service_GitRepositories } )

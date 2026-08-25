@@ -269,8 +269,8 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
 
         # The Azure DevOps resource type the environment turns on. The Project is created first (every
         # other resource depends on it) and, when declared Absent, its removal stops the run.
-        $script:ProjectType = 'AzureDevOpsDsc/AzDoProject'
-        $script:GroupType   = 'AzureDevOpsDsc/AzDoProjectGroup'
+        $script:ProjectType = 'AzureDevOpsDscNative/AzDoProject'
+        $script:GroupType   = 'AzureDevOpsDscNative/AzDoProjectGroup'
 
         # Establishes the ambient Azure DevOps session the way the provider-agnostic runner does:
         # Invoke-DscRunner calls Invoke-Action -Hook Connect, which runs the real Connect action file.

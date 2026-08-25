@@ -23,12 +23,16 @@ $config.CodeCoverage.OutputPath = ".\output\testResults\codeCoverage.xml"
 $config.CodeCoverage.CoveragePercentTarget = 85
 $config.Run.Exit = $true
 
-# Exclude tests that require the self-hosted DSC v2 runner. The DscV2SelfHosted suite drives
-# a real Invoke-DscResource (the Windows / PowerShell-DSC engine path) against a live DSC
-# resource, which is not the target platform for the hosted Linux 'build' agent. That suite
-# runs in its own self-hosted workflow (DscV2-SelfHosted.yml); here it is filtered out so the
-# default run stays green on the hosted agent.
-$config.Filter.ExcludeTag = @('DscV2SelfHosted')
+# Exclude tests that require a self-hosted runner. Two suites cannot run on the hosted Linux
+# 'build' agent:
+#  - DscV2SelfHosted drives a real Invoke-DscResource (the Windows / PowerShell-DSC engine
+#    path) against a live DSC resource.
+#  - AzureDevOpsSelfHosted compiles the real Datum Example Configuration and drives a genuine
+#    build/teardown against a live Azure DevOps organization, authenticating with managed
+#    identity via the AzureDevOpsDscNative resource — it needs the IMDS endpoint and a real org.
+# Both run in their own self-hosted workflows (DscV2-SelfHosted.yml, AzureDevOps-SelfHosted.yml);
+# here they are filtered out so the default run stays green on the hosted agent.
+$config.Filter.ExcludeTag = @('DscV2SelfHosted', 'AzureDevOpsSelfHosted')
 
 # Get the path to the function being tested
 

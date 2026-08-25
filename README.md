@@ -32,9 +32,9 @@ This module utilizes Datum from Gael Colas to streamline configuration. For more
     ```yaml
     - name: CON Board Administrators
       condition: $ProjectWorkBoardsStatus -eq 'enabled'
-      type: AzureDevOpsDsc/AzDoProjectGroup
+      type: AzureDevOpsDscNative/AzDoProjectGroup
       dependsOn:
-        - AzureDevOpsDsc/AzDoProject/Project
+        - AzureDevOpsDscNative/AzDoProject/Project
       properties:
         ProjectName: $ProjectName
         GroupName: $GroupName
@@ -77,7 +77,7 @@ The pipeline runner provides a set of features applicable to all Desired State C
     ```yaml
     - name: CON Board Administrators
       condition: $ProjectWorkBoardsStatus -eq 'enabled'
-      type: AzureDevOpsDsc/AzDoProjectGroup
+      type: AzureDevOpsDscNative/AzDoProjectGroup
     ```
 
 - __postExecutionScript__: This feature triggers a script after the resource has been executed. It can be used to perform additional operations or clean-up tasks following the resource's execution. This is helpful for managing state changes or handling post-execution logic.
@@ -86,7 +86,7 @@ The pipeline runner provides a set of features applicable to all Desired State C
 
     ```yaml
     - name: Project
-      type: AzureDevOpsDsc/AzDoProject
+      type: AzureDevOpsDscNative/AzDoProject
       postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     ```
 
@@ -96,11 +96,11 @@ The pipeline runner provides a set of features applicable to all Desired State C
 
     ```yaml
     - name: Default Git Configuration Permissions
-      type: AzureDevOpsDsc/AzDoGitPermission
+      type: AzureDevOpsDscNative/AzDoGitPermission
       dependsOn:
-        - AzureDevOpsDsc/AzDoProject/Project
-        - AzureDevOpsDsc/AzDoProjectGroup/CON Readers
-        - AzureDevOpsDsc/AzDoProjectGroup/CON Board Administrators
+        - AzureDevOpsDscNative/AzDoProject/Project
+        - AzureDevOpsDscNative/AzDoProjectGroup/CON Readers
+        - AzureDevOpsDscNative/AzDoProjectGroup/CON Board Administrators
     ```
 
 These features collectively enhance the robustness and adaptability of DSC resources managed by the pipeline runner, allowing for more precise and context-sensitive configuration management.
@@ -113,7 +113,7 @@ In the realm of configuration, there are specialized commands designed to modify
 
     ```yaml
     - name: Project
-      type: AzureDevOpsDsc/AzDoProject
+      type: AzureDevOpsDscNative/AzDoProject
       postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     ```
 
