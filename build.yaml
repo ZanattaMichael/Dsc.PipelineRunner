@@ -2,9 +2,11 @@
 ####################################################
 #          ModuleBuilder Configuration             #
 ####################################################
+# CopyPaths lists folders under ./source that ModuleBuilder copies verbatim into the
+# built module. Only list folders that actually exist - ModuleBuilder fails the build on
+# the first missing path. This module ships no conceptual-help (en-US) or bundled-module
+# (Modules) folders today; re-add them here when those source folders are introduced.
 CopyPaths:
-  - en-US
-  - Modules
 Encoding: UTF8
 VersionedOutputDirectory: true
 
