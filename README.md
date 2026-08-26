@@ -4,6 +4,13 @@
 
 `Dsc.PipelineRunner` is a platform-agnostic DSC pipeline runner designed to execute DSC configurations within any CI/CD pipeline (GitHub Actions, GitLab, Jenkins, Azure DevOps, and more). It utilizes Datum to merge configuration stubs into larger pieces of configuration, which are then parsed and applied by the runner.
 
+The core module has **no hard dependency on Azure DevOps**. Configuration source
+(local directory or git clone), authentication/session setup, and the resource
+execution engine (DSC v2's `Invoke-DscResource` or cross-platform DSC v3's `dsc.exe`)
+are all pluggable **Actions** — see [Architecture: Actions](#architecture-actions).
+Azure DevOps support is one opt-in `Connect` action among several, not a required
+module.
+
 > ⚠️ **Security — read this first.** The runner executes your configuration repository as
 > **fully-trusted code** (a DSC `Configuration` block is code, not just data). There is no
 > sandbox. Protect the configuration repository with the same controls as the runner's own
@@ -139,17 +146,91 @@ In the realm of configuration, there are specialized commands designed to modify
     1. Upon completion (even in case of an error), the runner checks for the `postExecutionScript` property and invokes the code if present.
     1. The runner calls the DSC `Get` method on the resource and stores the result in a references table, making it available to subsequent resources via the `reference` function.
 
+## Architecture: Actions
+
+The runner's lifecycle is split into three pluggable seams, each resolved from a
+named file under `Actions/<Hook>/<Name>.ps1` (or overridden inline with a
+`[scriptblock]`) — the same loader idiom already used for Pipeline Rules:
+
+| Hook | Purpose | Built-in actions | Config key |
+|---|---|---|---|
+| `Source` | Resolve the configuration to a local directory | `Local` (default), `Git` | `Source` |
+| `Connect` | Establish auth/session before evaluation | `None` (default), `AzureDevOps` | `Connect` |
+| `Engine` | Drive resource `Test`/`Set`/`Get` | `DscV2` (default, `Invoke-DscResource`), `DscV3` (`dsc.exe`) | `Engine` |
+
+Select an action by name in `Datum.yml`:
+
+```yaml
+PipelineRunnerSettings:
+  Source: Git            # a file in Actions/Source/  (default: Local)
+  Connect: AzureDevOps   # a file in Actions/Connect/ (default: None)
+  Engine: DscV3          # a file in Actions/Engine/  (default: DscV2)
+```
+
+...or per-invocation, or with an inline scriptblock for a bespoke, one-off
+solution that doesn't warrant a file:
+
+```powershell
+Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Engine DscV3 -ConnectAction {
+    param($Context)
+    Connect-MyPlatform -Token $Context.Token   # any custom auth/session logic
+}
+```
+
+`Actions/Connect/AzureDevOps.ps1` calls `New-AzDoAuthenticationProvider` only if
+`AzureDevOpsDsc.Common` is importable — the core module never loads it and never
+lists it in `RequiredModules`. Azure DevOps support is therefore opt-in by naming
+the action, not a hard dependency.
+
+The `Engine` hook additionally carries a strict, typed contract: it accepts
+`{ Method; ModuleName; Name; Property }` and must return a normalized
+`[DscMethodResult]` (`{ InDesiredState; RebootRequired; Message; Raw }`), so
+reporting stays engine-independent regardless of which engine ran. See
+[docs/dsc-v3.md](docs/dsc-v3.md) for the DSC v3 engine, and
+[docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for running it on a
+hosted Linux agent (bootstrap, engine selection, pipeline-native auth).
+
 ## Public Commands
 
 | Command | Description |
 |---|---|
-| `Invoke-DscPipelineRunner` | Entry point. Clones or reads the Datum configuration, compiles it, authenticates, and invokes the runner for each compiled YAML file. |
+| `Invoke-DscRunner` | Provider-agnostic entry point. Resolves the configured `Source` and `Connect` actions, compiles the Datum configuration, and invokes the runner for each compiled YAML file with the selected `Engine`. |
+| `Invoke-DscPipelineRunner` | Azure DevOps back-compat shim. Maps its AzDO-flavored parameters onto `Invoke-DscRunner -Source Git -Connect AzureDevOps` with no functional change for existing callers. |
 | `Build-DatumConfiguration` | Compiles the Datum configuration by resolving all nodes and writing per-project YAML files to the output directory. Runs in a separate runspace. |
+| `ConvertTo-DscV3ConfigurationDocument` | Converts compiled, runner-specific resources into a schema-compliant DSC v3 configuration document (`$schema` + `name`/`type`/`properties` only) that `dsc config get\|test\|set` accepts. |
 | `Test-DatumConfiguration` | Validates a Datum configuration object: checks for `PipelineRunnerSettings`, enforces version constraints, and warns when the configuration version is near the maximum supported version. |
 | `Resolve-DscDatumProject` | Resolves a single Datum project node, evaluating variables and converting the result to YAML. Called internally by `Build-DatumConfiguration`. |
 | `Stop-TaskProcessing` | Signals the runner to skip all remaining resources in the current YAML file. Must be called from within `postExecutionScript`. |
 
+### `Invoke-DscRunner` Parameters
+
+| Parameter | Description |
+|---|---|
+| `ConfigurationSourcePath` | Convenience: a local directory or git URL. Populates the `Source` action's context (`Path` for `Local`, `Url` for `Git`). |
+| `Source` / `SourceAction` / `SourceContext` | Name of the `Source` action (default `Local`), an inline scriptblock override, and the hashtable context passed to it. |
+| `Connect` / `ConnectAction` / `ConnectContext` | Name of the `Connect` action (default `None`), an inline scriptblock override, and the hashtable context passed to it. |
+| `Engine` / `EngineAction` / `EngineVersion` | Name of the execution engine action (default `DscV2`; `DscV3` drives `dsc.exe`; `Auto` detects `dsc` on `PATH`), an inline scriptblock override, and a version hint used to bias `Auto` selection. When `-Engine` is not passed, `PipelineRunnerSettings.Engine` (or the back-compat `DSCResourceVersion` major version) decides. |
+| `CacheDirectory` | Directory Datum compiles into. Falls back to `PIPELINERUNNER_CACHE_DIRECTORY` (or the legacy `AZDODSC_CACHE_DIRECTORY` alias), then a fresh temporary directory — no environment variable is required. |
+| `Mode` | `Test` (default, validate only) or `Set` (validate and apply changes). |
+| `ReportPath` | Optional directory where a per-project CSV report is written after execution. |
+| `FailOnError` | Switch. Sets a non-zero process exit code when the run reports a failure. |
+
+```powershell
+# Local directory, no authentication, DSC v2 engine (all defaults).
+Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Mode Test
+
+# Git source, Azure DevOps auth, DSC v3 engine.
+Invoke-DscRunner -Source Git -SourceContext @{ Url = $repoUrl } `
+                 -Connect AzureDevOps -ConnectContext @{ OrganizationName = 'MyOrg'; AuthenticationType = 'PAT'; PATToken = $pat } `
+                 -Engine DscV3
+```
+
 ### `Invoke-DscPipelineRunner` Parameters
+
+> New integrations should prefer `Invoke-DscRunner`. `Invoke-DscPipelineRunner` remains
+> as a back-compat shim for existing Azure DevOps pipelines and requires the
+> `AzureDevOpsDsc.Common` module to be installed separately (it is no longer a
+> `RequiredModules` dependency of the core module).
 
 | Parameter | Required | Description |
 |---|---|---|
@@ -161,6 +242,7 @@ In the realm of configuration, there are specialized commands designed to modify
 | `AuthenticationType` | No | `ManagedIdentity` (default) or `PAT`. |
 | `PATToken` | When using PAT | 52-character alphanumeric Personal Access Token. |
 | `ReportPath` | No | Directory path where a per-project CSV report is written after execution. |
+| `FailOnError` | No | Switch. Sets a non-zero process exit code when the run reports a failure. |
 
 > A cache directory environment variable must be set before calling `Invoke-DscPipelineRunner`. Prefer the generic `PIPELINERUNNER_CACHE_DIRECTORY`; the legacy `AZDODSC_CACHE_DIRECTORY` is still honoured as a back-compat alias. `Invoke-DscRunner` needs neither — pass `-CacheDirectory`, set one of those variables, or let it use a temporary directory.
 
@@ -170,9 +252,22 @@ In the realm of configuration, there are specialized commands designed to modify
 > [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for bootstrapping the `dsc`
 > engine, pipeline-native authentication, and workload-identity federation (no stored PAT).
 
-1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
+### Quick start (provider-agnostic)
 
-   > **Note:** The repository will be renamed to `Dsc.PipelineRunner` in a future update.
+No Azure DevOps setup required — point `Invoke-DscRunner` at a local directory built
+from the `Example Configuration` structure below:
+
+```powershell
+Import-Module Dsc.PipelineRunner
+Invoke-DscRunner -ConfigurationSourcePath 'C:\Your-Path\Example Configuration' -Mode Test
+```
+
+The steps below walk through building that configuration and, further down, setting up
+a self-hosted Azure DevOps agent if that is your target platform. Steps 1–3 apply to any
+CI/CD system; the self-hosted agent / Azure DevOps steps are only needed if you use
+`Invoke-DscPipelineRunner` or the `AzureDevOps` `Connect` action.
+
+1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
 1. Using the `Example Configuration` Directory, create a custom datum directory structure following these guidelines:
    1. __Lower-Level Rules__ should be implemented first, such as organizational policies.
    1. __Intermediate-Level Rules__ apply to groups of projects. For example:
@@ -225,7 +320,7 @@ In the realm of configuration, there are specialized commands designed to modify
    - Ensure that all configuration files and settings are securely stored within the appropriate code environment to maintain consistency and security.
    - Use environment-specific directories or repositories to manage configurations, ensuring easy access and version control.
 
-1. __Setup Dsc.PipelineRunner using a Self-Hosted Agent within the CI/CD Pipeline:__
+1. __(Azure DevOps only) Setup Dsc.PipelineRunner using a Self-Hosted Agent within the CI/CD Pipeline:__
 
    - Follow the detailed instructions provided in the [Azure DevOps Agents Documentation](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents?view=azure-devops) to configure your self-hosted agent.
    - __If Using Managed Identity within Azure Arc:__
@@ -240,18 +335,25 @@ In the realm of configuration, there are specialized commands designed to modify
 
 1. __Ensure that the Agent Pools have required dependencies__
 
-    Ensure that the Agent Pool is equipped with all necessary PowerShell module dependencies as specified in the module manifest file [`source\Dsc.PipelineRunner.psd1`](.\source\Dsc.PipelineRunner.psd1). The required modules are:
+    Ensure that the Agent Pool is equipped with all necessary PowerShell module dependencies as specified in the module manifest file [`source\Dsc.PipelineRunner.psd1`](.\source\Dsc.PipelineRunner.psd1). The core module's required modules are:
 
     | Module | Version Constraint |
     |---|---|
     | `PSDesiredStateConfiguration` | `>= 2.0.0` |
     | `powershell-yaml` | `<= 1.0.0` |
-    | `AzureDevOpsDsc.Common` | `<= 1.0.0` |
-    | `AzureDevOpsDscNative` | `<= 1.0.0` |
     | `datum` | `<= 1.0.0` |
     | `Datum.InvokeCommand` | `<= 1.0.0` |
 
-    To install these required modules, execute the following command for each module listed above:
+    Azure DevOps support is **not** a core dependency — it is an opt-in `Connect` action
+    (`Actions/Connect/AzureDevOps.ps1`) that imports the following modules on demand.
+    Install them only if you use `Invoke-DscPipelineRunner`, or `Invoke-DscRunner -Connect AzureDevOps`:
+
+    | Module | Version Constraint |
+    |---|---|
+    | `AzureDevOpsDsc.Common` | `<= 1.0.0` |
+    | `AzureDevOpsDscNative` | `<= 1.0.0` |
+
+    To install any of these modules, execute the following command for each module listed above:
 
     ```powershell
     Install-Module -Name ModuleName
