@@ -15,6 +15,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             (Get-FunctionPath 'Remove-RunnerTemporaryDirectory.ps1')
             (Get-FunctionPath 'Get-PipelineAuthToken.ps1')
             (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
+            (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1')
         ) | ForEach-Object {
             . $_.FullName
         }
@@ -34,6 +35,8 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
         Mock -CommandName New-AzDoAuthenticationProvider
         Mock -CommandName Start-DscRunner
         Mock -CommandName Build-DatumConfiguration
+        # Get-PipelineRunnerSetting is loaded so it can be mocked to feed controlled settings.
+        Mock -CommandName Get-PipelineRunnerSetting -MockWith { return $null }
         Mock -CommandName Get-ChildItem -MockWith { @() }
         Mock -CommandName Split-Path -MockWith {
             "$TestDrive\MockPath\"
@@ -250,6 +253,49 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             Should -InvokeVerifiable
             Should -Invoke 'Start-DscRunner' -Exactly 0            
 
+        }
+    }
+
+    Context "-RunnerSettings forwarding (#57 §2/§3/§4)" {
+
+        BeforeAll {
+            Mock -CommandName Test-Path -MockWith { return $true }
+            $Env:AZDODSC_CACHE_DIRECTORY = "mocked"
+            Mock -CommandName Get-ChildItem -MockWith { @([pscustomobject]@{ FullName = "$TestDrive\node1.yml" }) }
+        }
+
+        AfterAll {
+            Remove-Item Env:AZDODSC_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+        }
+
+        It "resolves PipelineRunnerSettings from the configuration source directory" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ AllowExecutionScripts = $true } }
+
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -ConfigurationSourcePath $ConfigurationSourcePath
+
+            Assert-MockCalled -CommandName Get-PipelineRunnerSetting -Exactly 1 -Scope It -ParameterFilter {
+                $ConfigurationDirectory -eq $ConfigurationSourcePath
+            }
+        }
+
+        It "forwards the resolved settings to Start-DscRunner as -RunnerSettings" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ AllowExecutionScripts = $true } }
+
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -ConfigurationSourcePath $ConfigurationSourcePath
+
+            Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
+                $RunnerSettings -and $RunnerSettings['AllowExecutionScripts'] -eq $true
+            }
+        }
+
+        It "does not pass -RunnerSettings when no PipelineRunnerSettings block is found" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return $null }
+
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -ConfigurationSourcePath $ConfigurationSourcePath
+
+            Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
+                -not $PSBoundParameters.ContainsKey('RunnerSettings')
+            }
         }
     }
 

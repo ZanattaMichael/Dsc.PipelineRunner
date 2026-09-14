@@ -91,6 +91,13 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         if (-not $native) {
             throw "AzureDevOpsDscNative is not installed. Install it on the self-hosted runner (Install-Module AzureDevOpsDscNative -AllowPrerelease)."
         }
+        # AzureDevOpsDscNative.psm1 nested-imports AzureDevOpsDsc.Common as part of ITS OWN import,
+        # which calls Get-LocalizedData at module-load time to load its localized strings.
+        # Get-LocalizedData is NOT a PowerShell built-in - it is exported by the DSC community's
+        # DscResource.Common module, a runtime dependency of AzureDevOpsDsc.Common that is not
+        # declared on PSModulePath by AzureDevOpsDscNative's own manifest. Import it explicitly
+        # before the very first import below so the nested import resolves it.
+        Import-Module -Name DscResource.Common -Force -ErrorAction Stop
         Import-Module -Name $native.Path -Force -ErrorAction Stop
         $commonManifest = Join-Path (Split-Path -Parent $native.Path) 'Modules/AzureDevOpsDsc.Common/AzureDevOpsDsc.Common.psd1'
         if (Test-Path -LiteralPath $commonManifest) {

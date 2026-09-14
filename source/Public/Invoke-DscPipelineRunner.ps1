@@ -208,6 +208,14 @@ function Invoke-DscPipelineRunner {
         Build-DatumConfiguration -OutputPath $ExportConfigDir -ConfigurationPath $DatumConfigurationPath -AllowedRoot $ExportConfigDir -SourceIsRemote:$sourceIsRemote
 
         #
+        # Resolve PipelineRunnerSettings (#57 §2/§3/§4) from the (pre-compile) Datum source
+        # directory, mirroring Invoke-DscRunner. Without this, AllowExecutionScripts/Reboot/
+        # Target never reach Start-DscRunner and every configuration is evaluated against the
+        # unmodified defaults (AllowExecutionScripts effectively always false), regardless of
+        # what the Datum.yml PipelineRunnerSettings block actually specifies.
+        $settings = Get-PipelineRunnerSetting -ConfigurationDirectory $DatumConfigurationPath
+
+        #
         # Create the Azure DevOps Authentication Provider.
         #
         # Azure DevOps is no longer a hard dependency of the module (it is not listed in
@@ -242,6 +250,11 @@ function Invoke-DscPipelineRunner {
         # If the ReportPath is provided, add it to the parameters
         if ($ReportPath) {
             $params.ReportPath = $ReportPath
+        }
+
+        # Forward the resolved PipelineRunnerSettings down to Start-DscRunner (#57 §2/§3/§4).
+        if ($settings) {
+            $params.RunnerSettings = $settings
         }
 
         # Collect each configuration's structured result so the run can be summarized as a single

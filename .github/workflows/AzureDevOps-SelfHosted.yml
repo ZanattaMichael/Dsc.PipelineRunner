@@ -56,6 +56,10 @@ jobs:
       #  - powershell-yaml / datum / datum.invokecommand compile the Example Configuration.
       #  - AzureDevOpsDscNative provides the AzDo* DSC resources and the bundled
       #    AzureDevOpsDsc.Common managed-identity provider; it is prerelease on the gallery.
+      #  - DscResource.Common is a runtime dependency of AzureDevOpsDsc.Common (it exports
+      #    Get-LocalizedData, which AzureDevOpsDsc.Common.psm1 calls at import time) that is not
+      #    declared on PSModulePath by AzureDevOpsDscNative's own manifest, so it must be ensured
+      #    here explicitly or the import throws "Get-LocalizedData is not recognized".
       - name: Ensure PowerShell dependencies
         shell: pwsh
         run: |
@@ -64,7 +68,7 @@ jobs:
             Install-Module -Name Pester -MinimumVersion '5.0.0' -MaximumVersion '5.9999.9999' `
               -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck
           }
-          foreach ($m in 'powershell-yaml','datum','datum.invokecommand') {
+          foreach ($m in 'powershell-yaml','datum','datum.invokecommand','DscResource.Common') {
             if (-not (Get-Module -ListAvailable -Name $m)) {
               Write-Host "Installing $m ..."
               Install-Module -Name $m -Force -Scope CurrentUser -AllowClobber
