@@ -55,6 +55,12 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         Import-Module -Name $native.Path -Force -ErrorAction Stop
         $commonManifest = Join-Path (Split-Path -Parent $native.Path) 'Modules/AzureDevOpsDsc.Common/AzureDevOpsDsc.Common.psd1'
         if (Test-Path -LiteralPath $commonManifest) {
+            # AzureDevOpsDsc.Common.psm1 calls the built-in Get-LocalizedData at import time. On a
+            # runner where module auto-loading has been disabled/reset (observed on the self-hosted
+            # AZDO-AGENT runner), that built-in is not yet in the session and the import throws
+            # "Get-LocalizedData is not recognized" before authentication ever runs. Force it in
+            # explicitly so the import is not at the mercy of the runner's auto-loading state.
+            Import-Module -Name Microsoft.PowerShell.Utility -Force -ErrorAction Stop
             Import-Module -Name $commonManifest -Force -ErrorAction Stop
         }
         if (-not (Get-Command -Name New-AzDoAuthenticationProvider -ErrorAction SilentlyContinue)) {
