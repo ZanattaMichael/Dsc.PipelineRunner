@@ -91,15 +91,17 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         if (-not $native) {
             throw "AzureDevOpsDscNative is not installed. Install it on the self-hosted runner (Install-Module AzureDevOpsDscNative -AllowPrerelease)."
         }
+        # AzureDevOpsDscNative.psm1 nested-imports AzureDevOpsDsc.Common as part of ITS OWN import,
+        # which in turn calls the built-in Get-LocalizedData at module-load time. On a runner where
+        # module auto-loading has been disabled/reset (observed on the self-hosted AZDO-AGENT
+        # runner), that built-in is not yet in the session and the import throws "Get-LocalizedData
+        # is not recognized" before authentication ever runs. Force it in explicitly, before the
+        # very first import below, so neither import is at the mercy of the runner's auto-loading
+        # state.
+        Import-Module -Name Microsoft.PowerShell.Utility -Force -ErrorAction Stop
         Import-Module -Name $native.Path -Force -ErrorAction Stop
         $commonManifest = Join-Path (Split-Path -Parent $native.Path) 'Modules/AzureDevOpsDsc.Common/AzureDevOpsDsc.Common.psd1'
         if (Test-Path -LiteralPath $commonManifest) {
-            # AzureDevOpsDsc.Common.psm1 calls the built-in Get-LocalizedData at import time. On a
-            # runner where module auto-loading has been disabled/reset (observed on the self-hosted
-            # AZDO-AGENT runner), that built-in is not yet in the session and the import throws
-            # "Get-LocalizedData is not recognized" before authentication ever runs. Force it in
-            # explicitly so the import is not at the mercy of the runner's auto-loading state.
-            Import-Module -Name Microsoft.PowerShell.Utility -Force -ErrorAction Stop
             Import-Module -Name $commonManifest -Force -ErrorAction Stop
 
             # Importing by path loads AzureDevOpsDsc.Common into THIS process only. Under the DSC v3
