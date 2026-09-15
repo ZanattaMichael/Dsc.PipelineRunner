@@ -193,6 +193,54 @@ The pipeline runner provides a set of features applicable to all Desired State C
         - AzureDevOpsDscNative/AzDoProjectGroup/CON Board Administrators
     ```
 
+- __notify__ / __using()__: a Puppet/Chef-style relationship between two resources, combining an
+  ordering guarantee with a data link. `notify` is a string or array of strings on the
+  *notifying* resource, each naming a target resource by the same `Type/Name` identity
+  `dependsOn` uses. It means two things:
+
+    1. **Ordering** — the notifying resource is guaranteed to run before every resource it
+       notifies. This is implemented as an implicit `dependsOn` on the target (folded in before
+       the dependency sort runs), so a `notify` cycle is rejected exactly the way a `dependsOn`
+       cycle already is.
+    2. **Forced re-run** — in `Set` mode, if the notifying resource's own `Test()` reported it
+       was *not* in the desired state, and its `Set()` then completed successfully, every
+       resource it notifies is forced to re-run its own `Set()` this pass, even if that
+       resource's `Test()` reports it is already in the desired state. In `Test` mode there is
+       no `Set()` to force, so `notify` only contributes its ordering guarantee.
+
+    A resource named in another resource's `notify` list may read that resource's `Get()`
+    output with the `using('Type/Name')` accessor, addressed by the same full `Type/Name`
+    identity (not the bare `name` that `reference()` uses). Unlike `reference()`, `using()` is
+    gated: it only succeeds when the resource being read has actually declared the calling
+    resource as a `notify` target — a data dependency is always paired with the ordering
+    guarantee that makes it safe to read. `using()` is callable from anywhere within the
+    notified resource's own expressions (typically `properties`), and, like `reference()`,
+    ordinary PowerShell property-path chaining works on the result.
+
+    `using` is a reserved PowerShell word (the `using module`/`using namespace` directive) when
+    it is the first token of a statement, so `using(...)` must always sit inside an outer
+    expression — never as a bare, unwrapped call. A property value's `$(...)` already provides
+    that wrapping, so the example below (`$((using '...').Id)`) is the pattern to follow; a
+    bare `using 'Type/Name'` with nothing enclosing it fails to parse.
+
+    __Example:__
+
+    ```yaml
+    resources:
+      - name: Project
+        type: AzureDevOpsDscNative/AzDoProject
+        properties:
+          ProjectName: Magenta
+        notify:
+          - AzureDevOpsDscNative/AzDoGitRepository/Default Repository
+
+      - name: Default Repository
+        type: AzureDevOpsDscNative/AzDoGitRepository
+        properties:
+          # Only readable here because 'Project' names this resource in its own notify list.
+          ProjectId: $((using 'AzureDevOpsDscNative/AzDoProject/Project').Id)
+    ```
+
 - __parameter tokens__: A resource property whose value is exactly `<params=Name>` is replaced
   by the value of that pipeline parameter, with its type intact — a number stays a number, a
   hashtable stays a hashtable. Parameters resolve first, before string interpolation, so a
@@ -260,12 +308,19 @@ In the realm of configuration, there are specialized commands designed to modify
 1. Once the YAML file for the project has been generated, Datum will execute any `[x={ $Node.ProjectPresence }=]` script blocks within the `_variables` property.
 1. The pipeline runner ingests the configuration, loading and interpolating all variables and parameters into memory.
 1. The runner executes the `Pre-Parse` and `Format` rules.
-1. The `Resources` are ordered according to the `dependsOn` property.
+1. Each resource's `notify` property is expanded into an implicit `dependsOn` entry on every
+   resource it names, so the notifying resource is guaranteed to run first.
+1. The `Resources` are ordered according to the `dependsOn` property (including the implicit
+   entries `notify` just added).
 1. The runner iterates through each of the Resources and performs the following steps:
     1. Checks if `Stop-TaskProcessing`/`stopProcessing()` has been called; if so, the resource will be skipped.
     1. Checks for the `preCondition` property (the `condition` key still works, as a
        deprecated alias) and evaluates the expression. The resource executes when it is
        `$true`; a `$false` result skips the resource.
+    1. If this resource is named in another resource's `notify` list, and that resource's
+       `Test()` genuinely needed a change and its `Set()` completed successfully, this resource
+       is forced to run `Set()` this pass even if its own `Test()` reports it is already in the
+       desired state (`Mode -eq 'Set'` only).
     1. Resolves the resource's properties in two passes. The first pass substitutes whole-value
        parameter tokens (`<params=Name>`), which keeps the parameter's type intact; the second
        pass interpolates variables and evaluates any calculated properties. Running them in that
@@ -294,7 +349,12 @@ In the realm of configuration, there are specialized commands designed to modify
     1. Checks for the `postCondition` property and evaluates it; a `$false` result marks the
        resource `FAIL` regardless of the engine's own outcome.
     1. Upon completion (even in case of an error), the runner checks for the `postExecutionScript` property and invokes the code if present.
-    1. The runner calls the engine's `Get` method on the resource and stores the result in a references table, making it available to subsequent resources via the `reference` function.
+    1. The runner calls the engine's `Get` method on the resource and stores the result in a references table, making it available to subsequent resources via the `reference` function. It is
+       also stored under the resource's full `Type/Name` identity, making it available to any
+       resource this one notifies via the `using()` function.
+    1. If this resource genuinely needed a change (`preCondition`/`postCondition` and Test all
+       considered) and completed successfully, every resource named in its `notify` list is
+       marked to be forced through `Set()` on its own turn, per the step above.
 
 ## Architecture: Actions
 
@@ -351,6 +411,10 @@ full checkpoint/resume across separate runs.
 [docs/remote-target-credential-handling.md](docs/remote-target-credential-handling.md)
 covers the `Target` and `Credential` action design used for remote-target
 execution and `resourceCredential` resolution.
+[docs/notify-and-using.md](docs/notify-and-using.md) covers the `notify`/`using()`
+resource relationship: the implicit ordering it adds on top of `dependsOn`, the
+forced-refresh semantics in `Set` mode, and the declaration-gated visibility
+`using()` enforces.
 
 ## Public Commands
 
