@@ -430,7 +430,7 @@ forced-refresh semantics in `Set` mode, and the declaration-gated visibility
 | `ConvertTo-DscV3ConfigurationDocument` | Converts compiled, runner-specific resources into a schema-compliant DSC v3 configuration document (`$schema` + `name`/`type`/`properties` only) that `dsc config get\|test\|set` accepts. |
 | `Test-DatumConfiguration` | Validates a Datum configuration object: checks for `PipelineRunnerSettings`, enforces version constraints, and warns when the configuration version is near the maximum supported version. |
 | `Resolve-DscDatumProject` | Resolves a single Datum project node, evaluating variables and converting the result to YAML. Called internally by `Build-DatumConfiguration`. |
-| `Stop-TaskProcessing` | Signals the runner to skip all remaining resources in the current YAML file. Must be called from within `postExecutionScript`. |
+| `Stop-TaskProcessing` | Signals the runner to skip all remaining resources in the current YAML file. Must be called from within `preExecutionScript` or `postExecutionScript`; from a `postCondition`, use the `stopProcessing()` function instead. |
 
 ### `Invoke-DscRunner` Parameters
 
