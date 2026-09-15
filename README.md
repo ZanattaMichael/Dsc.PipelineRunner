@@ -43,13 +43,13 @@ This module utilizes Datum from Gael Colas to streamline configuration. For more
 
     ```yaml
     - name: CON Board Administrators
-      preCondition: $ProjectWorkBoardsStatus -eq 'enabled'
+      preCondition: equals (variables 'ProjectWorkBoardsStatus') 'enabled'
       type: AzureDevOpsDscNative/AzDoProjectGroup
       dependsOn:
         - AzureDevOpsDscNative/AzDoProject/Project
       properties:
-        ProjectName: $ProjectName
-        GroupName: $GroupName
+        ProjectName: $(variables('ProjectName'))
+        GroupName: $(variables('GroupName'))
     ```
 
 1. __Modular Pipeline Formatting and Validation Rules__: Incorporate modular scripts stored in the `\Pipeline Rules\` directory into the module build process. These scripts are responsible for validating and formatting configuration resources to meet specific requirements. They can be modified and extended as needed. The current set of scripts includes:
@@ -100,7 +100,7 @@ The pipeline runner provides a set of features applicable to all Desired State C
 
     ```yaml
     - name: CON Board Administrators
-      preCondition: $ProjectWorkBoardsStatus -eq 'enabled'
+      preCondition: equals (variables 'ProjectWorkBoardsStatus') 'enabled'
       type: AzureDevOpsDscNative/AzDoProjectGroup
     ```
 
@@ -147,7 +147,7 @@ The pipeline runner provides a set of features applicable to all Desired State C
     ```yaml
     - name: Project
       type: AzureDevOpsDscNative/AzDoProject
-      postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
+      postExecutionScript: if ((variables 'Project_Ensure') -eq 'Absent') { Stop-TaskProcessing }
     ```
 
 - __AllowExecutionScripts__ (`PipelineRunnerSettings.AllowExecutionScripts`, default `false`):
@@ -238,7 +238,7 @@ In the realm of configuration, there are specialized commands designed to modify
     ```yaml
     - name: Project
       type: AzureDevOpsDscNative/AzDoProject
-      postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
+      postExecutionScript: if ((variables 'Project_Ensure') -eq 'Absent') { Stop-TaskProcessing }
     ```
 
     In this scenario, when the project is set for deletion, it will remove the project and subsequently halt any further tasks from executing within the pipeline.
@@ -274,7 +274,7 @@ In the realm of configuration, there are specialized commands designed to modify
 
        ```yaml
        ServiceName: <params=ServiceName>
-       Ensure: $( if ([string]::IsNullOrEmpty($Project_Ensure)) { 'Present' } else { $Project_Ensure } )
+       Ensure: $( if ([string]::IsNullOrEmpty((variables 'Project_Ensure'))) { 'Present' } else { variables 'Project_Ensure' } )
        ```
 
        A token naming an undeclared parameter fails that one resource and is recorded in the run
