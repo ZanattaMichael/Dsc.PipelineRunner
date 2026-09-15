@@ -317,10 +317,6 @@ In the realm of configuration, there are specialized commands designed to modify
     1. Checks for the `preCondition` property (the `condition` key still works, as a
        deprecated alias) and evaluates the expression. The resource executes when it is
        `$true`; a `$false` result skips the resource.
-    1. If this resource is named in another resource's `notify` list, and that resource's
-       `Test()` genuinely needed a change and its `Set()` completed successfully, this resource
-       is forced to run `Set()` this pass even if its own `Test()` reports it is already in the
-       desired state (`Mode -eq 'Set'` only).
     1. Resolves the resource's properties in two passes. The first pass substitutes whole-value
        parameter tokens (`<params=Name>`), which keeps the parameter's type intact; the second
        pass interpolates variables and evaluates any calculated properties. Running them in that
@@ -340,21 +336,26 @@ In the realm of configuration, there are specialized commands designed to modify
        through the `Target`/`Credential` action hooks.
     1. If present, runs `preExecutionScript` before the engine call (gated by
        `AllowExecutionScripts`).
-    1. Executes the resource through the selected `Engine` action — `Invoke-DscResource` for
-       `DscV2` (the default), `dsc.exe` for `DscV3` — passing the resolved target session
-       when the resource is not running against `Local`.
+    1. Runs the engine's `Test` method. If the resource is already in the desired state **and**
+       it was not forced to refresh by a `notify` from a resource that changed on this pass (see
+       above), it is marked `OK` and Set is skipped. Otherwise, in `Mode -eq 'Set'`, it runs the
+       engine's `Set` method — this covers both genuine drift and a forced-by-notify re-run; in
+       `Test` mode, drift with no forcing possible marks the resource `FAIL` instead.
+       `Invoke-DscResource` drives `DscV2` (the default), `dsc.exe` drives `DscV3` — passing the
+       resolved target session when the resource is not running against `Local`.
     1. If `Set` reports `RebootRequired`: a remote target is restarted (`Restart-Computer
        -Wait`) and the run continues once it is back; a local target fails the resource and
        stops the rest of the file, unless `PipelineRunnerSettings.Reboot: Ignore` is set.
+    1. If this resource's own `Test` originally reported it needed a change (not merely a
+       forced-by-notify re-run) and it completed successfully, every resource named in its
+       `notify` list is marked to be forced through `Set()` on its own turn, once the runner
+       reaches it.
     1. Checks for the `postCondition` property and evaluates it; a `$false` result marks the
        resource `FAIL` regardless of the engine's own outcome.
     1. Upon completion (even in case of an error), the runner checks for the `postExecutionScript` property and invokes the code if present.
     1. The runner calls the engine's `Get` method on the resource and stores the result in a references table, making it available to subsequent resources via the `reference` function. It is
        also stored under the resource's full `Type/Name` identity, making it available to any
        resource this one notifies via the `using()` function.
-    1. If this resource genuinely needed a change (`preCondition`/`postCondition` and Test all
-       considered) and completed successfully, every resource named in its `notify` list is
-       marked to be forced through `Set()` on its own turn, per the step above.
 
 ## Architecture: Actions
 

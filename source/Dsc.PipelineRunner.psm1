@@ -1,4 +1,8 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification='Required for output within the DSC Resource')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'notifyDeclarations', Justification='Read via $script: scope by using.ps1 and Start-DscRunner.ps1 (dynamic scoping) to gate and drive notify()/using() reads.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'resourceOutputs', Justification='Read via $script: scope by using.ps1 (dynamic scoping) to serve a using() read.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'pendingNotifyRefresh', Justification='Read via $script: scope by Start-DscRunner.ps1 (dynamic scoping) to force a notified resource''s Set() to re-run.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'currentResourceKey', Justification='Read via $script: scope by using.ps1 (dynamic scoping) to identify the calling resource.')]
 
 $references = @{}
 $variables = @{}
