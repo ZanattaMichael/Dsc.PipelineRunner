@@ -21,10 +21,12 @@ resources:
     # would do exactly that. postExecutionScript's own `if ($Project_Ensure -eq 'Absent')` guard
     # avoids that by only ever running in Set mode's teardown branch. Kept as-is rather than
     # replaced, so this example does not reintroduce the failure fixed in f0385eb.
-    # Uses the runner's own function-language accessor (variables()) rather than the bare
-    # $Project_Ensure PowerShell variable, for the same reason properties below do - see the
-    # postCondition comment on the next resource.
-    postExecutionScript: if ((variables 'Project_Ensure') -eq 'Absent') { Stop-TaskProcessing }
+    # Unlike properties/preCondition/postCondition, postExecutionScript is not parsed through
+    # ExpandString or Assert-SafeConditionExpression - it runs as plain PowerShell
+    # ([scriptblock]::Create + &), so it already has direct read access to the script-scope
+    # $Project_Ensure variable (Set-Variables/SetVariables.ps1 populates both that and
+    # $variables). No need to go through the variables() accessor here.
+    postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     properties:
       # variables('Name') (the runner's own function-language accessor - README.md
       # "Enhanced Pipeline Runner Resource Features") is the preferred spelling for reading a

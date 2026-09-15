@@ -140,14 +140,17 @@ The pipeline runner provides a set of features applicable to all Desired State C
   before, or after, the resource's `Test`/`Set` evaluation. Useful for preparing state a
   resource depends on, or for clean-up/state-change logic afterwards. Unlike a condition,
   these are not restricted to a predicate — see `AllowExecutionScripts` below, which gates
-  their use.
+  their use. Unlike `properties`/`preCondition`/`postCondition`, these are not parsed through
+  `ExpandString` or `Assert-SafeConditionExpression` — they run as plain PowerShell, with
+  direct read access to the script-scope variable `Set-Variables` already created for each
+  Datum variable, so there is no need to go through the `variables()` accessor here.
 
     __Example:__
 
     ```yaml
     - name: Project
       type: AzureDevOpsDscNative/AzDoProject
-      postExecutionScript: if ((variables 'Project_Ensure') -eq 'Absent') { Stop-TaskProcessing }
+      postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     ```
 
 - __AllowExecutionScripts__ (`PipelineRunnerSettings.AllowExecutionScripts`, default `false`):
@@ -286,7 +289,7 @@ In the realm of configuration, there are specialized commands designed to modify
     ```yaml
     - name: Project
       type: AzureDevOpsDscNative/AzDoProject
-      postExecutionScript: if ((variables 'Project_Ensure') -eq 'Absent') { Stop-TaskProcessing }
+      postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
     ```
 
     In this scenario, when the project is set for deletion, it will remove the project and subsequently halt any further tasks from executing within the pipeline.
