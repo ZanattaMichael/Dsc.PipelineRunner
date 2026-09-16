@@ -21,8 +21,8 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, Runner, Configurati
         $script:ExampleDatumPath = Join-Path $script:RepositoryRoot 'Example Configuration/Datum.yml'
         $script:ExampleSettings = (ConvertFrom-Yaml -Yaml (Get-Content -LiteralPath $script:ExampleDatumPath -Raw)).PipelineRunnerSettings
 
-        $script:ConfigurationVersion  = $script:ExampleSettings.ConfigurationVersion   # 0.2
-        $script:PipelineRunnerVersion = $script:ExampleSettings.PipelineRunnerVersion  # 1.0.0
+        $script:ConfigurationVersion  = $script:ExampleSettings.ConfigurationVersion
+        $script:PipelineRunnerVersion = $script:ExampleSettings.PipelineRunnerVersion
 
         # Builds the smallest Datum object Test-DatumConfiguration accepts, defaulting to the
         # versions the shipped Example Configuration declares.
@@ -224,11 +224,15 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, Runner, Configurati
                 Should -BeLessOrEqual ([decimal]::Parse("$($maximum.Major).$($maximum.Minor)"))
         }
 
-        It "declares the PipelineRunnerVersion that the module manifest ships" {
+        It "does not target a Dsc.PipelineRunner older than the one in this repository" {
+            # Greater-or-equal rather than equal: the Example Configuration is allowed to be
+            # authored against a runner ahead of the manifest (it currently is), but it must
+            # never fall behind the module shipping beside it. A ModuleVersion bump past the
+            # declared value fails here until the configuration is brought forward.
             $manifestPath = Join-Path $script:RepositoryRoot 'source/Dsc.PipelineRunner.psd1'
             $manifestVersion = (Import-PowerShellDataFile -Path $manifestPath).ModuleVersion -as [Version]
 
-            ($script:PipelineRunnerVersion -as [Version]) | Should -Be $manifestVersion
+            ($script:PipelineRunnerVersion -as [Version]) | Should -BeGreaterOrEqual $manifestVersion
         }
 
         It "declares a PipelineRunnerVersion inside the module's supported range" {
