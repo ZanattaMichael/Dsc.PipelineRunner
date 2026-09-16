@@ -150,6 +150,19 @@ execution in separate scopes: a variable assigned at a test file's top level is 
 Pester evaluates an It's -Skip: argument (discovery) but NOT inside BeforeAll (execution). The
 probe therefore has to be callable from both, which a module command is and a file-scope
 variable is not.
+
+It probes TWICE, and the second probe is the one that matters. A bare Test-WSMan sends an
+ANONYMOUS WS-Man Identify: it answers as soon as a listener exists, without authenticating
+anybody. The suite does not open anonymous connections - New-CimSession and New-PSSession
+authenticate as the current user - so a host can pass a bare Test-WSMan and still refuse every
+session the suite opens ("Access is denied"), which is a skip condition reported as four
+failures. Adding -Authentication Negotiate makes the Identify go through the same
+authentication the suite's own sessions use, so what this returns matches what the tests will
+actually get. Keeping both probes is what lets the reason distinguish "no listener here" from
+"a listener that will not authenticate this account".
+
+scripts/Enable-SelfHostedWinRM.ps1 probes the same way, for the same reason: an anonymous
+probe would let it declare a host already configured when the suite cannot use it.
 #>
 function Get-WinRMSkipReason {
     [CmdletBinding()]
@@ -166,6 +179,13 @@ function Get-WinRMSkipReason {
     }
     catch {
         return "Test-WSMan against [$ComputerName] failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $null = Test-WSMan -ComputerName $ComputerName -Authentication Negotiate -ErrorAction Stop
+    }
+    catch {
+        return "A WinRM listener on [$ComputerName] answered an anonymous Test-WSMan, but an authenticated one failed: $($_.Exception.Message)"
     }
 
     return $null

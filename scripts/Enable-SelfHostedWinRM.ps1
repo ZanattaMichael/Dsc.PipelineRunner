@@ -61,10 +61,25 @@ function Write-StepSummary {
 }
 
 function Test-WinRMReachable {
+    <#
+    .SYNOPSIS
+    Answers the only question that matters here: can the remoting suite open a session to $Target?
+
+    .DESCRIPTION
+    -Authentication Negotiate is load-bearing. A bare Test-WSMan sends an ANONYMOUS WS-Man
+    Identify, which succeeds as soon as a listener exists - without authenticating anybody. The
+    suite's New-CimSession/New-PSSession authenticate as the current user, so a host can answer a
+    bare Test-WSMan and still refuse every session with "Access is denied". Probing anonymously
+    would make this script report a host as already configured, skip the configuration below, and
+    leave the suite failing on a machine this step was written to fix.
+
+    Get-WinRMSkipReason (Tests/TestHelpers/CommonTestFunctions.psm1) probes the same way, so what
+    this script reports and what the suite decides cannot disagree.
+    #>
     param([Parameter(Mandatory)][string]$Target)
 
     try {
-        $null = Test-WSMan -ComputerName $Target -ErrorAction Stop
+        $null = Test-WSMan -ComputerName $Target -Authentication Negotiate -ErrorAction Stop
         return $true
     }
     catch {
@@ -79,11 +94,11 @@ if (-not $IsWindows) {
 
 # 1. Probe first. A runner that is already configured must not be reconfigured on every build.
 if (Test-WinRMReachable -Target $ComputerName) {
-    Write-StepSummary "WinRM: already enabled - [$ComputerName] answered Test-WSMan. No changes made."
+    Write-StepSummary "WinRM: already usable - [$ComputerName] answered an authenticated Test-WSMan. No changes made."
     return
 }
 
-Write-Information "WinRM: [$ComputerName] did not answer Test-WSMan; attempting to configure a listener." -InformationAction Continue
+Write-Information "WinRM: [$ComputerName] did not answer an authenticated Test-WSMan; attempting to configure the listener." -InformationAction Continue
 
 # 2. Everything below needs elevation. Say so plainly rather than failing with an access error:
 #    whether the runner service runs elevated is a machine setup decision, not something to
@@ -150,9 +165,9 @@ catch {
 # 4. Re-probe. Enable-PSRemoting reporting success is not the same as the suite being able to
 #    connect, and the suite's probe is the only thing that decides whether the tests run.
 if (Test-WinRMReachable -Target $ComputerName) {
-    Write-StepSummary "WinRM: enabled - [$ComputerName] now answers Test-WSMan. The live remoting tests will run."
+    Write-StepSummary "WinRM: enabled - [$ComputerName] now answers an authenticated Test-WSMan. The live remoting tests will run."
 }
 else {
-    Write-Warning "WinRM was configured but [$ComputerName] still does not answer Test-WSMan. The remoting suite will skip."
-    Write-StepSummary "WinRM: **not enabled** - configured, but [$ComputerName] still does not answer Test-WSMan. The live remoting tests will skip."
+    Write-Warning "WinRM was configured but [$ComputerName] still does not answer an authenticated Test-WSMan. The remoting suite will skip. Where the message is an access denial rather than a connection failure, the listener is up and the refusal is an authentication/authorization decision on the runner - see the CHANGELOG entry for the remaining machine-level causes."
+    Write-StepSummary "WinRM: **not usable** - configured, but [$ComputerName] still does not answer an authenticated Test-WSMan. The live remoting tests will skip."
 }

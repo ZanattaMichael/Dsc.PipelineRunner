@@ -119,18 +119,30 @@ Every issue in the repository carrying the `bug` label.
 
 ### Testing
 
-- **The WinRM remoting suite now has a listener to connect to.** The self-hosted workflow ran
-  `WinRMTarget.Integration.tests.ps1` but nothing configured a WSMan listener on the runner, so
-  `Get-WinRMSkipReason` reported `Test-WSMan` failing and five of the six tests skipped with a
-  warning on a green job - the coverage the suite exists to provide silently did not happen. A new
+- **The WinRM remoting suite now has a listener to connect to, and a skip probe that tells the
+  truth about it.** The self-hosted workflow ran `WinRMTarget.Integration.tests.ps1` but nothing
+  configured a WSMan listener on the runner, so five of the six tests skipped with a warning on a
+  green job - the coverage the suite exists to provide silently did not happen. A new
   `scripts/Enable-SelfHostedWinRM.ps1`, wired in as the `Ensure WinRM is enabled` step before the
   suite, configures one. It is deliberately conservative about a long-lived runner: it probes first
-  and makes no changes when the listener already answers, appends this computer to `TrustedHosts`
+  and makes no changes when the listener is already usable, appends this computer to `TrustedHosts`
   rather than replacing the list (and only when the runner is not domain-joined, where NTLM needs
   it), reports a non-elevated runner process as a warning instead of an access error, and always
   exits 0 so an environment problem on the runner cannot turn an unrelated pull request red. The
-  outcome - enabled, already enabled, or not enabled and why - is written to the job's step summary
-  so a green run cannot hide a skipped suite.
+  outcome - usable, already usable, or not usable and why - is written to the job's step summary so
+  a green run cannot hide a skipped suite.
+
+- **`Get-WinRMSkipReason` passed hosts the suite cannot actually connect to.** It probed with a
+  bare `Test-WSMan`, which sends an ANONYMOUS WS-Man Identify and answers as soon as a listener
+  exists, without authenticating anybody. The suite opens `New-CimSession`/`New-PSSession` as the
+  current user, so a host that answers the anonymous probe can still refuse every session with
+  "Access is denied" - a skip condition arriving as four test failures. Both the helper and
+  `Enable-SelfHostedWinRM.ps1` now add `-Authentication Negotiate`, so the probe goes through the
+  same authentication the sessions do and the two cannot disagree. Where the listener is up but
+  authentication is refused, the remaining causes are machine-level rather than repository-level
+  (NTLM loopback protection when connecting to the host by its own name, the runner's account not
+  being in Administrators or Remote Management Users, or a restrictive WinRM `RootSDDL`); the suite
+  skips with that message rather than failing, and the step summary says so.
 
 - **The new accessors are unit and integration tested.** `Arithmetic.tests.ps1` covers all nine
   arithmetic accessors and the shared numeric coercion, pinning the whole-number contract and
