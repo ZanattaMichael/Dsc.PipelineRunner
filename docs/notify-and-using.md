@@ -66,10 +66,14 @@ always be nested inside an outer expression — `$((using 'Type/Name').Property)
 `ExpandString`'s `$(...)` wrapping already requires for a property value. A bare, unwrapped
 `using 'Type/Name'` with nothing enclosing it is a parse error, not a runtime error.
 
-`using()` is not added to `Assert-SafeConditionExpression`'s allow-list — it is designed for
-`properties` expansion (`Expand-HashTable`'s `ExpandString`, which has no such gate), the same
-place `reference()`/`variables()`/`parameters()` are used today, not for `preCondition`/
-`postCondition`.
+`using()` is on `Assert-SafeConditionExpression`'s allow-list, so it works in a `preCondition`
+as well as in `properties` expansion (`Expand-HashTable`'s `ExpandString`, which has no such
+gate). The `notify` gate is what makes that safe: the runner sets `$script:currentResourceKey`
+before the `preCondition` is evaluated, so the same declaration that makes the read legal in a
+property makes it legal in a condition, and the same three errors are thrown when it is not
+declared — a resource whose `preCondition` reads a resource that does not notify it is recorded
+`FAIL`, not silently skipped. The reserved-word nesting requirement applies in a condition too:
+write `equals (using 'Type/Name').Visibility 'Private'`, never a bare `using 'Type/Name'`.
 
 ## Scope: one configuration file
 

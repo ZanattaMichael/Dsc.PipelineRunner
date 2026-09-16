@@ -76,9 +76,18 @@ Resource types are the familiar `Module/ResourceName`:
       Ensure: Present
 ```
 
-Remote execution adds `-CimSession` and changes nothing else about the call shape.
+Remote execution runs the same `Invoke-DscResource` call **on the far side**, over the target's
+`PSSession`. It does not add `-CimSession`: `PSDesiredStateConfiguration` 2.x, the module
+PowerShell 7 uses, has no such parameter, and passing one fails the call outright. A target that
+resolves a `CimSession` and no `PSSession` still uses `-CimSession`, where the host's
+`Invoke-DscResource` provides it.
 `[pscredential]` properties marshal natively as `MSFT_Credential` over the encrypted WinRM
 transport, so a credential never needs to be converted to plaintext.
+
+`Invoke-DscResource` drives the target's CIM/DSC subsystem, so the identity the session was
+opened as must be a **local administrator on the target** — being able to connect is not enough
+to configure. With no `target.credential` that identity is the account the runner itself runs
+as; see [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
 
 ## `DscV3`
 

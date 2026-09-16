@@ -1,7 +1,8 @@
 <#
-Mocked only (#57 §5/§6 scope note): mocks Get-Module/Get-Secret, so this validates dispatch
-and result-shape handling, not a live SecretManagement vault. Validating a real vault lookup
-needs Microsoft.PowerShell.SecretManagement plus a registered vault installed.
+Mocked by design: this suite mocks Get-Module/Get-Secret so it can assert dispatch and
+result-shape handling without SecretManagement installed. The live vault lookup is covered
+separately by ../Integration/SecretManagementCredential.Integration.tests.ps1, which registers a
+real Microsoft.PowerShell.SecretStore vault.
 #>
 Describe "Actions/Credential/SecretManagement Tests" -Tag Unit, Credential {
 

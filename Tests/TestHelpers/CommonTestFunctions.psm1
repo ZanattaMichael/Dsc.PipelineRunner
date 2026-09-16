@@ -140,4 +140,146 @@ Function Import-Enums {
     return ($Global:TestPaths | Where-Object { $_.Directory.Name -eq 'Enum' })
 }
 
-Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath
+<#
+.SYNOPSIS
+Returns why the live WinRM integration suite cannot run here, or $null when it can.
+
+.DESCRIPTION
+Lives in this module, rather than inline in the test file, because Pester runs discovery and
+execution in separate scopes: a variable assigned at a test file's top level is visible when
+Pester evaluates an It's -Skip: argument (discovery) but NOT inside BeforeAll (execution). The
+probe therefore has to be callable from both, which a module command is and a file-scope
+variable is not.
+
+It probes TWICE, and the second probe is the one that matters. A bare Test-WSMan sends an
+ANONYMOUS WS-Man Identify: it answers as soon as a listener exists, without authenticating
+anybody. The suite does not open anonymous connections - New-CimSession and New-PSSession
+authenticate as the current user - so a host can pass a bare Test-WSMan and still refuse every
+session the suite opens ("Access is denied"), which is a skip condition reported as four
+failures. Adding -Authentication Negotiate makes the Identify go through the same
+authentication the suite's own sessions use, so what this returns matches what the tests will
+actually get. Keeping both probes is what lets the reason distinguish "no listener here" from
+"a listener that will not authenticate this account".
+
+scripts/Enable-SelfHostedWinRM.ps1 probes the same way, for the same reason: an anonymous
+probe would let it declare a host already configured when the suite cannot use it.
+#>
+function Get-WinRMSkipReason {
+    [CmdletBinding()]
+    param(
+        [string]$ComputerName = $env:COMPUTERNAME
+    )
+
+    if (-not $IsWindows) {
+        return 'Target/WinRM requires a Windows host with a WinRM listener; this is not Windows.'
+    }
+
+    try {
+        $null = Test-WSMan -ComputerName $ComputerName -ErrorAction Stop
+    }
+    catch {
+        return "Test-WSMan against [$ComputerName] failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $null = Test-WSMan -ComputerName $ComputerName -Authentication Negotiate -ErrorAction Stop
+    }
+    catch {
+        return "A WinRM listener on [$ComputerName] answered an anonymous Test-WSMan, but an authenticated one failed: $($_.Exception.Message)"
+    }
+
+    return $null
+}
+
+<#
+.SYNOPSIS
+Returns why the live SecretManagement vault integration suite cannot run here, or $null when it
+can.
+
+.DESCRIPTION
+See Get-WinRMSkipReason for why this is a module command rather than a variable in the test file.
+
+Two conditions. Both SecretManagement and the SecretStore extension must be installed, and
+PIPELINERUNNER_ALLOW_SECRETSTORE_RESET must be 'true': configuring SecretStore for unattended
+use means Reset-SecretStore, which erases the CURRENT USER's secrets. That is harmless on an
+ephemeral CI agent and destructive on a developer's machine, so it never happens by default.
+#>
+function Get-LiveVaultSkipReason {
+    [CmdletBinding()]
+    param()
+
+    if (-not (Get-Module -ListAvailable -Name Microsoft.PowerShell.SecretManagement)) {
+        return 'Microsoft.PowerShell.SecretManagement is not installed.'
+    }
+
+    if (-not (Get-Module -ListAvailable -Name Microsoft.PowerShell.SecretStore)) {
+        return 'Microsoft.PowerShell.SecretStore (the vault extension used by this suite) is not installed.'
+    }
+
+    if ($env:PIPELINERUNNER_ALLOW_SECRETSTORE_RESET -ne 'true') {
+        return 'PIPELINERUNNER_ALLOW_SECRETSTORE_RESET is not set to "true"; refusing to reset this user''s SecretStore.'
+    }
+
+    return $null
+}
+
+<#
+.SYNOPSIS
+Returns why the live SSH remoting integration suite cannot run here, or $null when it can.
+
+.DESCRIPTION
+See Get-WinRMSkipReason for why this is a module command rather than a variable in the test file
+(Pester evaluates -Skip: during discovery and BeforeAll during execution - separate scopes).
+
+Three conditions, probed in the order they fail in practice:
+
+  1. PowerShell's SSH remoting has no transport of its own - it shells out to the platform ssh
+     client - so without an 'ssh' on PATH nothing else is worth trying.
+  2. The client must be able to authenticate to the target NON-INTERACTIVELY. BatchMode=yes is
+     what makes that a failure rather than a password prompt that hangs a CI job forever, and
+     host-key checking is deliberately left at its default: a suite that silently accepted an
+     unknown host key would be proving less than it appears to.
+  3. sshd on the target must have a 'powershell' subsystem registered. That is a line in
+     sshd_config, not something the ssh client can report, so the only honest probe is to open
+     a real session and close it again - the SSH analogue of Get-WinRMSkipReason's authenticated
+     Test-WSMan. Without it the connection succeeds and the subsystem request is refused, which
+     would otherwise surface as every test failing rather than the suite skipping.
+
+.PARAMETER ComputerName
+The SSH target. Defaults to PIPELINERUNNER_SSH_TARGET, then 'localhost' - the loopback form the
+hosted integration workflow sets up, where the agent SSHes to itself.
+#>
+function Get-SshRemotingSkipReason {
+    [CmdletBinding()]
+    param(
+        [string]$ComputerName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+        $ComputerName = $env:PIPELINERUNNER_SSH_TARGET
+    }
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+        $ComputerName = 'localhost'
+    }
+
+    if (-not (Get-Command -Name ssh -CommandType Application -ErrorAction SilentlyContinue)) {
+        return 'No ssh client is on PATH; PowerShell SSH remoting shells out to one.'
+    }
+
+    $probeOutput = & ssh -o BatchMode=yes -o ConnectTimeout=10 $ComputerName 'exit 0' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        return "ssh could not authenticate to [$ComputerName] non-interactively (exit $LASTEXITCODE): $($probeOutput.Trim())"
+    }
+
+    try {
+        $probeSession = New-PSSession -HostName $ComputerName -SSHTransport -ErrorAction Stop
+        Remove-PSSession -Session $probeSession -ErrorAction SilentlyContinue
+    }
+    catch {
+        return "ssh reaches [$ComputerName], but no PowerShell remoting session could be opened over it (is the 'powershell' subsystem registered in sshd_config?): $($_.Exception.Message)"
+    }
+
+    return $null
+}
+
+Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath, Get-WinRMSkipReason, Get-LiveVaultSkipReason, Get-SshRemotingSkipReason

@@ -102,7 +102,7 @@ just at different points in the loop:
   or the target — and the resulting `arguments`/JSON must be routed through the existing
   `Test-SensitivePropertyName`/`Protect-SensitiveValue` helpers before any `Write-Verbose`, fixing
   the pre-existing unredacted-logging bug `Actions/Engine/DscV3.ps1` has today independent of any
-  of this. `DscV2`/CIM keeps using native `MSFT_Credential` marshaling once `-CimSession` is
+  of this. `DscV2` keeps using native `MSFT_Credential` marshaling once a remote session is
   threaded through (§4) — no handler involvement needed there beyond the connection-credential use
   above, since CIM already carries a typed `[PSCredential]` property end-to-end over the encrypted
   transport.

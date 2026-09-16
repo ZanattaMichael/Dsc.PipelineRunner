@@ -38,7 +38,7 @@ $config.Run.Exit = $true
 # AzureDevOps-SelfHosted.yml, AzureDevOpsV3-SelfHosted.yml). The self-hosted tags are listed
 # explicitly as well so intent is clear even if an integration suite is ever added without the
 # base 'Integration' tag.
-$config.Filter.ExcludeTag = @('Integration', 'DscV2SelfHosted', 'AzureDevOpsSelfHosted', 'AzureDevOpsV3SelfHosted')
+$config.Filter.ExcludeTag = @('Integration', 'DscV2SelfHosted', 'AzureDevOpsSelfHosted', 'AzureDevOpsV3SelfHosted', 'RemotingSelfHosted', 'HostedIntegration')
 
 # Get the path to the function being tested
 

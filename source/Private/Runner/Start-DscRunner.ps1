@@ -290,6 +290,14 @@ function Start-DscRunner {
     # Report Task Counter
     $TaskCounter = 0
 
+    # Run context for the nodeName() / configurationFile() accessors. Held in module-script
+    # scope for the same reason $script:currentResourceKey is: the accessors are called from a
+    # script block created by [scriptblock]::Create, which does not see this function's locals.
+    # Set here, immediately before the try whose finally clears it, so a run that throws while
+    # loading the file never leaves stale context behind for the next one.
+    $script:currentNodeName          = $nodeName
+    $script:currentConfigurationFile = $FilePath
+
     try {
         # Loop through each task/resource and process it according to its configuration
         foreach ($task in $tasks) {
@@ -437,13 +445,17 @@ function Start-DscRunner {
                         $credentialCacheKey = "$tCredAction|$($tCred.Name)|$($tCred.UserNameVariable)"
                     }
 
+                    # configurationName selects the remote endpoint a WinRM PSSession lands on.
+                    # It is part of the cache key because two resources naming the same computer
+                    # but different endpoints need different sessions.
                     $targetContext = @{
-                        ComputerName = [string]$task.target.computerName
-                        Engine       = $resolvedEngine
-                        Credential   = $targetCredential
+                        ComputerName      = [string]$task.target.computerName
+                        Engine            = $resolvedEngine
+                        Credential        = $targetCredential
+                        ConfigurationName = [string]$task.target.configurationName
                     }
 
-                    $sessionCacheKey = "$targetAction|$($targetContext.ComputerName)|$credentialCacheKey"
+                    $sessionCacheKey = "$targetAction|$($targetContext.ComputerName)|$($targetContext.ConfigurationName)|$credentialCacheKey"
                     if (-not $sessionCache.ContainsKey($sessionCacheKey)) {
                         Write-Verbose "Opening new '$targetAction' session for target: [$($targetContext.ComputerName)]"
                         $sessionCache[$sessionCacheKey] = Invoke-Action -Hook Target -Name $targetAction -Context $targetContext
@@ -649,6 +661,10 @@ function Start-DscRunner {
 
         $runStopwatch.Stop()
         $ProgressPreference = $previousProgressPreference
+
+        # This file is finished, so nodeName() / configurationFile() must stop answering for it.
+        $script:currentNodeName          = $null
+        $script:currentConfigurationFile = $null
 
         # #57 §4: close every session this run opened, regardless of how the run ended.
         foreach ($cachedSession in $sessionCache.Values) {

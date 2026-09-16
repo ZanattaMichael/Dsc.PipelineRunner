@@ -263,8 +263,10 @@ Combining with ordinary operators:
 ```
 
 `Assert-SafeConditionExpression` parses the expression first and rejects it if it contains a
-command invocation outside the allow-list (`parameters`, `variables`, `reference`, `equals`,
-`not`), a variable assignment, or a method call. The check walks the whole tree, so a
+command invocation outside the allow-list (`parameters`, `variables`, `reference`, `using`,
+`nodeName`, `configurationFile`, `equals`, `not`, `concat`, `empty`, `coalesce`, `toLower`,
+`toUpper`, `startsWith`, `contains`, `add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `int`,
+`float`), a variable assignment, or a method call. The check walks the whole tree, so a
 disallowed call nested inside an allowed one is rejected too. A rejected condition never runs —
 the resource is recorded `FAIL`.
 
@@ -417,8 +419,15 @@ Where this resource executes. Overrides `PipelineRunnerSettings.Target` for this
 | `action` | `Local`, `WinRM`, `SSH`, or the name of any file under `Actions/Target/`. Defaults to the file-level setting, itself defaulting to `Local`. |
 | `computerName` | The target host. Required by `WinRM` and `SSH`. |
 | `credential` | A credential block, resolved through the Credential hook. |
+| `configurationName` | `WinRM` only: the remote WinRM endpoint the `PSSession` lands on, e.g. `PowerShell.7`. Omitted, the target's default endpoint (Windows PowerShell) is used — which has no `Invoke-DscResource` on a current Windows build, so a `DscV2` target running PowerShell 7 should name it. |
 
 No other key in the `target` block is read.
+
+> **Who connects.** With no `credential` here, the session is opened as **the account the runner
+> process runs as** — the agent service account on a self-hosted agent. That account must be
+> permitted on the target (`Remote Management Users` to connect, local `Administrators` to apply
+> DSC); the default `NT AUTHORITY\NETWORK SERVICE` is not. See
+> [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
 
 With a credential:
 
@@ -445,7 +454,8 @@ there is no CIM-over-SSH transport for `Invoke-DscResource`):
 > Target action. The SSH action *can* use a `UserName` and a `KeyFilePath`, but there is no
 > `target` key that reaches them today — SSH authentication falls back to the runner account's
 > own `~/.ssh` configuration. Put the user and identity file in an SSH `Host` block for the
-> target instead.
+> target instead — in the **service account's** profile on an agent, with that account's key
+> authorised on the target.
 
 Explicitly pinning one resource back to the runner itself, under a remote file-level default:
 
@@ -454,7 +464,7 @@ Explicitly pinning one resource back to the runner itself, under a remote file-l
       action: Local
 ```
 
-Sessions are cached per `(action, computerName, credential)`, so several resources aimed at one
+Sessions are cached per `(action, computerName, configurationName, credential)`, so several resources aimed at one
 host share a connection, and every session is closed when the file finishes — however it
 finishes. `Local` never invokes the Target hook at all.
 

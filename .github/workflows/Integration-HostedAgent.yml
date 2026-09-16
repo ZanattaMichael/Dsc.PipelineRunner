@@ -1,0 +1,114 @@
+name: Integration Hosted Agent
+
+# Runs the integration suites that need a real dependency but not a real Windows host, on a
+# clean hosted Linux agent:
+#
+#   * notify/using() gated reads through a genuine Start-DscRunner pass over a configuration
+#     file on disk (the unit suites cover invoke-using and the ordering rule in isolation, but
+#     nothing proved the pieces line up).
+#   * the Credential/SecretManagement action against a live Microsoft.PowerShell.SecretStore
+#     vault (the unit suite mocks Get-Secret, so it validates dispatch, not a real lookup).
+#   * the SSH Target action against a real sshd (the unit suite mocks New-PSSession, so it
+#     validates dispatch, not a live connection). SSH remoting is the cross-platform half of the
+#     runner's remote story and is the one path that had no live proof at all.
+#
+# The WinRM Target action cannot be validated here - it needs a Windows host with a listener -
+# so that suite runs on the self-hosted runner from DscV2-SelfHosted.yml instead.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+  # Reused as a release gate by the tag-driven Release workflow.
+  workflow_call:
+
+# Cancel a superseded run for the same branch/PR instead of letting duplicate push+pull_request
+# runs (or back-to-back pushes) pile up and race each other. Safe to cancel: this workflow runs
+# on an ephemeral hosted agent and touches nothing outside it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hosted-integration:
+    name: Integration suites on Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerShell dependencies
+        shell: pwsh
+        run: Install-Module Pester, Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Force -Scope CurrentUser -AllowClobber
+
+      # The SSH Target suite connects the agent to ITSELF over SSH. That needs no second machine
+      # and is still a genuine remote connection: the session is built by the real New-PSSession
+      # over the real ssh client and serviced by a separate pwsh process that sshd starts. Three
+      # things have to be true for it, and the suite skips (with the reason) when they are not:
+      #
+      #   * an sshd is listening,
+      #   * sshd has a 'powershell' subsystem registered - without it the connection succeeds and
+      #     the subsystem request is refused, which is the single most common reason PowerShell
+      #     SSH remoting "does not work" on a correctly reachable host,
+      #   * the agent account can authenticate to it non-interactively, i.e. by key, with the
+      #     host key already known (the probe uses BatchMode=yes and leaves host-key checking at
+      #     its default, so an unpopulated known_hosts is a skip rather than a silent accept).
+      - name: Set up sshd with a PowerShell subsystem
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+
+          # Appended to sshd_config rather than dropped into sshd_config.d/ so this does not
+          # depend on the image's sshd carrying an Include directive. 'powershell' is the
+          # subsystem name PowerShell's SSH transport requests; -sshs puts pwsh into SSH server
+          # mode and -NoLogo keeps the banner out of the protocol stream.
+          echo "Subsystem powershell $(command -v pwsh) -sshs -NoLogo" | sudo tee -a /etc/ssh/sshd_config
+          sudo systemctl enable ssh
+          sudo systemctl restart ssh
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          ssh-keyscan -H localhost >> ~/.ssh/known_hosts
+
+          # Fail the step here, not inside the suite: a broken loopback would otherwise show up
+          # as a skip, and a suite that can only skip proves nothing.
+          ssh -o BatchMode=yes localhost 'echo ssh loopback ok'
+
+          echo "PIPELINERUNNER_SSH_TARGET=localhost" >> "$GITHUB_ENV"
+          echo "PIPELINERUNNER_SSH_KEY=$HOME/.ssh/id_ed25519" >> "$GITHUB_ENV"
+
+      # dsc has no remoting of its own - the DscV3 engine reaches a remote target by running dsc
+      # ON THAT TARGET over the session - so the SSH suite's engine assertion needs a dsc the
+      # REMOTE account can find. $GITHUB_PATH cannot deliver that: it applies to this job's
+      # steps, not to the non-interactive login shell sshd starts. Hence the copy into
+      # /usr/local/bin, which is on sshd's default PATH. The whole install directory is copied,
+      # not just the executable: dsc discovers resources from the *.dsc.resource.json manifests
+      # sitting beside it on PATH, so a lone symlink would find no resources.
+      - name: Bootstrap DSC v3 (dsc) for the remote side
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $dsc = ./scripts/Install-DscV3.ps1 -Verbose
+          # 'directory/.' rather than 'directory/*': cp is a native command here, so there is no
+          # shell to expand the glob.
+          $installDirectory = Split-Path -Parent $dsc
+          sudo cp -r "$installDirectory/." /usr/local/bin/
+          & /usr/local/bin/dsc --version
+
+      # -AllowSecretStoreReset lets the live-vault suite reconfigure SecretStore for unattended
+      # use. That erases the current user's existing secrets, which is why the suite refuses to
+      # do it unless something opts in - harmless here because the agent is ephemeral, and
+      # deliberately NOT the default when the script is run by hand on a workstation.
+      - name: Run hosted integration tests
+        shell: pwsh
+        run: ./scripts/Invoke-HostedIntegrationTests.ps1 -AllowSecretStoreReset

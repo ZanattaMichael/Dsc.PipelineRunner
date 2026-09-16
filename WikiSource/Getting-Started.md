@@ -151,3 +151,5 @@ Directories you supply yourself (`-CacheDirectory`) are never deleted, switch or
 - [Resource Properties](Resource-Properties) — every key you can put on a resource.
 - [Function Language](Function-Language) — `variables()`, `parameters()`, `reference()`, `using()` and friends.
 - [Execution Lifecycle](Execution-Lifecycle) — exactly what happens to one resource, in order.
+- [Remote Targets and Credentials](Remote-Targets-and-Credentials) — applying configuration to
+  another machine, and **which identity the pipeline has to run as** for that to be permitted.

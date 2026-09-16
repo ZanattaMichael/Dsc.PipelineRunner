@@ -13,12 +13,26 @@ parses the expression and rejects it if it contains any of:
   - a variable assignment                          (AssignmentStatementAst)   e.g. `$FailCounter = 0`
   - a method / member call                          (InvokeMemberExpressionAst) e.g. `$reporting.Clear()`
 
-The function-language accessors `parameters()`, `variables()`, `reference()`, `equals()` and
-`not()` are permitted command invocations — they are pure reads/comparisons designed to throw
-on a missing key or reference, never to mutate runner state — so a condition may combine them
-with ordinary operators. Every other command invocation is rejected, including one nested
-inside an otherwise-allowed call (e.g. `equals(Get-Item C:\, 'x')`), since `FindAll` walks the
-whole expression tree rather than only its top level.
+The function-language accessors are permitted command invocations — every one of them is a
+pure read, comparison or computation designed to throw on a bad argument rather than mutate
+runner state — so a condition may combine them with ordinary operators:
+
+  - lookups:      `parameters()`, `variables()`, `reference()`, `using()`
+  - context:      `nodeName()`, `configurationFile()`
+  - logic:        `equals()`, `not()`
+  - strings:      `concat()`, `empty()`, `coalesce()`, `toLower()`, `toUpper()`,
+                  `startsWith()`, `contains()`
+  - arithmetic:   `add()`, `sub()`, `mul()`, `div()`, `mod()`, `min()`, `max()`,
+                  `int()`, `float()`
+
+Every other command invocation is rejected, including one nested inside an otherwise-allowed
+call (e.g. `equals (Get-Item C:\) 'x'`), since `FindAll` walks the whole expression tree rather
+than only its top level.
+
+Note that `secret()` is deliberately NOT here. A condition is recorded verbatim in the run's
+audit record and in the SKIP message of every resource it gates, so allowing a secret to be
+read from one would put the shape of a secret lookup — and, with a careless expression, its
+value — into the report. Secrets reach a resource through its `resourceCredential` block.
 
 Comparisons, logical operators, variable reads and property access (for example
 `$Node.Project -eq 'X'`) remain permitted, which is all the example configurations rely on.
@@ -43,8 +57,12 @@ Assert-SafeConditionExpression -Expression 'Stop-TaskProcessing'
 Throws: a condition may not invoke a command outside the allow-list.
 
 .EXAMPLE
-Assert-SafeConditionExpression -Expression "equals(variables('Env'), 'Prod')"
+Assert-SafeConditionExpression -Expression "equals (variables 'Env') 'Prod'"
 Passes: the function-language accessors are allow-listed command invocations.
+
+.EXAMPLE
+Assert-SafeConditionExpression -Expression "(mod (variables 'NodeIndex') 2) -eq 0"
+Passes: arithmetic accessors composed with an ordinary comparison operator.
 #>
 function Assert-SafeConditionExpression {
     [CmdletBinding()]
@@ -56,10 +74,28 @@ function Assert-SafeConditionExpression {
         [switch] $AllowStopProcessing
     )
 
-    # The function-language accessors are pure, side-effect-free reads/comparisons (they throw
-    # on a missing key rather than mutate state), so they are allowed as command invocations
-    # inside a condition. Everything else stays rejected.
-    $allowedCommands = @('parameters', 'variables', 'reference', 'equals', 'not')
+    # The function-language accessors are pure, side-effect-free reads/comparisons/computations
+    # (they throw on a missing key or a bad argument rather than mutate state), so they are
+    # allowed as command invocations inside a condition. Everything else stays rejected.
+    #
+    # `using` is on this list even though it reads another resource's Get() output, because the
+    # read is gated by that resource's own `notify` declaration and the runner sets
+    # $script:currentResourceKey before the preCondition is evaluated - so the same declaration
+    # that makes the read legal in `properties` makes it legal here, and the same three errors
+    # are thrown when it is not. It must be written nested, e.g. `(using 'Mod/Type/Name').Id`:
+    # `using` is a PowerShell reserved word as the first token of a statement.
+    $allowedCommands = @(
+        # lookups
+        'parameters', 'variables', 'reference', 'using'
+        # run context
+        'nodeName', 'configurationFile'
+        # logic
+        'equals', 'not'
+        # strings and collections
+        'concat', 'empty', 'coalesce', 'toLower', 'toUpper', 'startsWith', 'contains'
+        # arithmetic
+        'add', 'sub', 'mul', 'div', 'mod', 'min', 'max', 'int', 'float'
+    )
 
     # postCondition only (#57 §2): result() is a pure read of the engine outcome, but
     # stopProcessing() is a deliberate, narrowly-scoped side effect - see stopProcessing.ps1.

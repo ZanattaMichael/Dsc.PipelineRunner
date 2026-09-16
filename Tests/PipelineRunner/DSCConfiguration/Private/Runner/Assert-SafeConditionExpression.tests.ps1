@@ -51,6 +51,61 @@ Describe "Assert-SafeConditionExpression Function Tests" -Tag Unit, Runner {
         }
     }
 
+    Context "the extended accessor allow-list" {
+
+        # Each accessor is tested for its own behaviour elsewhere (Arithmetic.tests.ps1,
+        # StringFunctions.tests.ps1, RunContext.tests.ps1). What is under test HERE is only that
+        # the validator lets it through - an accessor that works but is not allow-listed is
+        # rejected before it ever runs, which is a failure mode no accessor-level test can see.
+
+        It "allows the arithmetic accessors" {
+            { Assert-SafeConditionExpression -Expression "(mod (variables 'NodeIndex') 2) -eq 0" }         | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "(add (sub 10 1) (mul 2 3)) -gt 5" }              | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "(div (float (variables 'A')) 2) -lt 0.9" }       | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "(max (min 1 2) (int '3')) -le 10" }              | Should -Not -Throw
+        }
+
+        It "allows the string and collection accessors" {
+            { Assert-SafeConditionExpression -Expression "equals (toLower (variables 'Env')) 'production'" } | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "startsWith (variables 'Name') 'SRV-'" }            | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "contains (variables 'Flags') 'Boards'" }           | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "not (empty (coalesce (variables 'A') 'x'))" }      | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "equals (concat (variables 'A') '-db') 'x-db'" }    | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "equals (toUpper (variables 'A')) 'X'" }            | Should -Not -Throw
+        }
+
+        It "allows the run-context accessors" {
+            { Assert-SafeConditionExpression -Expression "startsWith (nodeName()) 'SRV-APP'" }        | Should -Not -Throw
+            { Assert-SafeConditionExpression -Expression "contains (configurationFile()) 'Prod'" }    | Should -Not -Throw
+        }
+
+        It "allows using() in a preCondition, nested as the parser requires" {
+            # using() is gated by the source resource's own notify declaration, and the runner
+            # sets $script:currentResourceKey before a preCondition is evaluated, so the gate
+            # applies here exactly as it does during property expansion.
+            { Assert-SafeConditionExpression -Expression "(using 'Module/Type/Name').Id -eq 'x'" } | Should -Not -Throw
+        }
+
+        It "rejects a bare, unnested using() with a parse error, not an allow-list error" {
+            # `using` is a PowerShell reserved word as the first token of a statement, so this
+            # never reaches the allow-list check at all.
+            { Assert-SafeConditionExpression -Expression "using 'Module/Type/Name'" } |
+                Should -Throw "*Invalid 'condition' expression*"
+        }
+
+        It "does not allow secret(), which is deliberately off the list" {
+            # A condition is recorded verbatim in the run report and in every SKIP message it
+            # produces, so a secret lookup must not be expressible in one.
+            { Assert-SafeConditionExpression -Expression "equals (secret 'ApiKey') 'x'" } |
+                Should -Throw '*command invocation*'
+        }
+
+        It "still rejects an unrelated command nested inside a new accessor" {
+            { Assert-SafeConditionExpression -Expression "concat (Get-Item C:\) 'x'" } |
+                Should -Throw '*command invocation*'
+        }
+    }
+
     Context "rejected side effects" {
 
         It "rejects a bare command invocation" {
@@ -108,6 +163,15 @@ Describe "Assert-SafeConditionExpression Function Tests" -Tag Unit, Runner {
 
         It "allows result() with the switch" {
             { Assert-SafeConditionExpression -Expression 'result().InDesiredState' -AllowStopProcessing } |
+                Should -Not -Throw
+        }
+
+        It "allows the documented 'fail or stop' composition" {
+            # This is the spelling README/wiki lead with, and it used to fail validation with a
+            # PARSE error: stopProcessing() was rewritten to a bare `stopProcessing`, and a bare
+            # command is not a valid operand of -or. The rewrite now produces
+            # `(stopProcessing)`, which parses in both positions.
+            { Assert-SafeConditionExpression -Expression 'result().InDesiredState -or stopProcessing()' -AllowStopProcessing } |
                 Should -Not -Throw
         }
 

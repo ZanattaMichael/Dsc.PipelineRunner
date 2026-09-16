@@ -1,7 +1,8 @@
 <#
-Mocked only (#57 §4 scope note): this test mocks New-CimSession/New-PSSession, so it validates
-the action's dispatch/parameter-passing logic, not a live WinRM connection. Validating a real
-connection needs a reachable Windows remote target.
+Mocked by design: this suite mocks New-CimSession/New-PSSession so it can assert the action's
+dispatch/parameter-passing logic on any host, including the hosted Linux agents that have no WSMan
+stack at all. The live connection is covered separately by
+../Integration/WinRMTarget.Integration.tests.ps1, which runs on the self-hosted Windows runner.
 #>
 Describe "Actions/Target/WinRM Tests" -Tag Unit, Target {
 
@@ -20,7 +21,7 @@ Describe "Actions/Target/WinRM Tests" -Tag Unit, Target {
         # used below cannot satisfy. Pester's Mock inherits the target command's real parameter
         # metadata, so shadow it too, loosely typed, before mocking it.
         function New-PSSession {
-            param($ComputerName, $Credential)
+            param($ComputerName, $Credential, $ConfigurationName)
         }
 
         Mock -CommandName New-CimSession -MockWith {
@@ -28,7 +29,7 @@ Describe "Actions/Target/WinRM Tests" -Tag Unit, Target {
             return [pscustomobject]@{ Marker = 'cim'; ComputerName = $ComputerName }
         }
         Mock -CommandName New-PSSession -MockWith {
-            param($ComputerName, $Credential)
+            param($ComputerName, $Credential, $ConfigurationName)
             return [pscustomobject]@{ Marker = 'ps'; ComputerName = $ComputerName }
         }
     }
@@ -47,6 +48,25 @@ Describe "Actions/Target/WinRM Tests" -Tag Unit, Target {
 
         Assert-MockCalled -CommandName New-CimSession -ParameterFilter { $ComputerName -eq 'node01' } -Exactly 1 -Scope It
         Assert-MockCalled -CommandName New-PSSession -ParameterFilter { $ComputerName -eq 'node01' } -Exactly 1 -Scope It
+    }
+
+    It "Forwards ConfigurationName to the PSSession only" {
+        # New-CimSession has no -ConfigurationName: a CIM connection has no PowerShell endpoint to
+        # choose, and passing one would fail to bind. The endpoint matters because the default one
+        # is Windows PowerShell, which on a current Windows build has no Invoke-DscResource for the
+        # remote DSC v2 path to run (Actions/Engine/DscV2.ps1).
+        $null = & $script:WinRMPath -Context @{ ComputerName = 'node01'; ConfigurationName = 'PowerShell.7' }
+
+        Assert-MockCalled -CommandName New-PSSession -ParameterFilter { $ConfigurationName -eq 'PowerShell.7' } -Exactly 1 -Scope It
+        Assert-MockCalled -CommandName New-CimSession -ParameterFilter { $ComputerName -eq 'node01' } -Exactly 1 -Scope It
+    }
+
+    It "Omits ConfigurationName entirely when the target does not name an endpoint" {
+        # The default remains the host's default endpoint, so an existing configuration that
+        # names no endpoint opens exactly the session it opened before.
+        $null = & $script:WinRMPath -Context @{ ComputerName = 'node01' }
+
+        Assert-MockCalled -CommandName New-PSSession -ParameterFilter { $null -eq $ConfigurationName } -Exactly 1 -Scope It
     }
 
     It "Forwards a supplied Credential to both session constructors" {

@@ -146,23 +146,28 @@ therefore enforced at review time: a page you forgot to add to `.pageorder`, a `
 entry whose page you deleted, or a new exported command with no `.SYNOPSIS` fails the PR that
 introduced it, on the commit that introduced it.
 
-**Built again during a release — blocking.** `Build_Wiki_Content` is the last task in
-`build.yaml`'s `build` workflow, so `./build.ps1 -Tasks build` produces `output/WikiContent`
-alongside the module. A wiki that cannot compile fails the release build before anything is
-packaged or published.
+**Compiled and published on a full release — non-fatal.** `.github/workflows/Release.yml` runs
+`./build.ps1 -Tasks Build_Wiki_Content, Publish_Wiki_Content` after the release itself, gated on
+`IsPrerelease == 'false'`. A preview tag ships to the Gallery without moving the wiki, so the
+published wiki always describes the latest released version rather than a preview most consumers
+never install.
 
-**Published after a release — non-blocking.** Publishing is `Publish_GitHub_Wiki_Content`, a
-Sampler.GitHubTasks task, run by `.github/workflows/Release.yml` after the release itself. It is
-deliberately **not** chained into `build.yaml`'s `publish` task, for two reasons stated there:
+Both tasks are local to `.build/wiki.build.ps1`. There is no `Publish_GitHub_Wiki_Content` here:
+that upstream task lives in `DscResource.DocGenerator`, which this module does not depend on, and
+the publish is only a clone of `<owner>/<repo>.wiki.git`, a mirror-copy, a commit and a push.
+
+Neither task is chained into `build.yaml`'s `build` or `publish` workflow, for two reasons stated
+there:
 
 - the repository wiki has to be enabled and initialised before anything can be pushed to it;
 - a wiki failure must never fail a release whose Gallery package has already been published.
 
-So the release workflow runs it as its own `continue-on-error: true` step, naming
-`Build_Wiki_Content` again ahead of it so the step is correct in isolation and never publishes a
-stale folder. A wiki that fails to *publish* leaves the release intact, and the next tag
-republishes it. A wiki that fails to *build* has already stopped the release, well before this
-point.
+`Publish_Wiki_Content` therefore never throws. Every outcome — published, already up to date, no
+token, wiki not initialised, push rejected — is written to the run summary and the task exits
+clean. That is deliberate: the step used to be `continue-on-error: true`, which reported a hard
+`exit code 1` as a green check. A wiki that fails to *publish* leaves the release intact and the
+next full tag republishes it. A wiki that fails to *build* has already stopped the PR that broke
+it, well before this point.
 
 ## Style
 
