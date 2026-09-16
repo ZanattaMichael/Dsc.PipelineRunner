@@ -83,9 +83,9 @@ Every issue in the repository carrying the `bug` label.
 
 ### Testing
 
-- **WinRM remoting, secret vaults and `using()` are now integration tested.** All three were
+- **WinRM remoting, secret vaults, `using()` and the condition keys are now integration tested.** All were
   covered only by mocked unit tests, and `Actions/Target/WinRM.ps1` and
-  `Actions/Credential/SecretManagement.ps1` said so in their own headers. Three new suites
+  `Actions/Credential/SecretManagement.ps1` said so in their own headers. Four new suites
   exercise the real thing:
   - `WinRMTarget.Integration.tests.ps1` (tag `RemotingSelfHosted`) opens real `CimSession`
     and `PSSession` objects against a live WinRM listener, proves a CIM query and an
@@ -106,6 +106,16 @@ Every issue in the repository carrying the `bug` label.
     can validate because the accessor is reached through `ExpandString`. Both arms of the
     notify gate (no declaration, and a declaration naming someone else) are asserted to fail
     only the reading resource, not the run.
+  - `Conditions.Integration.tests.ps1` (tag `HostedIntegration`) covers `preCondition` and
+    `postCondition` as they are actually authored - in a configuration file on disk. It proves
+    a `preCondition` reading `variables()` skips its resource without ever reaching the engine
+    while the rest of the file runs; that an unsafe predicate and the postCondition-only
+    `result()` accessor each fail only their own resource; that a `postCondition` reading
+    `result()` fails a resource the engine itself reported in the desired state, and passes
+    when its assertion holds; and that `stopProcessing()` skips everything after it in the
+    real `Sort-DependsOn` order without leaking into the next run. The unit suites cover these
+    semantics with the configuration file and the parser mocked away, so none of them proves a
+    condition authored in a file reaches the predicate that decides its resource.
 - New `Integration Hosted Agent` workflow running the `HostedIntegration` suites on
   `ubuntu-latest`, added to the release gates in `Release.yml`; a WinRM step added to
   `DscV2-SelfHosted.yml`. `tests.ps1` excludes both new tags so the unit gate stays hermetic.
@@ -120,6 +130,11 @@ Every issue in the repository carrying the `bug` label.
 
 ### Documentation
 
+- `Assert-SafeConditionExpression`'s comment-based help showed the accessors being called with
+  the comma-in-parens form (`equals(variables('Env'), 'Prod')`), which is exactly the form the
+  README warns against: the accessors are ordinary PowerShell commands, so that syntax binds a
+  single array argument and mis-binds silently. Both examples now use the space-separated form
+  the shipped `Example Configuration` uses. Help text only; the validator is unchanged.
 - `README.md`: the execution walkthrough now describes the two-pass property resolution
   (parameter tokens first, then variable interpolation and calculated properties) and refers
   to the selected `Engine` action rather than naming `Invoke-DscResource` as the only path. A

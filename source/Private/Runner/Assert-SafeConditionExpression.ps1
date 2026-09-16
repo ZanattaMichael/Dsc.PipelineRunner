@@ -17,7 +17,7 @@ The function-language accessors `parameters()`, `variables()`, `reference()`, `e
 `not()` are permitted command invocations — they are pure reads/comparisons designed to throw
 on a missing key or reference, never to mutate runner state — so a condition may combine them
 with ordinary operators. Every other command invocation is rejected, including one nested
-inside an otherwise-allowed call (e.g. `equals(Get-Item C:\, 'x')`), since `FindAll` walks the
+inside an otherwise-allowed call (e.g. `equals (Get-Item C:\) 'x'`), since `FindAll` walks the
 whole expression tree rather than only its top level.
 
 Comparisons, logical operators, variable reads and property access (for example
@@ -43,7 +43,7 @@ Assert-SafeConditionExpression -Expression 'Stop-TaskProcessing'
 Throws: a condition may not invoke a command outside the allow-list.
 
 .EXAMPLE
-Assert-SafeConditionExpression -Expression "equals(variables('Env'), 'Prod')"
+Assert-SafeConditionExpression -Expression "equals (variables 'Env') 'Prod'"
 Passes: the function-language accessors are allow-listed command invocations.
 #>
 function Assert-SafeConditionExpression {
