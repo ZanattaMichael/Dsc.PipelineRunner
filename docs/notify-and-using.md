@@ -71,6 +71,46 @@ always be nested inside an outer expression — `$((using 'Type/Name').Property)
 place `reference()`/`variables()`/`parameters()` are used today, not for `preCondition`/
 `postCondition`.
 
+## Scope: one configuration file
+
+`notify` and `using()` are **intra-file**. Both the relationship and the data it carries live
+entirely within a single compiled configuration file, and neither crosses into the next one.
+
+`Invoke-DscRunner` enumerates the compiled `*.yml` configurations and calls `Start-DscRunner`
+once per file. `Start-DscRunner` resets all four pieces of notify state at the top of every
+call, alongside `$script:StopTaskProcessing`:
+
+```powershell
+$script:notifyDeclarations   = @{}
+$script:resourceOutputs      = @{}
+$script:pendingNotifyRefresh = @{}
+$script:currentResourceKey   = $null
+```
+
+Two consequences follow, both by design:
+
+- **`using()` cannot read across files.** A resource in file B calling
+  `using('Type/Name')` on a resource declared in file A hits the first guard in `using.ps1`
+  and throws *"has no `notify` declaration, or does not exist"* — file B's declaration map is
+  empty, so from its point of view the source resource does not exist. The error names the
+  gate rather than the file boundary, which is worth knowing when diagnosing it.
+- **A forced refresh cannot cross files.** A genuine change in file A never forces a `Set()`
+  on a resource in file B, even if file A names it in a `notify` list. The name is unresolvable
+  at expansion time in file A too: `Expand-NotifyDependsOn` rejects a `notify` target that is
+  not present in the same configuration, the same way `Sort-DependsOn` rejects an unresolvable
+  `dependsOn`.
+
+The reset is what keeps one file's run from leaking into the next — compiled files are
+per-node, and `$resourceOutputs` in particular holds live state read from real infrastructure,
+which must not be attributed to a different node. Widening the scope is therefore not a matter
+of deleting the reset: the outputs would need to be keyed per node and their lifetime raised to
+the `Invoke-DscRunner` loop, with an explicit answer for what a downstream file should do when
+the file it depends on failed or stopped early. That is tracked separately; for now, a
+`notify`/`using()` relationship must be expressed between resources in the same file.
+
+`dependsOn` has the same file-scoped boundary, for the same reason — `notify` inherits it by
+being expanded into `dependsOn`.
+
 ## Implementation
 
 - `Pipeline Rules/Custom/Expand-NotifyDependsOn.ps1` — expands `notify` into implicit

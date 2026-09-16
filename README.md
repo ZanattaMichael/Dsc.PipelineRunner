@@ -226,6 +226,14 @@ The pipeline runner provides a set of features applicable to all Desired State C
     that wrapping, so the example below (`$((using '...').Id)`) is the pattern to follow; a
     bare `using 'Type/Name'` with nothing enclosing it fails to parse.
 
+    Both halves are **scoped to a single configuration file**. The runner processes one compiled
+    configuration at a time and resets its notify state per file, so a `notify` target must be a
+    resource declared in the same file, and `using()` cannot read a resource from another file
+    (it throws the same "has no `notify` declaration, or does not exist" error as an undeclared
+    read). A genuine change in one file never forces a `Set()` in another. This matches
+    `dependsOn`, which is file-scoped for the same reason — see
+    [docs/notify-and-using.md](docs/notify-and-using.md) for why the boundary exists.
+
     __Example:__
 
     ```yaml
