@@ -212,10 +212,14 @@ jobs:
       # Non-blocking: the repository wiki has to be enabled and initialised before this can push
       # to it. A wiki failure must not fail a release whose Gallery package has already been
       # published, so this step is allowed to fail.
+      #
+      # Build_Wiki_Content is named explicitly even though the 'build' workflow above already
+      # runs it, so this step stays correct on its own - a re-ordering of the build workflow, or
+      # a re-run of just this step, must not publish a stale or missing output/WikiContent.
       - name: Publish GitHub wiki content
         continue-on-error: true
         shell: pwsh
-        run: ./build.ps1 -Tasks Publish_GitHub_Wiki_Content
+        run: ./build.ps1 -Tasks Build_Wiki_Content, Publish_GitHub_Wiki_Content
         env:
           GitHubToken: ${{ secrets.GITHUB_TOKEN }}
           ReleaseBranch: main

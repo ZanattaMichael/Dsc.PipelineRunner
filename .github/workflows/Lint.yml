@@ -43,7 +43,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $paths = @('source', 'Pipeline Rules', 'Actions') | Where-Object { Test-Path $_ }
+          $paths = @('source', 'Pipeline Rules', 'Actions', 'scripts', '.build') | Where-Object { Test-Path $_ }
           $results = foreach ($path in $paths) {
               Invoke-ScriptAnalyzer -Path $path -Recurse
           }

@@ -1,0 +1,17 @@
+# Sidebar order for the generated wiki. One page name (without .md) per line.
+# Lines starting with '#' are comments. Every page in WikiSource/ must appear here,
+# and every entry here must exist - Build-WikiContent.ps1 fails the build on either
+# kind of drift, so navigation can never silently lose a page.
+Home
+Getting-Started
+Configuration-Repository-Layout
+PipelineRunnerSettings
+Resource-Properties
+Function-Language
+Execution-Lifecycle
+Pipeline-Rules
+Engines
+Remote-Targets-and-Credentials
+Reporting-and-Exit-Codes
+Troubleshooting
+Contributing

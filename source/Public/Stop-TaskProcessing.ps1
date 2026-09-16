@@ -1,4 +1,3 @@
-# Public Function to Stop the Processing of the Script for the current yaml file
 <#
 .SYNOPSIS
 Stops the processing of the script when called within the Start-DscRunner function.
@@ -6,11 +5,15 @@ Stops the processing of the script when called within the Start-DscRunner functi
 .DESCRIPTION
 The Stop-TaskProcessing function is designed to halt the execution of a script. It ensures that it is only called within the context of the Start-DscRunner function by checking the call stack. If called outside of this context, it will throw an error.
 
-.PARAMETERS
-None.
+It takes no parameters. It is intended to be called from a resource's postExecutionScript,
+which requires PipelineRunnerSettings.AllowExecutionScripts to be enabled; the
+postCondition-only stopProcessing() accessor is the equivalent that needs no opt-in.
 
-.EXAMPLES
-Example 1:
+.EXAMPLE
+postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
+
+Skips every remaining resource in the current configuration file when the project is being
+torn down, since everything else in the file cascades under it.
 #>
 Function Stop-TaskProcessing {
     # Check to make sure that Stop-TaskProcessing is being called within Start-DscRunner

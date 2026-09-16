@@ -13,7 +13,14 @@ Two related follow-on design questions against the resource lifecycle described 
    computers — genuinely open, because the runner has no remote-execution story today, which
    changes what "wait" can mean.
 
-Neither is implemented yet; this is the design to review before either lands.
+Both have since shipped, so this document is kept as the design record rather than as a current
+description of the code. The first landed as designed: `preCondition`/`postCondition`/
+`preExecutionScript`, plus the `result()` and `stopProcessing()` accessors. The second landed in a
+simpler form than §3 plans below — fail-and-stop, or `PipelineRunnerSettings.Reboot: Ignore`, for
+local targets rather than §3.3's checkpoint/resume, and an in-process `Restart-Computer -Wait` for
+remote targets along the lines of §3.4, now that remoting support exists. Read
+`Start-DscRunner.ps1` and `README.md` for what the runner does today; the line references below
+point at the code as it stood when this was written.
 
 ## 1. Current lifecycle shape (baseline)
 

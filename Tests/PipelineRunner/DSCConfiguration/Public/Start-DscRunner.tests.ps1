@@ -1210,4 +1210,219 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         }
     }
 
+    Context "notify forced refresh (notify/using())" {
+
+        # These exercise the notify semantics end-to-end through the runner loop, rather than
+        # through Expand-NotifyDependsOn (ordering) or using() (gated reads) in isolation.
+        #
+        # Two mocks in the outer BeforeAll shape the fixture: Invoke-CustomTask returns
+        # $pipeline.resources unchanged, so both Expand-NotifyDependsOn and Sort-DependsOn are
+        # inert here and resources evaluate in declaration order; and Invoke-DscResource is
+        # called with -Name set to the *type* segment after the '/', not the instance name
+        # (Start-DscRunner.ps1:380-381), so each resource below carries a distinct type to give
+        # the per-resource mocks something to discriminate on.
+        #
+        # A notify target is the full "Type/Name" identity, matching the key Start-DscRunner
+        # builds for $script:pendingNotifyRefresh.
+
+        BeforeAll {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+        }
+
+        It "forces Set() on a notified resource whose own Test() reports it is already in the desired state" {
+
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/ResourceA"; name = "A"; properties = @{ p = 1 }; notify = @("Module/ResourceB/B") }
+                        @{ type = "Module/ResourceB"; name = "B"; properties = @{ p = 2 } }
+                    )
+                }
+            }
+
+            # A drifts and its Set succeeds; B is already converged and would normally be left
+            # alone. The notify from A is what must drag B's Set() into this pass.
+            Mock -CommandName Invoke-DscResource -MockWith {
+                param ($Name, $ModuleName, $Method, $Property)
+                if ($Method -eq 'Test') { return @{ InDesiredState = ($Name -ne 'ResourceA') } }
+                return @{ InDesiredState = $true }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath -Mode 'Set'
+
+            $result.Status | Should -Be 'Completed'
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' -and $Name -eq 'ResourceB' } -Exactly 1 -Scope It
+        }
+
+        It "does not cascade a forced re-run onward when the forced resource was itself a no-op" {
+
+            # The subtlest rule in the feature: B is forced by A, but B's *own* Test() reported
+            # no drift, so B did not genuinely change and must not force C in turn. $neededChange
+            # records the engine's verdict before any forcing is applied for exactly this reason.
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/ResourceA"; name = "A"; properties = @{ p = 1 }; notify = @("Module/ResourceB/B") }
+                        @{ type = "Module/ResourceB"; name = "B"; properties = @{ p = 2 }; notify = @("Module/ResourceC/C") }
+                        @{ type = "Module/ResourceC"; name = "C"; properties = @{ p = 3 } }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-DscResource -MockWith {
+                param ($Name, $ModuleName, $Method, $Property)
+                if ($Method -eq 'Test') { return @{ InDesiredState = ($Name -ne 'ResourceA') } }
+                return @{ InDesiredState = $true }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath -Mode 'Set'
+
+            $result.Status | Should -Be 'Completed'
+            # B is forced (one hop from a genuinely-changed A) ...
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' -and $Name -eq 'ResourceB' } -Exactly 1 -Scope It
+            # ... but the forced no-op stops there.
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' -and $Name -eq 'ResourceC' } -Exactly 0 -Scope It
+        }
+
+        It "does cascade when the notified resource genuinely changed on its own account" {
+
+            # The contrast that gives the previous test its meaning: identical chain, but B's own
+            # Test() reports drift, so B is a genuine change and C is forced.
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/ResourceA"; name = "A"; properties = @{ p = 1 }; notify = @("Module/ResourceB/B") }
+                        @{ type = "Module/ResourceB"; name = "B"; properties = @{ p = 2 }; notify = @("Module/ResourceC/C") }
+                        @{ type = "Module/ResourceC"; name = "C"; properties = @{ p = 3 } }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-DscResource -MockWith {
+                param ($Name, $ModuleName, $Method, $Property)
+                if ($Method -eq 'Test') { return @{ InDesiredState = ($Name -eq 'ResourceC') } }
+                return @{ InDesiredState = $true }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath -Mode 'Set'
+
+            $result.Status | Should -Be 'Completed'
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' -and $Name -eq 'ResourceC' } -Exactly 1 -Scope It
+        }
+
+        It "does not propagate a forced refresh when the notifier's own Set() failed" {
+
+            # Propagation requires the notifier to have both genuinely changed and converged;
+            # a resource whose Set() threw is recorded FAIL and must not notify anything.
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/ResourceA"; name = "A"; properties = @{ p = 1 }; notify = @("Module/ResourceB/B") }
+                        @{ type = "Module/ResourceB"; name = "B"; properties = @{ p = 2 } }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-DscResource -MockWith {
+                param ($Name, $ModuleName, $Method, $Property)
+                if ($Method -eq 'Test') { return @{ InDesiredState = ($Name -ne 'ResourceA') } }
+                if ($Method -eq 'Set' -and $Name -eq 'ResourceA') { throw "Set failed for ResourceA." }
+                return @{ InDesiredState = $true }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath -Mode 'Set' -ErrorAction SilentlyContinue
+
+            ($result.Results | Where-Object { $_.InstanceName -eq 'A' }).Status | Should -Be 'FAIL'
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' -and $Name -eq 'ResourceB' } -Exactly 0 -Scope It
+        }
+
+        It "never forces a Set() in Test mode" {
+
+            # notify's forced re-run is a Set-mode behaviour only ($Mode -eq 'Set' gates
+            # $forcedByNotify); a Test run reports drift without applying anything.
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/ResourceA"; name = "A"; properties = @{ p = 1 }; notify = @("Module/ResourceB/B") }
+                        @{ type = "Module/ResourceB"; name = "B"; properties = @{ p = 2 } }
+                    )
+                }
+            }
+
+            Mock -CommandName Invoke-DscResource -MockWith {
+                param ($Name, $ModuleName, $Method, $Property)
+                if ($Method -eq 'Test') { return @{ InDesiredState = ($Name -ne 'ResourceA') } }
+                return @{ InDesiredState = $true }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath
+
+            ($result.Results | Where-Object { $_.InstanceName -eq 'A' }).Status | Should -Be 'FAIL'
+            ($result.Results | Where-Object { $_.InstanceName -eq 'B' }).Status | Should -Be 'OK'
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Set' } -Exactly 0 -Scope It
+        }
+
+        It "resets the pending-refresh state between runs so a forced Set() does not leak into the next one" {
+
+            # $script:notifyDeclarations / $script:resourceOutputs / $script:pendingNotifyRefresh
+            # are module-script-scope and are reset at the top of every run. They are read across
+            # files via $script: dynamic scoping, which per-file static analysis cannot see - the
+            # reason they carry PSScriptAnalyzer suppressions - so the reset needs a real test.
+            #
+            # Two runs happen inside this It, so Assert-MockCalled -Scope It would total both.
+            # Set calls are captured in a global instead (the same cross-'&'-boundary capture
+            # idiom Invoke-DscExecutable.tests.ps1 uses) and cleared between the runs.
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/ResourceA"; name = "A"; properties = @{ p = 1 }; notify = @("Module/ResourceB/B") }
+                        @{ type = "Module/ResourceB"; name = "B"; properties = @{ p = 2 } }
+                    )
+                }
+            }
+
+            $Global:StartDscRunnerNotifySetCalls = [System.Collections.Generic.List[string]]::new()
+
+            try {
+                # First run: A drifts, so B is forced and $script:pendingNotifyRefresh holds B.
+                Mock -CommandName Invoke-DscResource -MockWith {
+                    param ($Name, $ModuleName, $Method, $Property)
+                    if ($Method -eq 'Set') { $Global:StartDscRunnerNotifySetCalls.Add($Name) }
+                    if ($Method -eq 'Test') { return @{ InDesiredState = ($Name -ne 'ResourceA') } }
+                    return @{ InDesiredState = $true }
+                }
+                Start-DscRunner -FilePath $script:testJsonPath -Mode 'Set' | Out-Null
+
+                $Global:StartDscRunnerNotifySetCalls | Should -Contain 'ResourceB'
+
+                # Second run: nothing drifts. If the pending-refresh state had survived the first
+                # run, B would still be forced here.
+                $Global:StartDscRunnerNotifySetCalls.Clear()
+                Mock -CommandName Invoke-DscResource -MockWith {
+                    param ($Name, $ModuleName, $Method, $Property)
+                    if ($Method -eq 'Set') { $Global:StartDscRunnerNotifySetCalls.Add($Name) }
+                    return @{ InDesiredState = $true }
+                }
+                Start-DscRunner -FilePath $script:testJsonPath -Mode 'Set' | Out-Null
+
+                $Global:StartDscRunnerNotifySetCalls | Should -BeNullOrEmpty
+            }
+            finally {
+                Remove-Variable -Name StartDscRunnerNotifySetCalls -Scope Global -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
 }
