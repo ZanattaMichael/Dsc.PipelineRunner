@@ -140,4 +140,67 @@ Function Import-Enums {
     return ($Global:TestPaths | Where-Object { $_.Directory.Name -eq 'Enum' })
 }
 
-Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath
+<#
+.SYNOPSIS
+Returns why the live WinRM integration suite cannot run here, or $null when it can.
+
+.DESCRIPTION
+Lives in this module, rather than inline in the test file, because Pester runs discovery and
+execution in separate scopes: a variable assigned at a test file's top level is visible when
+Pester evaluates an It's -Skip: argument (discovery) but NOT inside BeforeAll (execution). The
+probe therefore has to be callable from both, which a module command is and a file-scope
+variable is not.
+#>
+function Get-WinRMSkipReason {
+    [CmdletBinding()]
+    param(
+        [string]$ComputerName = $env:COMPUTERNAME
+    )
+
+    if (-not $IsWindows) {
+        return 'Target/WinRM requires a Windows host with a WinRM listener; this is not Windows.'
+    }
+
+    try {
+        $null = Test-WSMan -ComputerName $ComputerName -ErrorAction Stop
+    }
+    catch {
+        return "Test-WSMan against [$ComputerName] failed: $($_.Exception.Message)"
+    }
+
+    return $null
+}
+
+<#
+.SYNOPSIS
+Returns why the live SecretManagement vault integration suite cannot run here, or $null when it
+can.
+
+.DESCRIPTION
+See Get-WinRMSkipReason for why this is a module command rather than a variable in the test file.
+
+Two conditions. Both SecretManagement and the SecretStore extension must be installed, and
+PIPELINERUNNER_ALLOW_SECRETSTORE_RESET must be 'true': configuring SecretStore for unattended
+use means Reset-SecretStore, which erases the CURRENT USER's secrets. That is harmless on an
+ephemeral CI agent and destructive on a developer's machine, so it never happens by default.
+#>
+function Get-LiveVaultSkipReason {
+    [CmdletBinding()]
+    param()
+
+    if (-not (Get-Module -ListAvailable -Name Microsoft.PowerShell.SecretManagement)) {
+        return 'Microsoft.PowerShell.SecretManagement is not installed.'
+    }
+
+    if (-not (Get-Module -ListAvailable -Name Microsoft.PowerShell.SecretStore)) {
+        return 'Microsoft.PowerShell.SecretStore (the vault extension used by this suite) is not installed.'
+    }
+
+    if ($env:PIPELINERUNNER_ALLOW_SECRETSTORE_RESET -ne 'true') {
+        return 'PIPELINERUNNER_ALLOW_SECRETSTORE_RESET is not set to "true"; refusing to reset this user''s SecretStore.'
+    }
+
+    return $null
+}
+
+Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath, Get-WinRMSkipReason, Get-LiveVaultSkipReason

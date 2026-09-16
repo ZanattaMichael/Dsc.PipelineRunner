@@ -4,29 +4,15 @@
 # cross-platform Microsoft.PowerShell.SecretStore extension, registers a throwaway vault, stores
 # real secrets in it, and drives the real action against them.
 #
-# Two gates decide whether it runs, both evaluated here at file scope because Pester reads an
-# It's -Skip: argument during discovery (a value assigned in BeforeAll would still be $null):
-#
-#  1. Both modules must be available. CI installs them (see scripts/Invoke-HostedIntegrationTests.ps1);
-#     elsewhere the suite skips rather than failing on a missing dependency.
-#  2. PIPELINERUNNER_ALLOW_SECRETSTORE_RESET must be set. Configuring SecretStore for
-#     unattended use means Reset-SecretStore, which erases every secret in the CURRENT USER's
-#     store. That is harmless on an ephemeral CI agent and destructive on a developer's
-#     machine, so it never happens unless something explicitly opts in.
+# Whether it can run is decided by Get-LiveVaultSkipReason (Tests/TestHelpers), which checks that
+# both modules are installed and that PIPELINERUNNER_ALLOW_SECRETSTORE_RESET opts in to the
+# destructive SecretStore reconfiguration. It is called TWICE, deliberately: Pester evaluates an
+# It's -Skip: argument during DISCOVERY and runs BeforeAll during EXECUTION, and those are
+# separate scopes - a variable assigned here at file scope is $null by the time BeforeAll runs.
+# The probe therefore lives in the test-helper module so both phases can call it.
 
-$script:SecretsSkipReason = $null
-
-if (-not (Get-Module -ListAvailable -Name Microsoft.PowerShell.SecretManagement)) {
-    $script:SecretsSkipReason = 'Microsoft.PowerShell.SecretManagement is not installed.'
-}
-elseif (-not (Get-Module -ListAvailable -Name Microsoft.PowerShell.SecretStore)) {
-    $script:SecretsSkipReason = 'Microsoft.PowerShell.SecretStore (the vault extension used by this suite) is not installed.'
-}
-elseif ($env:PIPELINERUNNER_ALLOW_SECRETSTORE_RESET -ne 'true') {
-    $script:SecretsSkipReason = 'PIPELINERUNNER_ALLOW_SECRETSTORE_RESET is not set to "true"; refusing to reset this user''s SecretStore.'
-}
-
-$script:SecretsAvailable = [string]::IsNullOrEmpty($script:SecretsSkipReason)
+$script:SecretsSkipReason = Get-LiveVaultSkipReason
+$script:SecretsAvailable  = [string]::IsNullOrEmpty($script:SecretsSkipReason)
 
 if (-not $script:SecretsAvailable) {
     Write-Warning "[SecretManagementCredential.Integration] Skipping the live-vault tests: $($script:SecretsSkipReason)"
@@ -37,6 +23,10 @@ Describe "Credential/SecretManagement against a live SecretManagement vault" -Ta
     BeforeAll {
         $script:SecretManagementPath = (Get-FunctionPath 'SecretManagement.ps1').FullName
         $script:VaultName            = 'PipelineRunnerIntegration'
+
+        # Re-probed here for the execution scope (see the file header): the discovery-phase value
+        # above drove the -Skip: decisions but is not visible from inside BeforeAll.
+        $script:SecretsAvailable = [string]::IsNullOrEmpty((Get-LiveVaultSkipReason))
 
         if ($script:SecretsAvailable) {
             Import-Module Microsoft.PowerShell.SecretManagement -ErrorAction Stop
@@ -69,9 +59,11 @@ Describe "Credential/SecretManagement against a live SecretManagement vault" -Ta
 
             Set-Secret -Name $script:SecureStringSecretName -Vault $script:VaultName -Secret $securePassword -ErrorAction Stop
 
-            # A plain string secret: SecretManagement stores it as a String, which the action is
-            # documented to refuse because it cannot become a credential on its own.
-            Set-Secret -Name $script:UnsupportedSecretName -Vault $script:VaultName -Secret 'just-a-string' -ErrorAction Stop
+            # A byte-array secret, deliberately NOT a plain string: SecretManagement hands a String
+            # secret back as a SecureString unless -AsPlainText is passed, so a string would take
+            # the SecureString branch instead of the rejection this test is here to cover. A
+            # byte[] round-trips as a byte[] and is exactly what the action refuses.
+            Set-Secret -Name $script:UnsupportedSecretName -Vault $script:VaultName -Secret ([byte[]]@(1, 2, 3)) -ErrorAction Stop
         }
 
         # Reads a PSCredential's password back as plain text so a test can assert the exact value
@@ -148,6 +140,8 @@ Describe "Credential/SecretManagement against a live SecretManagement vault" -Ta
 
     It "throws for a secret that is neither a PSCredential nor a SecureString" -Skip:(-not $script:SecretsAvailable) {
 
+        # The action's last guard: anything that is not a PSCredential or a SecureString cannot
+        # become a credential, and must say so rather than returning something unusable.
         { & $script:SecretManagementPath -Context @{ Name = $script:UnsupportedSecretName; Vault = $script:VaultName } } |
             Should -Throw "*cannot resolve it to a credential*"
     }

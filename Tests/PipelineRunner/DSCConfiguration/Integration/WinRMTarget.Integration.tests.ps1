@@ -1,22 +1,9 @@
-# Whether this host can service a WinRM connection is decided HERE, at file scope, because
-# Pester evaluates an It's -Skip: argument during discovery - a value assigned in BeforeAll
-# (run phase) would still be $null at that point and every test would skip silently. The probe
-# therefore runs once, before any Describe, and the run phase re-reads it from $script: scope.
-$script:WinRMSkipReason = $null
-
-if (-not $IsWindows) {
-    $script:WinRMSkipReason = 'Target/WinRM requires a Windows host with a WinRM listener; this is not Windows.'
-}
-else {
-    try {
-        $null = Test-WSMan -ComputerName $env:COMPUTERNAME -ErrorAction Stop
-    }
-    catch {
-        $script:WinRMSkipReason = "Test-WSMan against [$env:COMPUTERNAME] failed: $($_.Exception.Message)"
-    }
-}
-
-$script:WinRMAvailable = [string]::IsNullOrEmpty($script:WinRMSkipReason)
+# Whether this host can service a WinRM connection is decided HERE, at file scope, because Pester
+# evaluates an It's -Skip: argument during DISCOVERY - a value assigned in BeforeAll (execution)
+# would still be $null at that point and every test would skip silently. The probe itself lives in
+# the test-helper module (Get-WinRMSkipReason) so it is callable from either phase.
+$script:WinRMSkipReason = Get-WinRMSkipReason
+$script:WinRMAvailable  = [string]::IsNullOrEmpty($script:WinRMSkipReason)
 
 if (-not $script:WinRMAvailable) {
     Write-Warning "[WinRMTarget.Integration] Skipping the live-connection tests: $($script:WinRMSkipReason)"

@@ -48,7 +48,9 @@ Set-Location -LiteralPath $RepositoryRoot
 if (-not $SkipModuleInstall) {
     foreach ($moduleName in @('Microsoft.PowerShell.SecretManagement', 'Microsoft.PowerShell.SecretStore')) {
         if (-not (Get-Module -ListAvailable -Name $moduleName)) {
-            Write-Host "Installing $moduleName ..."
+            # Write-Information over Write-Host: this still shows in the CI log with
+            # -InformationAction Continue, but stays capturable/redirectable (PSAvoidUsingWriteHost).
+            Write-Information "Installing $moduleName ..." -InformationAction Continue
             try {
                 Install-Module -Name $moduleName -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
             }
