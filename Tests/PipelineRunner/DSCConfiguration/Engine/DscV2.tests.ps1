@@ -73,6 +73,22 @@ Describe "Actions/Engine/DscV2 Tests" -Tag Unit, Engine {
 
     Context "Remote-target execution (#57 §4)" {
 
+        BeforeAll {
+            # Same reason Invoke-DscExecutable.tests.ps1 shadows it: the real Invoke-Command's
+            # -Session is typed [System.Management.Automation.Runspaces.PSSession[]], a sealed
+            # class that cannot be constructed without a live remoting connection, and these tests
+            # stand in a PSCustomObject. Mock inherits the target command's parameter metadata, so
+            # without this stub the mocked call would fail to bind the fake session rather than
+            # record it. Scoped to this Context.
+            #
+            # [CmdletBinding()] is load-bearing: the engine passes -ErrorAction Stop, and a simple
+            # function does not accept the common parameters.
+            function Invoke-Command {
+                [CmdletBinding()]
+                param($Session, $ScriptBlock, $ArgumentList)
+            }
+        }
+
         It "Runs the evaluation over the PSSession when the target resolved one" {
             # The preferred remote path. PSDesiredStateConfiguration 2.x (PowerShell 7) has no
             # -CimSession parameter, so the evaluation is carried to the far side and
