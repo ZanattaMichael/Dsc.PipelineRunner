@@ -81,6 +81,14 @@ Every issue in the repository carrying the `bug` label.
   manifest at build time. The existing CI workflows gained a `workflow_call` trigger so
   the release reuses them as its gate instead of duplicating them.
 
+### Changed
+
+- `ModuleVersion` in `source/Dsc.PipelineRunner.psd1` bumped to `1.1.0`, matching the
+  `PipelineRunnerVersion: 1.1.0` the shipped `Example Configuration/Datum.yml` declares.
+  The value stays inside the `1.0`-`1.9` DSC resource module range enforced by
+  `source/Public/VersionConfiguration.ps1`, so existing configurations are unaffected.
+  A tagged release still overrides this value from the tag at build time.
+
 ### Documentation
 
 - `README.md`: the execution walkthrough now describes the two-pass property resolution
