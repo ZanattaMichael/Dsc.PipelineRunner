@@ -81,6 +81,35 @@ Every issue in the repository carrying the `bug` label.
   manifest at build time. The existing CI workflows gained a `workflow_call` trigger so
   the release reuses them as its gate instead of duplicating them.
 
+### Testing
+
+- **WinRM remoting, secret vaults and `using()` are now integration tested.** All three were
+  covered only by mocked unit tests, and `Actions/Target/WinRM.ps1` and
+  `Actions/Credential/SecretManagement.ps1` said so in their own headers. Three new suites
+  exercise the real thing:
+  - `WinRMTarget.Integration.tests.ps1` (tag `RemotingSelfHosted`) opens real `CimSession`
+    and `PSSession` objects against a live WinRM listener, proves a CIM query and an
+    `Invoke-Command` reach the far side, and proves the resulting `CimSession` is accepted by
+    `Invoke-DscResource -CimSession` - the reason the action builds one. It connects to the
+    self-hosted Windows runner itself, so no second machine is needed, and skips itself with a
+    warning on a host with no listener. Run from `DscV2-SelfHosted.yml`.
+  - `SecretManagementCredential.Integration.tests.ps1` (tag `HostedIntegration`) registers a
+    real `Microsoft.PowerShell.SecretStore` vault and resolves a `PSCredential` secret, a bare
+    `SecureString` secret (with and without an explicit `UserName`), a default-vault lookup,
+    an unsupported secret type and a missing secret. Configuring SecretStore for unattended
+    use erases the current user's secrets, so the suite refuses to run unless
+    `PIPELINERUNNER_ALLOW_SECRETSTORE_RESET` is `true`; only CI sets it.
+  - `NotifyUsing.Integration.tests.ps1` (tag `HostedIntegration`) drives a genuine
+    `Start-DscRunner` pass over a configuration file on disk and proves a value from one
+    resource's `Get()` reaches another resource's properties through
+    `$((using 'Type/Name').Property)` - the documented syntax, which only an end-to-end run
+    can validate because the accessor is reached through `ExpandString`. Both arms of the
+    notify gate (no declaration, and a declaration naming someone else) are asserted to fail
+    only the reading resource, not the run.
+- New `Integration Hosted Agent` workflow running the `HostedIntegration` suites on
+  `ubuntu-latest`, added to the release gates in `Release.yml`; a WinRM step added to
+  `DscV2-SelfHosted.yml`. `tests.ps1` excludes both new tags so the unit gate stays hermetic.
+
 ### Changed
 
 - `ModuleVersion` in `source/Dsc.PipelineRunner.psd1` bumped to `1.1.0`, matching the

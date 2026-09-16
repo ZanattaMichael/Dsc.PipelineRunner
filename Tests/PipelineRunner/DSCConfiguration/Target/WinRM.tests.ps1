@@ -1,7 +1,8 @@
 <#
-Mocked only (#57 §4 scope note): this test mocks New-CimSession/New-PSSession, so it validates
-the action's dispatch/parameter-passing logic, not a live WinRM connection. Validating a real
-connection needs a reachable Windows remote target.
+Mocked by design: this suite mocks New-CimSession/New-PSSession so it can assert the action's
+dispatch/parameter-passing logic on any host, including the hosted Linux agents that have no WSMan
+stack at all. The live connection is covered separately by
+../Integration/WinRMTarget.Integration.tests.ps1, which runs on the self-hosted Windows runner.
 #>
 Describe "Actions/Target/WinRM Tests" -Tag Unit, Target {
 

@@ -6,9 +6,12 @@ Target action: evaluate resources against a remote computer over WinRM (#57 §4)
 Builds both a CimSession (consumed by the DscV2 engine action, Invoke-DscResource -CimSession)
 and a PSSession (consumed by the DscV3 engine action, which runs dsc.exe on the far side via
 Invoke-Command) for the same remote computer, so either engine can use whichever session shape
-it needs without the caller having to know which one in advance. Only unit-tested with New-CimSession
-/New-PSSession mocked (#57 scope note) - this module cannot open a live WinRM connection in this
-environment; validating a real connection needs a reachable Windows remote target.
+it needs without the caller having to know which one in advance.
+
+Validated at two levels: the unit suite mocks New-CimSession/New-PSSession to assert dispatch and
+parameter passing, and Tests/.../Integration/WinRMTarget.Integration.tests.ps1 opens real sessions
+against a live WinRM listener on the self-hosted Windows runner (DscV2-SelfHosted.yml) and proves
+the CimSession is accepted by Invoke-DscResource and the PSSession by Invoke-Command.
 
 .PARAMETER Context
 Hashtable with:

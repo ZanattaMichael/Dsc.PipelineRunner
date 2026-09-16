@@ -128,6 +128,12 @@ jobs:
     uses: ./.github/workflows/AzureDevOpsV3-SelfHosted.yml
     secrets: inherit
 
+  hosted-integration:
+    name: Integration Hosted Agent (gate)
+    needs: validate
+    uses: ./.github/workflows/Integration-HostedAgent.yml
+    secrets: inherit
+
   publish:
     name: Build, Pack, and Publish Release
     needs:
@@ -138,6 +144,7 @@ jobs:
       - dsc-v2-selfhosted
       - azdo-selfhosted
       - azdo-v3-selfhosted
+      - hosted-integration
     # Full release: publish only when validate AND every test gate succeeded.
     # Prerelease: publish when validate succeeded, regardless of the test gate results
     # (the suite still ran - it just does not stop the deployment for a preview).
@@ -153,7 +160,8 @@ jobs:
             needs.dsc-v3-hosted.result == 'success' &&
             needs.dsc-v2-selfhosted.result == 'success' &&
             needs.azdo-selfhosted.result == 'success' &&
-            needs.azdo-v3-selfhosted.result == 'success'
+            needs.azdo-v3-selfhosted.result == 'success' &&
+            needs.hosted-integration.result == 'success'
           )
         )
       }}

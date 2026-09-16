@@ -13,8 +13,11 @@ This is the runner's secret-vault backend for #57 §6: any vault registered with
 Register-SecretVault (a local vault, Azure Key Vault, HashiCorp Vault, etc. via their
 respective SecretManagement extension modules) works here unchanged, since SecretManagement
 itself is the abstraction over the vault backend - this action does not talk to a specific
-vault product directly. Only unit-tested with Get-Secret mocked (#57 scope note) - this
-environment has no live vault to validate a real secret lookup against.
+vault product directly.
+
+Validated at two levels: the unit suite mocks Get-Secret to assert dispatch and result-shape
+handling, and Tests/.../Integration/SecretManagementCredential.Integration.tests.ps1 resolves
+real secrets out of a live Microsoft.PowerShell.SecretStore vault (Integration-HostedAgent.yml).
 
 .PARAMETER Context
 Hashtable with:

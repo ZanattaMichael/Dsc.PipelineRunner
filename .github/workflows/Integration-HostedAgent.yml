@@ -1,0 +1,50 @@
+name: Integration Hosted Agent
+
+# Runs the integration suites that need a real dependency but not a real Windows host, on a
+# clean hosted Linux agent:
+#
+#   * notify/using() gated reads through a genuine Start-DscRunner pass over a configuration
+#     file on disk (the unit suites cover invoke-using and the ordering rule in isolation, but
+#     nothing proved the pieces line up).
+#   * the Credential/SecretManagement action against a live Microsoft.PowerShell.SecretStore
+#     vault (the unit suite mocks Get-Secret, so it validates dispatch, not a real lookup).
+#
+# The WinRM Target action cannot be validated here - it needs a Windows host with a listener -
+# so that suite runs on the self-hosted runner from DscV2-SelfHosted.yml instead.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+  # Reused as a release gate by the tag-driven Release workflow.
+  workflow_call:
+
+# Cancel a superseded run for the same branch/PR instead of letting duplicate push+pull_request
+# runs (or back-to-back pushes) pile up and race each other. Safe to cancel: this workflow runs
+# on an ephemeral hosted agent and touches nothing outside it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hosted-integration:
+    name: Integration suites on Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerShell dependencies
+        shell: pwsh
+        run: Install-Module Pester, Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Force -Scope CurrentUser -AllowClobber
+
+      # -AllowSecretStoreReset lets the live-vault suite reconfigure SecretStore for unattended
+      # use. That erases the current user's existing secrets, which is why the suite refuses to
+      # do it unless something opts in - harmless here because the agent is ephemeral, and
+      # deliberately NOT the default when the script is run by hand on a workstation.
+      - name: Run hosted integration tests
+        shell: pwsh
+        run: ./scripts/Invoke-HostedIntegrationTests.ps1 -AllowSecretStoreReset
