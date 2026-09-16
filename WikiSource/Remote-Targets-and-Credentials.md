@@ -57,7 +57,9 @@ nothing about targets takes exactly the local path it always did.
 The action builds **both** a `CimSession` and a `PSSession` for the same computer, so either
 engine can take the shape it needs without the configuration having to know which:
 
-- `DscV2` adds `-CimSession` to its `Invoke-DscResource` call. Credentials marshal natively as
+- `DscV2` runs its `Invoke-DscResource` call on the far side over the `PSSession`. (It does not
+  pass `-CimSession`: `PSDesiredStateConfiguration` 2.x, which PowerShell 7 uses, removed that
+  parameter.) Credentials marshal natively as
   `MSFT_Credential` over the encrypted WinRM transport.
 - `DscV3` runs `dsc` on the far side via `Invoke-Command -Session`.
 

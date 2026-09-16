@@ -23,8 +23,9 @@ Describe "Target/WinRM against a live WinRM listener" -Tag Integration, Remoting
     # What the mocked unit suite cannot tell us, and this does:
     #   * the parameter hashtable the action builds is actually accepted by the real cmdlets
     #   * both session objects come back open and usable, not merely non-null
-    #   * a CimSession from this action is accepted by Invoke-DscResource -CimSession, which is
-    #     the whole point of building one (Actions/Engine/DscV2.ps1:33-35)
+    #   * a session from this action carries a real remote DSC v2 evaluation through the
+    #     shipped engine action (Actions/Engine/DscV2.ps1) - which is how this suite found that
+    #     the engine's -CimSession call shape does not exist on PowerShell 7 at all
     #   * a PSSession from this action carries Invoke-Command, which is how the DSC v3 engine
     #     reaches the far side (Actions/Engine/DscV3.ps1:129-134)
     #   * an unreachable ComputerName surfaces as a throw rather than a silent $null session
@@ -96,12 +97,18 @@ Describe "Target/WinRM against a live WinRM listener" -Tag Integration, Remoting
         $remote.ProcessId    | Should -Not -Be $PID
     }
 
-    It "produces a CimSession that Invoke-DscResource accepts for a remote evaluation" -Skip:(-not $script:WinRMAvailable) {
+    It "drives the DscV2 engine action through a real remote session" -Skip:(-not $script:WinRMAvailable) {
 
-        # The reason the action builds a CimSession at all (Actions/Engine/DscV2.ps1:33-35).
-        # Uses the in-box File resource so the suite carries no resource-module dependency of
-        # its own; the assertion is that the CIM-session call shape works end to end, not
-        # anything about the File resource.
+        # The reason the action builds sessions at all. This runs the SHIPPED engine action
+        # (Actions/Engine/DscV2.ps1) against the session this target action just opened, so
+        # what is asserted is the whole remote DSC v2 path, not a hand-written call.
+        #
+        # It replaces an assertion that Invoke-DscResource accepts -CimSession. It does not:
+        # PSDesiredStateConfiguration 2.x, which PowerShell 7 uses and which this module
+        # requires, removed that parameter, and the call fails with "A parameter cannot be
+        # found that matches parameter name 'CimSession'". That failure here is what found the
+        # defect - the engine added -CimSession unconditionally, so every remote DSC v2
+        # evaluation threw. The engine now carries the evaluation over the PSSession instead.
         if (-not (Get-Command -Name Invoke-DscResource -ErrorAction SilentlyContinue)) {
             Set-ItResult -Skipped -Because 'Invoke-DscResource is not available on this host.'
             return
@@ -110,17 +117,69 @@ Describe "Target/WinRM against a live WinRM listener" -Tag Integration, Remoting
         $session = & $script:WinRMPath -Context @{ ComputerName = $script:Target }
         $script:OpenedSessions.Add($session)
 
-        $probePath = Join-Path $env:TEMP ("pr-winrm-{0}.txt" -f [guid]::NewGuid())
+        # The dependency-free fixture resource the DSC v2 smoke test uses, rather than an in-box
+        # resource: PSDesiredStateConfiguration 2.x ships none, and the point of the assertion is
+        # the remote call shape, not the resource. The far side is this same machine over a
+        # loopback WinRM connection, so the fixture path resolves there too - but PSModulePath is
+        # per-runspace, so the REMOTE runspace has to be told about it.
+        $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../../..')).Path
+        $fixtureRoot    = Join-Path $repositoryRoot 'Tests/Fixtures/DscV2'
 
-        $result = Invoke-DscResource -Name File -ModuleName PSDesiredStateConfiguration -Method Test -CimSession $session.CimSession -Property @{
-            DestinationPath = $probePath
-            Ensure          = 'Absent'
-        } -ErrorAction Stop
+        # What the far side can actually do is a property of the remote runspace, not of this
+        # one: New-PSSession -ComputerName lands on the host's default WinRM endpoint, whose
+        # PowerShell version and DSC support are a machine setup decision. Probe it and skip
+        # with the reason rather than failing - the engine-path assertion is the point, and a
+        # runner that cannot host DSC at all is not a defect in this repository.
+        $remoteReadiness = Invoke-Command -Session $session.PSSession -ArgumentList $fixtureRoot -ScriptBlock {
+            param([string]$FixtureRoot)
 
-        # The file was never created, so 'Absent' is satisfied. The point of the assertion is
-        # that the call completed over the session and returned the engine contract's state
-        # signal rather than throwing on the -CimSession parameter.
-        $result.InDesiredState | Should -BeTrue
+            if (($env:PSModulePath -split [System.IO.Path]::PathSeparator) -notcontains $FixtureRoot) {
+                $env:PSModulePath = $FixtureRoot + [System.IO.Path]::PathSeparator + $env:PSModulePath
+            }
+
+            if (-not (Get-Command -Name Invoke-DscResource -ErrorAction SilentlyContinue)) {
+                Import-Module -Name PSDesiredStateConfiguration -ErrorAction SilentlyContinue
+            }
+
+            if (-not (Get-Command -Name Invoke-DscResource -ErrorAction SilentlyContinue)) {
+                return 'the remote runspace has no Invoke-DscResource'
+            }
+
+            if (-not (Get-DscResource -Name 'PipelineRunnerFile' -Module 'PipelineRunnerTestResource' -ErrorAction SilentlyContinue)) {
+                return 'the remote runspace cannot discover the PipelineRunnerFile fixture resource'
+            }
+
+            return ''
+        }
+
+        if (-not [string]::IsNullOrEmpty([string]$remoteReadiness)) {
+            Set-ItResult -Skipped -Because "$remoteReadiness."
+            return
+        }
+
+        $stateDir = Join-Path $env:TEMP ("pr-winrm-{0}" -f [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+
+        try {
+            $engineActionPath = Join-Path $repositoryRoot 'Actions/Engine/DscV2.ps1'
+
+            # Ensure = Absent over an empty directory: the marker does not exist, so the resource
+            # is already in its desired state. The assertion is that the evaluation completed on
+            # the far side and came back carrying the engine contract's state signal.
+            $result = & $engineActionPath -Context @{
+                Method     = 'Test'
+                ModuleName = 'PipelineRunnerTestResource'
+                Name       = 'PipelineRunnerFile'
+                Property   = @{ Name = 'winrm-remote'; Path = $stateDir; Ensure = 'Absent' }
+                Session    = $session
+            }
+
+            $result                | Should -Not -BeNullOrEmpty
+            $result.InDesiredState | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath $stateDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It "throws rather than returning a half-built session when the computer is unreachable" -Skip:(-not $script:WinRMAvailable) {

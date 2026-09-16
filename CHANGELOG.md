@@ -6,6 +6,24 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Every remote DSC v2 evaluation threw before reaching the resource.**
+  `Actions/Engine/DscV2.ps1` added `-CimSession` to its `Invoke-DscResource` call whenever a
+  target had resolved a session. That parameter exists only on Windows PowerShell 5.1's in-box
+  `Invoke-DscResource`; `PSDesiredStateConfiguration` 2.x — the module PowerShell 7 loads, and
+  this module requires PowerShell 7.0 — removed it, and the call fails with `A parameter cannot
+  be found that matches parameter name 'CimSession'` before the resource is ever reached. So the
+  remote DSC v2 path could not work on any supported PowerShell version. The engine now carries
+  the evaluation to the far side over the target's `PSSession` and runs `Invoke-DscResource`
+  locally there — the one arrangement both PowerShell versions support, and the same way the DSC
+  v3 engine already reached a remote target. `-CimSession` remains a fallback for a target that
+  resolves a `CimSession` and no `PSSession`, and is now probed for rather than assumed, so a
+  host without it reports which piece is missing instead of a parameter-binding failure.
+
+  The mocked unit suite could not have caught this: its mock *defined* `-CimSession`, so the
+  call it asserted was one the real cmdlet cannot bind. `WinRMTarget.Integration.tests.ps1`,
+  running against a live WinRM listener on the self-hosted runner, is what surfaced it, and now
+  drives the shipped engine action through a real session rather than hand-writing the call.
+
 - **The documented `postCondition: result().InDesiredState -or stopProcessing()` did not
   parse.** `stopProcessing()` was normalized to a bare `stopProcessing`, and PowerShell rejects a
   bare command as an operand ("You must provide a value expression following the '-or'

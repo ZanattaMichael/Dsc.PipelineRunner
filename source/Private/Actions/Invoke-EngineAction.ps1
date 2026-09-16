@@ -32,7 +32,8 @@ An inline engine scriptblock. Takes precedence over -Engine.
 .PARAMETER Session
 Optional remote-target session context (#57 §4), resolved once per file/resource by the
 Target action (Actions/Target/<Name>.ps1) and threaded through unchanged. Shape is
-engine-specific: DscV2.ps1 reads .CimSession (fed to Invoke-DscResource -CimSession);
+engine-specific: DscV2.ps1 reads .PSSession (Invoke-DscResource is run on the far side) and
+falls back to .CimSession only where the host's Invoke-DscResource still takes one;
 DscV3.ps1 reads .PSSession (used to wrap the dsc.exe call in Invoke-Command -Session).
 $null (the default) means "run against the local machine", today's behavior.
 
