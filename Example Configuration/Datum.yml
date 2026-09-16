@@ -25,8 +25,8 @@ PipelineRunnerSettings:
   # unless ConfigurationVersion falls inside the module's supported range (0.1 to 0.9, from
   # source/Public/VersionConfiguration.ps1). This runs during Build-DatumConfiguration, so a
   # configuration pinned to the wrong runner fails at compile time rather than mid-run.
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.5
+  PipelineRunnerVersion: 1.1.0
 
   # Engine selection. Engine names the engine action directly and takes precedence over the
   # DSCResourceVersion hint it replaces (which selected by major version: 2 -> DscV2,
