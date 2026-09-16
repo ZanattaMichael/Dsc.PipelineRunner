@@ -70,7 +70,7 @@ This module utilizes Datum from Gael Colas to streamline configuration. For more
     PipelineRunnerSettings:
       ConfigurationVersion: 0.2
       PipelineRunnerVersion: 1.0.0
-      DSCResourceVersion: 2.0
+      Engine: DscV2
     ```
 
     `ConfigurationVersion` tracks the configuration's own YAML shape and must be bumped

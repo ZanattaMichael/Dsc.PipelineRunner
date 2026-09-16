@@ -45,8 +45,10 @@ default_lookup_options: MostSpecific
 PipelineRunnerSettings:
   ConfigurationVersion: 0.2
   PipelineRunnerVersion: 1.0.0
-  DSCResourceVersion: 2.0
+  Engine: DscV2
   AllowExecutionScripts: true
+  Reboot: Fail
+  Target: Local
 
 DatumHandlers:
   Datum.InvokeCommand::InvokeCommand:
