@@ -32,11 +32,12 @@ BuildWorkflow:
     - Build_Module_ModuleBuilder
     - Copy_Pipeline_Rules
     - Copy_Actions
-    # Compiles WikiSource/ plus the comment-based help into $OutputDirectory/WikiContent,
-    # which is where Publish_GitHub_Wiki_Content looks. Building it here (rather than only at
-    # release time) makes wiki drift - a page missing from .pageorder, an exported command with
-    # no .SYNOPSIS - fail a pull request instead of a release.
-    - Build_Wiki_Content
+    # Build_Wiki_Content is deliberately NOT chained here. The wiki is published on full
+    # (non-preview) releases only, so release.yml names Build_Wiki_Content and
+    # Publish_Wiki_Content explicitly in its own gated step. Wiki drift - a page missing from
+    # .pageorder, an exported command with no .SYNOPSIS - is still caught per pull request by
+    # .github/workflows/Wiki.yml, which runs scripts/Build-WikiContent.ps1 directly and needs
+    # no resolved dependencies to do it.
 
   pack:
     - build
@@ -49,7 +50,7 @@ BuildWorkflow:
   # Wiki publishing is deliberately NOT chained here. The repository wiki has to be
   # enabled and initialised before it can be pushed to, and a wiki failure must never
   # fail a release whose Gallery package has already been published. release.yml runs
-  # Publish_GitHub_Wiki_Content as its own non-blocking (continue-on-error) step.
+  # Publish_Wiki_Content as its own step, gated on the release not being a prerelease.
   publish:
     - Publish_release_to_GitHub
     - publish_module_to_gallery
@@ -69,8 +70,11 @@ Pester:
 ModuleBuildTasks:
   Sampler:
     - '*.build.Sampler.ib.tasks'
-  # Provides Publish_release_to_GitHub, Publish_GitHub_Wiki_Content and
-  # Create_ChangeLog_GitHub_PR, which the tag-driven release workflow invokes.
+  # Provides exactly two tasks: Publish_release_to_GitHub and Create_ChangeLog_GitHub_PR,
+  # both invoked by the tag-driven release workflow. It does NOT provide a wiki task - the
+  # upstream Publish_GitHub_Wiki_Content lives in DscResource.DocGenerator, which this module
+  # does not depend on. Build_Wiki_Content and Publish_Wiki_Content are local to
+  # .build/wiki.build.ps1 instead.
   Sampler.GitHubTasks:
     - '*.ib.tasks'
 
@@ -91,12 +95,3 @@ GitHubConfig:
   GitHubConfigUserName: github-actions[bot]
   GitHubConfigUserEmail: 41898282+github-actions[bot]@users.noreply.github.com
   UpdateChangelogOnPrerelease: false
-
-  Generate_Conceptual_Help:
-    MarkdownCodeRegularExpression:
-      - '\`(.+?)\`' # Match inline code-block
-      - '\\(\\)' # Match escaped backslash
-      - '\[[^\[]+\]\((.+?)\)' # Match markdown URL
-      - '_(.+?)_' # Match Italic (underscore)
-      - '\*\*(.+?)\*\*' # Match bold
-      - '\*(.+?)\*' # Match Italic (asterisk)

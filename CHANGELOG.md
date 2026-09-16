@@ -195,6 +195,39 @@ Every issue in the repository carrying the `bug` label.
 
 ### Changed
 
+- **The release workflow called a task that does not exist.**
+  `.github/workflows/Release.yml` ran `./build.ps1 -Tasks Build_Wiki_Content,
+  Publish_GitHub_Wiki_Content`, but nothing in this repository provides
+  `Publish_GitHub_Wiki_Content` — it is a `DscResource.DocGenerator` task, and that module is
+  not a dependency. `Sampler.GitHubTasks`, which `build.yaml` credited for it, exports only
+  `Publish_release_to_GitHub` and `Create_ChangeLog_GitHub_PR`. The step was
+  `continue-on-error: true`, so every release since v1.0.0 reported a green check over an
+  `exit code 1` and published no wiki at all.
+
+  Publishing is now `Publish_Wiki_Content`, a local task in `.build/wiki.build.ps1`: it clones
+  `<owner>/<repo>.wiki.git` (owner and repository read from the checkout's `origin`, so a fork
+  publishes to its own wiki), mirrors `output/WikiContent` into it, commits and pushes. It adds
+  no new module dependency. The token is passed through git's `http.<host>.extraheader` rather
+  than embedded in the remote URL, so it cannot reach `.git/config` or a git error message.
+
+  `continue-on-error` is gone with it. The task itself never throws — no token, wiki not yet
+  initialised, nothing to publish, push rejected are all reported to `$GITHUB_STEP_SUMMARY` and
+  exit clean — so a wiki problem still cannot fail a release whose Gallery package is already
+  published, but it can no longer be invisible.
+
+- **The wiki is published on full releases only.** The publish step is gated on
+  `IsPrerelease == 'false'`, the same gate the changelog roll-over already used, so a preview
+  tag ships to the Gallery without moving the wiki and the published wiki always describes the
+  latest released version. `Build_Wiki_Content` is no longer chained into `build.yaml`'s `build`
+  workflow — it runs at release time, next to the publish it feeds. Wiki drift still fails a
+  pull request: `.github/workflows/Wiki.yml` runs `scripts/Build-WikiContent.ps1` directly on
+  every PR and throws on a page missing from `.pageorder`, a `.pageorder` entry with no page, or
+  an exported command with no `.SYNOPSIS`.
+
+- A dead `Generate_Conceptual_Help:` block has been removed from `build.yaml`'s `GitHubConfig:`.
+  It configured a `DscResource.DocGenerator` task, was nested under the wrong top-level key, and
+  nothing read it.
+
 - `ModuleVersion` in `source/Dsc.PipelineRunner.psd1` bumped to `1.1.0`, matching the
   `PipelineRunnerVersion: 1.1.0` the shipped `Example Configuration/Datum.yml` declares.
   The value stays inside the `1.0`-`1.9` DSC resource module range enforced by

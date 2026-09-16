@@ -217,17 +217,22 @@ jobs:
           ReleaseBranch: main
           MainGitBranch: main
 
-      # Non-blocking: the repository wiki has to be enabled and initialised before this can push
-      # to it. A wiki failure must not fail a release whose Gallery package has already been
-      # published, so this step is allowed to fail.
+      # Full releases only. A preview tag ships to the Gallery without moving the wiki, so the
+      # published wiki always describes the latest released version rather than a preview that
+      # most consumers never install. Same gate as the changelog roll-over below.
       #
-      # Build_Wiki_Content is named explicitly even though the 'build' workflow above already
-      # runs it, so this step stays correct on its own - a re-ordering of the build workflow, or
-      # a re-run of just this step, must not publish a stale or missing output/WikiContent.
-      - name: Publish GitHub wiki content
-        continue-on-error: true
+      # Build_Wiki_Content is named explicitly because the 'build' workflow above does not run
+      # it - the wiki is compiled here, at release time, and per pull request by Wiki.yml.
+      #
+      # Publish_Wiki_Content is local to .build/wiki.build.ps1 and never throws: it reports
+      # every outcome (including "the wiki has not been initialised yet") to the run summary
+      # and exits clean, so a wiki problem cannot fail a release whose Gallery package has
+      # already been published. That replaces continue-on-error, which reported a hard error
+      # as a green check.
+      - name: Publish wiki content
+        if: env.IsPrerelease == 'false'
         shell: pwsh
-        run: ./build.ps1 -Tasks Build_Wiki_Content, Publish_GitHub_Wiki_Content
+        run: ./build.ps1 -Tasks Build_Wiki_Content, Publish_Wiki_Content
         env:
           GitHubToken: ${{ secrets.GITHUB_TOKEN }}
           ReleaseBranch: main

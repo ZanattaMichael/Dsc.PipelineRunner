@@ -1,9 +1,9 @@
 # Compiles the wiki on every pull request so that wiki drift fails a PR rather than a release.
 #
-# The Release workflow publishes output/WikiContent to the repository wiki, but that step is
-# deliberately non-blocking - a wiki failure must not fail a release whose package has already
-# been published. That leaves nothing enforcing the wiki's own invariants, so this gate does it
-# at PR time instead: a page missing from .pageorder, a .pageorder entry with no page, or an
+# The Release workflow compiles and publishes output/WikiContent to the repository wiki on full
+# (non-preview) releases only, and that step is deliberately non-fatal - a wiki failure must not
+# fail a release whose package has already been published. That leaves nothing enforcing the
+# wiki's own invariants at release time, so this gate does it at PR time instead: a page missing from .pageorder, a .pageorder entry with no page, or an
 # exported command with no .SYNOPSIS all throw out of scripts/Build-WikiContent.ps1.
 #
 # The build script reads comment-based help from the AST (Parser::ParseFile plus
@@ -19,7 +19,9 @@ on:
     branches: [ "*" ]
   workflow_dispatch:
 
-  # Reused as a release gate by the tag-driven Release workflow.
+  # Callable so this gate can be reused by another workflow. Nothing calls it today - the
+  # Release workflow compiles the wiki through Build_Wiki_Content instead, which throws on the
+  # same invariants.
   workflow_call:
 
 concurrency:

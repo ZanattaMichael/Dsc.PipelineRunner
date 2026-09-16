@@ -3,7 +3,7 @@
 Compiles the GitHub Wiki content for Dsc.PipelineRunner into a publishable folder.
 
 .DESCRIPTION
-Produces the folder that Publish_GitHub_Wiki_Content pushes to the repository wiki. The wiki
+Produces the folder that the Publish_Wiki_Content build task pushes to the repository wiki. The wiki
 has two halves and this script is what joins them:
 
   * Hand-written conceptual pages live in WikiSource/ and are copied verbatim. They are the
@@ -25,7 +25,7 @@ The repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER OutputPath
 Where the compiled wiki is written. Defaults to <SourcePath>/output/WikiContent - the location
-Sampler's Publish_GitHub_Wiki_Content reads from.
+the Publish_Wiki_Content build task (.build/wiki.build.ps1) reads from.
 
 .PARAMETER ModuleVersion
 Version stamped into the generated pages. Defaults to the ModuleVersion in the source manifest.
