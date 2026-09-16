@@ -67,6 +67,15 @@ jobs:
         shell: pwsh
         run: ./scripts/Invoke-DscV2SelfHostedTests.ps1
 
+      # Configure a WinRM listener when the runner has none, so the suite below runs its live
+      # connection tests instead of skipping them with a warning. Probes first and makes no
+      # changes on a runner that is already reachable, appends to TrustedHosts rather than
+      # replacing it, and never fails the job: an environment problem on the runner must not
+      # turn an unrelated pull request red. The outcome is written to the run summary.
+      - name: Ensure WinRM is enabled
+        shell: pwsh
+        run: ./scripts/Enable-SelfHostedWinRM.ps1
+
       # Validate Actions/Target/WinRM.ps1 against a live WinRM listener rather than the mocked
       # New-CimSession/New-PSSession the unit suite uses. This is the only runner in CI that can:
       # the hosted Linux agents have no WSMan stack. The suite connects to this runner itself, so

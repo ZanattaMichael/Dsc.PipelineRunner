@@ -119,6 +119,19 @@ Every issue in the repository carrying the `bug` label.
 
 ### Testing
 
+- **The WinRM remoting suite now has a listener to connect to.** The self-hosted workflow ran
+  `WinRMTarget.Integration.tests.ps1` but nothing configured a WSMan listener on the runner, so
+  `Get-WinRMSkipReason` reported `Test-WSMan` failing and five of the six tests skipped with a
+  warning on a green job - the coverage the suite exists to provide silently did not happen. A new
+  `scripts/Enable-SelfHostedWinRM.ps1`, wired in as the `Ensure WinRM is enabled` step before the
+  suite, configures one. It is deliberately conservative about a long-lived runner: it probes first
+  and makes no changes when the listener already answers, appends this computer to `TrustedHosts`
+  rather than replacing the list (and only when the runner is not domain-joined, where NTLM needs
+  it), reports a non-elevated runner process as a warning instead of an access error, and always
+  exits 0 so an environment problem on the runner cannot turn an unrelated pull request red. The
+  outcome - enabled, already enabled, or not enabled and why - is written to the job's step summary
+  so a green run cannot hide a skipped suite.
+
 - **The new accessors are unit and integration tested.** `Arithmetic.tests.ps1` covers all nine
   arithmetic accessors and the shared numeric coercion, pinning the whole-number contract and
   `div (float 7) 2 -eq 3.5`; `StringFunctions.tests.ps1` covers the seven string/collection
