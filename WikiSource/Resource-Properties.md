@@ -263,8 +263,10 @@ Combining with ordinary operators:
 ```
 
 `Assert-SafeConditionExpression` parses the expression first and rejects it if it contains a
-command invocation outside the allow-list (`parameters`, `variables`, `reference`, `equals`,
-`not`), a variable assignment, or a method call. The check walks the whole tree, so a
+command invocation outside the allow-list (`parameters`, `variables`, `reference`, `using`,
+`nodeName`, `configurationFile`, `equals`, `not`, `concat`, `empty`, `coalesce`, `toLower`,
+`toUpper`, `startsWith`, `contains`, `add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `int`,
+`float`), a variable assignment, or a method call. The check walks the whole tree, so a
 disallowed call nested inside an allowed one is rejected too. A rejected condition never runs —
 the resource is recorded `FAIL`.
 

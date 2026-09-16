@@ -3,6 +3,8 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'resourceOutputs', Justification='Read via $script: scope by using.ps1 (dynamic scoping) to serve a using() read.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'pendingNotifyRefresh', Justification='Read via $script: scope by Start-DscRunner.ps1 (dynamic scoping) to force a notified resource''s Set() to re-run.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'currentResourceKey', Justification='Read via $script: scope by using.ps1 (dynamic scoping) to identify the calling resource.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'currentNodeName', Justification='Read via $script: scope by nodeName.ps1 (dynamic scoping) to serve a nodeName() read.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'currentConfigurationFile', Justification='Read via $script: scope by configurationFile.ps1 (dynamic scoping) to serve a configurationFile() read.')]
 
 $references = @{}
 $variables = @{}
@@ -35,5 +37,12 @@ $pendingNotifyRefresh = @{}
 # The "Type/Name" key of the resource currently being evaluated, so using() knows who is
 # calling it. Set immediately before a resource's properties are expanded.
 $currentResourceKey = $null
+
+# Run context for the nodeName() / configurationFile() accessors: the node name derived from the
+# configuration file being processed, and that file's full path. Owned by Start-DscRunner, which
+# sets both as it opens a file and clears them when the file is finished, so a value never leaks
+# from one file into the next. Both read $null outside a run.
+$currentNodeName = $null
+$currentConfigurationFile = $null
 
 #REPLACE ME!

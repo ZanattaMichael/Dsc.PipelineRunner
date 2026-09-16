@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **The documented `postCondition: result().InDesiredState -or stopProcessing()` did not
+  parse.** `stopProcessing()` was normalized to a bare `stopProcessing`, and PowerShell rejects a
+  bare command as an operand ("You must provide a value expression following the '-or'
+  operator") — so the one spelling the documentation leads with was the one that could not run.
+  Zero-argument accessors now normalize to a parenthesised sub-expression (`(stopProcessing)`,
+  `(result)`, `(nodeName)`, `(configurationFile)`), which parses both on its own and as an
+  operand.
+
 Every issue in the repository carrying the `bug` label.
 
 - **#9 — Git clone was passing a boolean instead of the repository URL.**
@@ -68,6 +76,34 @@ Every issue in the repository carrying the `bug` label.
 
 ### Added
 
+- **Twenty new function-language accessors, usable in `properties`, `preCondition` and
+  `postCondition`.** Strings and collections: `concat()` (string concatenation; use `+` for
+  arrays), `empty()`, `coalesce()`, `toLower()`, `toUpper()`, `startsWith()` and `contains()`
+  (which dispatches on the container — substring for a string, element for a collection, and
+  **key** for a dictionary). Arithmetic: `add()`, `sub()`, `mul()`, `div()`, `mod()`, `min()`,
+  `max()`, `int()` and `float()`. Run context: `nodeName()` and `configurationFile()`, which
+  report the node and file currently being processed and are cleared when the runner finishes
+  the file. Every one is on the condition allow-list.
+- **Arithmetic preserves an operand's own integrality.** An operand that is a whole number, or a
+  string that parses as one (the `"4"` a YAML file typically yields), stays a whole number
+  through the operation; a real number is never silently collapsed back. `div` therefore divides
+  as whole numbers only when both operands are whole, so `div 7 2` is `3` and
+  `div (float 7) 2` is `3.5`. Strings are parsed with the invariant culture, so a configuration
+  behaves identically on an agent in any locale. `$null`, a boolean and a non-numeric string all
+  throw, naming the accessor and the value, and fail only the resource whose expression contained
+  them.
+- **`using()` is now allowed in a `preCondition`,** not only in `properties`, so a resource can be
+  gated on what another resource's `Get()` actually returned. The `notify` gate applies exactly as
+  it does in a property — the runner sets the current resource key before the `preCondition` is
+  evaluated — and the same three errors are thrown when it is not declared. Because `using` is a
+  PowerShell reserved word as the first token of a statement, it must be written nested, e.g.
+  `equals (using 'Mod/Type/Name').Visibility 'Private'`.
+- There is deliberately **no `secret()` accessor**, and one will not be added. A condition is
+  recorded verbatim in the run's audit record and in the `SKIP` message of every resource it
+  gates, so reading a secret from one would put the lookup — and, with a careless expression, its
+  value — into a report that is routinely attached to a pipeline run. Secrets reach a resource
+  through its `resourceCredential` block.
+
 - `-ConfigurationRevision` on `Invoke-DscRunner` and `Invoke-DscPipelineRunner`, pinning the
   configuration repository to a branch, tag or commit. A full 40-character SHA is verified
   against the clone's resolved HEAD.
@@ -82,6 +118,18 @@ Every issue in the repository carrying the `bug` label.
   the release reuses them as its gate instead of duplicating them.
 
 ### Testing
+
+- **The new accessors are unit and integration tested.** `Arithmetic.tests.ps1` covers all nine
+  arithmetic accessors and the shared numeric coercion, pinning the whole-number contract and
+  `div (float 7) 2 -eq 3.5`; `StringFunctions.tests.ps1` covers the seven string/collection
+  accessors and the variadic argument flattening, including that `contains` tests a dictionary's
+  keys rather than its values; `RunContext.tests.ps1` covers `nodeName()`/`configurationFile()`
+  and asserts the normalizer's rewrite both matches the expected text and actually parses.
+  `FunctionLanguage.Integration.tests.ps1` (tag `HostedIntegration`) drives real configuration
+  files through `Start-DscRunner`: accessors deciding a `preCondition`, a bad operand failing only
+  its own resource, `using()` in a `preCondition` under the `notify` gate, the run-context
+  accessors in both a condition and a property plus the clear-on-finish, the fixed
+  `stopProcessing()` composition, and `secret()` still being rejected from a file.
 
 - **WinRM remoting, secret vaults, `using()` and the condition keys are now integration tested.** All were
   covered only by mocked unit tests, and `Actions/Target/WinRM.ps1` and
@@ -129,6 +177,14 @@ Every issue in the repository carrying the `bug` label.
   A tagged release still overrides this value from the tag at build time.
 
 ### Documentation
+
+- `WikiSource/Function-Language.md` now documents the full accessor set grouped by category,
+  with examples for each of the new string, collection, arithmetic and run-context accessors,
+  the `using()`-in-a-`preCondition` rules, why `secret()` is deliberately absent, and the
+  `$(nodeName)` property spelling — property expansion does not go through the condition
+  normalizer, so a property uses the bare form while a condition uses `nodeName()`. `README.md`,
+  `WikiSource/Resource-Properties.md` and `docs/notify-and-using.md` were reconciled with the
+  extended allow-list.
 
 - `Assert-SafeConditionExpression`'s comment-based help showed the accessors being called with
   the comma-in-parens form (`equals(variables('Env'), 'Prod')`), which is exactly the form the

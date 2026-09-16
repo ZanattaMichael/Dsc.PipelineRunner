@@ -290,6 +290,14 @@ function Start-DscRunner {
     # Report Task Counter
     $TaskCounter = 0
 
+    # Run context for the nodeName() / configurationFile() accessors. Held in module-script
+    # scope for the same reason $script:currentResourceKey is: the accessors are called from a
+    # script block created by [scriptblock]::Create, which does not see this function's locals.
+    # Set here, immediately before the try whose finally clears it, so a run that throws while
+    # loading the file never leaves stale context behind for the next one.
+    $script:currentNodeName          = $nodeName
+    $script:currentConfigurationFile = $FilePath
+
     try {
         # Loop through each task/resource and process it according to its configuration
         foreach ($task in $tasks) {
@@ -649,6 +657,10 @@ function Start-DscRunner {
 
         $runStopwatch.Stop()
         $ProgressPreference = $previousProgressPreference
+
+        # This file is finished, so nodeName() / configurationFile() must stop answering for it.
+        $script:currentNodeName          = $null
+        $script:currentConfigurationFile = $null
 
         # #57 §4: close every session this run opened, regardless of how the run ended.
         foreach ($cachedSession in $sessionCache.Values) {

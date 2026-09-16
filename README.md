@@ -104,9 +104,15 @@ The pipeline runner provides a set of features applicable to all Desired State C
       type: AzureDevOpsDscNative/AzDoProjectGroup
     ```
 
-    A preCondition may also call the function-language accessors `parameters()`, `variables()`,
-    `reference()`, `equals()` and `not()` — an explicit allow-list; any other command
-    invocation, a variable assignment, or a method call is still rejected. Unlike a bare
+    A preCondition may also call the function-language accessors — an explicit allow-list
+    covering lookups (`parameters()`, `variables()`, `reference()`, `using()`), run context
+    (`nodeName()`, `configurationFile()`), logic (`equals()`, `not()`), strings and collections
+    (`concat()`, `empty()`, `coalesce()`, `toLower()`, `toUpper()`, `startsWith()`,
+    `contains()`) and arithmetic (`add()`, `sub()`, `mul()`, `div()`, `mod()`, `min()`,
+    `max()`, `int()`, `float()`). Any other command invocation, a variable assignment, or a
+    method call is still rejected. There is deliberately no `secret()` accessor: a condition is
+    recorded verbatim in the audit record and in every SKIP message it produces, so secrets
+    reach a resource through its `resourceCredential` block instead. Unlike a bare
     comparison, `parameters()`/`reference()` throw on a missing key or reference rather than
     silently resolving to `$null`, so a typo fails just that resource instead of skipping it
     unnoticed. These are ordinary PowerShell commands, so multi-argument calls take
