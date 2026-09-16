@@ -304,6 +304,74 @@ A `target` block with a non-`Local` action needs `computerName` — including wh
 inherited from `PipelineRunnerSettings.Target`. A file-level `Target: WinRM` with a resource
 carrying no `target` block at all fails here.
 
+### `Access is denied` opening a WinRM session
+
+The WinRM action does not wrap this — it is `New-PSSession`'s own error, recorded against the
+resource whose target failed:
+
+```
+New-PSSession: [web01.contoso.com] Connecting to remote server web01.contoso.com failed with
+the following error message : Access is denied. For more information, see the
+about_Remote_Troubleshooting Help topic.
+```
+
+The connecting identity is not permitted on the target. Unless the `target` block carries a
+`credential`, that identity is **the account the runner process runs as** — on a self-hosted
+agent, the agent service account, which is `NT AUTHORITY\NETWORK SERVICE` out of the box and so
+reaches the target as the machine account.
+
+1. Confirm who is actually connecting:
+
+   ```powershell
+   [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+   ```
+
+   Run it *in a pipeline step*, not in your own console — they are usually different accounts.
+
+2. Add that account to the target's local `Remote Management Users` group to connect, and to
+   local `Administrators` to apply DSC with `DscV2`. See
+   [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
+
+3. Or leave the service account alone and give the resource an explicit `target.credential`.
+
+### `The WinRM client cannot process the request` / Kerberos cannot be used
+
+Typically a target that is not in the same (or a trusting) domain, so no Kerberos ticket can be
+issued. Add the host to the runner's `TrustedHosts` and pass an explicit `target.credential`
+so NTLM is used, or put an HTTPS listener with a trusted certificate on the target. `TrustedHosts`
+is read as the runner's own account, and a blanket `*` turns off the server-identity check for
+every connection — name the hosts.
+
+### A remote `DscV2` resource fails with no `Invoke-DscResource` on the far side
+
+The `PSSession` landed on the target's default WinRM endpoint — Windows PowerShell 5.1 — and a
+current Windows build has no in-box `Invoke-DscResource` there. Name the PowerShell 7 endpoint:
+
+```yaml
+    target:
+      action: WinRM
+      computerName: web01.contoso.com
+      configurationName: PowerShell.7
+```
+
+That endpoint exists only where `Enable-PSRemoting` has been run under `pwsh` on the target, and
+registering it needs an **elevated** process. `scripts/Enable-SelfHostedWinRM.ps1` does this for
+the self-hosted runner and warns instead of configuring when the agent service is not elevated.
+
+### A reboot fails after the resource has already been set
+
+Restarting a remote target needs *Force shutdown from a remote system* on that target, which
+local `Administrators` holds by default. The `Set()` has run by the time the restart is
+attempted, so the resource is left applied but pending a reboot. Grant the right, or aim the
+resource at a target whose credential has it.
+
+### A secret resolves interactively but not in the pipeline
+
+A `Microsoft.PowerShell.SecretStore` vault lives in the registering user's profile. Registered
+under your own account, it does not exist for the agent's service account. Register and unlock
+the vault as the identity the agent runs as, or use the `Environment` credential action and let
+the pipeline supply the secret.
+
 ### `SSH remoting requires the DscV3 engine`
 
 There is no CIM-over-SSH transport for `Invoke-DscResource`. Use `DscV3` for SSH targets.
@@ -312,7 +380,9 @@ There is no CIM-over-SSH transport for `Invoke-DscResource`. Use `DscV3` for SSH
 
 The runner passes only `ComputerName`, the engine and the credential to a Target action. There
 is no `target` key that supplies an SSH user or identity file today — put them in a `Host`
-block in the runner account's `~/.ssh/config`.
+block in the runner account's `~/.ssh/config`. On an agent that means the **service account's**
+profile, not the profile you get when you sign in to the machine yourself, and that account's
+public key has to be authorised on the target.
 
 ### `Environment variable(s) 'X'/'Y' are not set`
 

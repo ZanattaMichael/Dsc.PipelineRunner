@@ -22,6 +22,14 @@ Enable-PSRemoting under pwsh - lands the session where PSDesiredStateConfigurati
 installed. It is passed to New-PSSession only: a CimSession is a WS-Man/CIM connection with no
 PowerShell endpoint to choose.
 
+The identity matters as much as the endpoint. New-CimSession/New-PSSession authenticate as the
+credential when the Target context carries one, and otherwise as the account the runner process
+itself runs as - on a self-hosted agent that is the agent service account, which installs as
+NT AUTHORITY\NETWORK SERVICE and reaches a target as the computer account. That account has to
+be a member of the target's Remote Management Users group to connect at all, and of local
+Administrators to apply DSC (Invoke-DscResource drives the CIM/DSC subsystem) or to be restarted
+after a RebootRequired. WikiSource/Remote-Targets-and-Credentials.md documents the full set.
+
 Validated at two levels: the unit suite mocks New-CimSession/New-PSSession to assert dispatch and
 parameter passing, and Tests/.../Integration/WinRMTarget.Integration.tests.ps1 opens real sessions
 against a live WinRM listener on the self-hosted Windows runner (DscV2-SelfHosted.yml) and proves

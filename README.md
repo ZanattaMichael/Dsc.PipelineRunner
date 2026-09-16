@@ -602,6 +602,29 @@ CI/CD system; the self-hosted agent / Azure DevOps steps are only needed if you 
 1. __(Azure DevOps only) Setup Dsc.PipelineRunner using a Self-Hosted Agent within the CI/CD Pipeline:__
 
    - Follow the detailed instructions provided in the [Azure DevOps Agents Documentation](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents?view=azure-devops) to configure your self-hosted agent.
+   - __Run the agent service as an identity that is permitted to do the work:__
+
+     Unless a resource's `target` block supplies its own `credential`, the runner reaches every
+     remote machine — and reads every per-user secret store — as the account the agent service
+     runs as. The agent installs as `NT AUTHORITY\NETWORK SERVICE` by default, which presents
+     the *computer* account off-box and is almost never a member of anything on the target, so
+     remoting fails the moment the pipeline runs unattended even though it worked from an
+     interactive session.
+
+     Reconfigure the agent service to run as a domain (or, for workgroup targets, matching
+     local) account, and grant that account:
+
+     | Where | What it needs |
+     |---|---|
+     | On each target | Local `Remote Management Users` to open a WinRM session, and local `Administrators` to apply DSC — `Invoke-DscResource` drives the CIM/DSC subsystem and most resources change machine-wide state. |
+     | On each target | *Force shutdown from a remote system*, if any resource can report `RebootRequired` — the runner restarts remote targets itself. Local `Administrators` holds it by default. |
+     | On the agent | Local administrator on the agent host itself, if the pipeline is to run `Enable-PSRemoting` (including registering the `PowerShell.7` endpoint) rather than have it configured by hand beforehand. |
+     | On the agent | Ownership of the per-user state the run depends on — a `Microsoft.PowerShell.SecretStore` vault, an SSH key under `~/.ssh`, `TrustedHosts` entries. These live in the service account's profile, not in yours. |
+
+     Where that account cannot be granted those rights, leave it unprivileged and give each
+     remote resource an explicit `target.credential` instead. Full detail, including
+     cross-domain and second-hop cases, is in
+     [Remote Targets and Credentials](https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki/Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
    - __If Using Managed Identity within Azure Arc:__
      - Verify that the Agent Pool service is executed under an administrator account to ensure proper permissions and functionality.
    - __Grant Permissions for Identity within Azure DevOps (AZDO):__

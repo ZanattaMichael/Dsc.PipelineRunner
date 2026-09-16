@@ -6,6 +6,80 @@ Two independent seams, usually used together:
 - A **Credential** action decides *how a secret is fetched*, so it never appears in the
   configuration.
 
+## The identity the runner runs as
+
+Everything on this page happens **as the account the runner process is running under** — the
+pipeline agent's service account on a self-hosted agent, or your own account when you run
+`Invoke-DscRunner` by hand. A `target` block names a computer; it does not name who connects to
+it. Unless `target.credential` supplies one explicitly, the runner's own identity is what
+authenticates to the remote host, and the run can do only what that identity is permitted to do.
+
+So the agent must run as a **real account that already holds the rights the configuration
+needs** — not the identity an agent service is installed with by default.
+
+### On the machine the runner runs on
+
+| Default service identity | Why remoting fails under it |
+| --- | --- |
+| `NT AUTHORITY\LocalService` | Presents as an anonymous session off-box. It cannot authenticate to a remote host at all. |
+| `NT AUTHORITY\NetworkService`, `LocalSystem` | Present the *computer* account (`DOMAIN\MACHINE$`). A valid identity, but it is almost never a member of anything on the target, so the connection is refused. |
+
+The Azure Pipelines agent installs as `NT AUTHORITY\NETWORK SERVICE` unless you choose
+otherwise, which is why a pipeline that works from an interactive session can fail as soon as it
+runs unattended. Reconfigure the agent service to run as a domain (or, for a workgroup target, a
+matching local) account and grant *that* account the rights below.
+
+Two more things are decided by the runner's own identity:
+
+- **Registering the WinRM endpoint.** `Enable-PSRemoting` — including registering the
+  `PowerShell.7` endpoint described below — needs an elevated process.
+  `scripts/Enable-SelfHostedWinRM.ps1` checks for elevation and reports a warning instead of
+  configuring anything when the service is not elevated.
+- **Where per-user state lives.** A `Microsoft.PowerShell.SecretStore` vault, an SSH key in
+  `~/.ssh`, and `WSMan:\localhost\Client\TrustedHosts` are all read as the running account.
+  Register the vault and install the key *while signed in as the service account* (or in a
+  process running as it); a vault registered under your own profile is invisible to the agent.
+
+### On each target
+
+| The run needs to… | The identity must be… |
+| --- | --- |
+| Open a `PSSession` / `CimSession` over WinRM | A member of the target's local `Remote Management Users` group, or of local `Administrators`. WinRM's default endpoint SDDL grants those two. |
+| Apply DSC with the `DscV2` engine | A member of the target's local `Administrators`. `Invoke-DscResource` drives the CIM/DSC subsystem, and most resources change machine-wide state — `Remote Management Users` is enough to *open* a session but not to *configure* the machine. |
+| Apply DSC with the `DscV3` engine | Whatever `dsc` and the resource need on the far side — in practice local `Administrators` for machine-scoped resources. |
+| Restart a target after `RebootRequired` | Holder of *Force shutdown from a remote system* on the target, which local `Administrators` has by default. Without it the restart fails after the `Set()` has already run. |
+
+Across a domain boundary — or with no domain at all — there is no Kerberos ticket to present.
+Either add the target to the runner's `TrustedHosts` and pass an explicit `target.credential`
+(NTLM), or configure an HTTPS WinRM listener with a certificate the runner trusts. Using
+`TrustedHosts` with a blanket `*` disables the server-identity check for every connection; name
+the hosts.
+
+### The second hop
+
+A resource evaluating on a remote target holds the session's credentials but cannot forward
+them to a *third* machine — the standard second-hop restriction, and it applies just as much to
+a resource reaching a file share or a SQL instance as to the runner itself. Give such a resource
+its own `resourceCredential` rather than expecting the connecting identity to flow onward.
+
+### When the service account cannot be granted those rights
+
+Supply `target.credential`. The session is then opened as the resolved credential and the
+runner's own identity only has to be able to *fetch* the secret:
+
+```yaml
+    target:
+      action: WinRM
+      computerName: web01.contoso.com
+      credential:
+        action: SecretManagement
+        name: DeployAccount
+        vault: DeploymentVault
+```
+
+This is the better arrangement in production regardless: the account that applies configuration
+is scoped and rotated independently of the account the build agent happens to run as.
+
 ## Targets
 
 ### Selecting one
@@ -107,7 +181,9 @@ transport for DscV2/Invoke-DscResource); the resolved engine was 'DscV2'.
 > resolved credential to a Target action. The SSH action *can* use a `UserName` and a
 > `KeyFilePath`, but no `target` key reaches them today — SSH authentication falls back to the
 > runner account's own SSH configuration. Put the user and identity file in a `Host` block in
-> `~/.ssh/config` for the target instead.
+> `~/.ssh/config` for the target instead — in the **service account's** profile, which is not
+> the one you edit when you configure SSH interactively, and make sure that account's key is
+> authorised on the target.
 
 ### Session caching
 
@@ -226,7 +302,11 @@ Both keys are required. A missing variable throws, naming both:
 
 ### `SecretManagement`
 
-Reads from a Microsoft.PowerShell.SecretManagement vault.
+Reads from a Microsoft.PowerShell.SecretManagement vault. The vault is resolved **as the runner's
+own identity**: a `Microsoft.PowerShell.SecretStore` vault lives in the registering user's
+profile, so it has to be registered and unlocked for the service account the agent runs as, not
+for the account that set the machine up. See
+[The identity the runner runs as](#the-identity-the-runner-runs-as).
 
 ```yaml
     resourceCredential:

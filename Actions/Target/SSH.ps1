@@ -8,7 +8,14 @@ this target is only usable with the DscV3 engine (which reaches its remote targe
 Invoke-Command over a PSSession, not a CimSession) - fails fast, before opening a connection,
 when paired with the DscV2 engine so the mismatch is reported clearly rather than as a
 mysterious later failure. Only unit-tested with New-PSSession mocked (#57 scope note) - this
-module cannot open a live SSH connection in this environment.
+module cannot open a live SSH connection in this environment, and no CI job opens one either, so
+unlike the WinRM target there is no live proof of the SSH path.
+
+Authentication is the runner account's own: the runner passes only ComputerName, Engine and
+Credential to a Target action, so UserName/KeyFilePath above are never populated from a 'target'
+block today and SSH falls back to the running account's ~/.ssh configuration. On an agent that is
+the service account's profile, not the profile of whoever configured the machine, and that
+account's public key has to be authorised on the target.
 
 .PARAMETER Context
 Hashtable with:

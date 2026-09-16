@@ -84,6 +84,11 @@ resolves a `CimSession` and no `PSSession` still uses `-CimSession`, where the h
 `[pscredential]` properties marshal natively as `MSFT_Credential` over the encrypted WinRM
 transport, so a credential never needs to be converted to plaintext.
 
+`Invoke-DscResource` drives the target's CIM/DSC subsystem, so the identity the session was
+opened as must be a **local administrator on the target** — being able to connect is not enough
+to configure. With no `target.credential` that identity is the account the runner itself runs
+as; see [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
+
 ## `DscV3`
 
 Drives Microsoft's cross-platform DSC v3 CLI. This is what makes hosted Linux and macOS agents

@@ -22,6 +22,7 @@ relationships and early termination possible.
 | Add or override a validation rule | [Pipeline rules](Pipeline-Rules) |
 | Choose between DSC v2 and DSC v3 | [Engines](Engines) |
 | Apply configuration to a remote machine | [Remote targets and credentials](Remote-Targets-and-Credentials) |
+| Work out which account the pipeline must run as | [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as) |
 | Fail the build when a resource fails | [Reporting and exit codes](Reporting-and-Exit-Codes) |
 | Work out why something broke | [Troubleshooting](Troubleshooting) |
 | Change the runner itself | [Contributing](Contributing) |

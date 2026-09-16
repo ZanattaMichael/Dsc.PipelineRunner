@@ -423,6 +423,12 @@ Where this resource executes. Overrides `PipelineRunnerSettings.Target` for this
 
 No other key in the `target` block is read.
 
+> **Who connects.** With no `credential` here, the session is opened as **the account the runner
+> process runs as** — the agent service account on a self-hosted agent. That account must be
+> permitted on the target (`Remote Management Users` to connect, local `Administrators` to apply
+> DSC); the default `NT AUTHORITY\NETWORK SERVICE` is not. See
+> [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
+
 With a credential:
 
 ```yaml
@@ -448,7 +454,8 @@ there is no CIM-over-SSH transport for `Invoke-DscResource`):
 > Target action. The SSH action *can* use a `UserName` and a `KeyFilePath`, but there is no
 > `target` key that reaches them today — SSH authentication falls back to the runner account's
 > own `~/.ssh` configuration. Put the user and identity file in an SSH `Host` block for the
-> target instead.
+> target instead — in the **service account's** profile on an agent, with that account's key
+> authorised on the target.
 
 Explicitly pinning one resource back to the runner itself, under a remote file-level default:
 

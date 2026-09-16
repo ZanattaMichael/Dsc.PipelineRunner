@@ -22,6 +22,29 @@ All notable changes to this project will be documented in this file.
   runs instead of skipping. Both remain non-fatal: an endpoint that cannot be registered is a
   warning and a skip with the reason, not a build break.
 
+### Documentation
+
+- **The identity the pipeline runs as is now documented as a requirement, not an assumption.**
+  With no `target.credential`, every remote session — and every per-user secret store — is opened
+  as the account the runner process runs as. On a self-hosted agent that is the agent service
+  account, which installs as `NT AUTHORITY\NETWORK SERVICE` and reaches a target as the computer
+  account, so remoting fails unattended even where it worked from an interactive session. A new
+  *The identity the runner runs as* section in
+  `WikiSource/Remote-Targets-and-Credentials.md` states what that account must hold: local
+  `Remote Management Users` on the target to open a session, local `Administrators` to apply DSC
+  (`Invoke-DscResource` drives the CIM/DSC subsystem), *Force shutdown from a remote system* for
+  the reboot path, elevation on the agent itself to register the WinRM/`PowerShell.7` endpoint,
+  and ownership of the SecretStore vault, SSH key and `TrustedHosts` entries the run depends on —
+  plus the cross-domain and second-hop cases, and using `target.credential` where the service
+  account cannot be granted those rights.
+
+  Carried into `README.md`'s self-hosted agent setup, `WikiSource/Resource-Properties.md`
+  (`target`), `WikiSource/Engines.md` (`DscV2`), `WikiSource/Getting-Started.md`,
+  `WikiSource/Home.md`, six new `WikiSource/Troubleshooting.md` entries (WinRM `Access is
+  denied`, Kerberos/`TrustedHosts`, no `Invoke-DscResource` on the far side, a failed remote
+  reboot, a vault that resolves only interactively, and SSH keys under the wrong profile), and
+  the comment-based help of both Target actions.
+
 ### Fixed
 
 - **Every remote DSC v2 evaluation threw before reaching the resource.**
