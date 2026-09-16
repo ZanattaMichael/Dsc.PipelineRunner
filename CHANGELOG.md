@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`target: configurationName` — the WinRM endpoint a `PSSession` lands on.** Optional, and
+  applied to the `PSSession` only: a `CimSession` is a CIM connection with no PowerShell endpoint
+  to choose. It exists because fixing the `-CimSession` defect below moved the remote DSC v2
+  evaluation onto the far side, where it then needs an `Invoke-DscResource` to run — and
+  `New-PSSession` without `-ConfigurationName` lands on the target's *default* endpoint, Windows
+  PowerShell 5.1, which on a current Windows build no longer carries one. The live remoting suite
+  reported exactly that on the self-hosted runner (Windows 10.0.26100): *the remote runspace has
+  no Invoke-DscResource*. Naming `PowerShell.7` — the endpoint `Enable-PSRemoting` registers when
+  run under `pwsh` — lands the session where `PSDesiredStateConfiguration` 2.x is installed.
+  Sessions are cached per endpoint as well as per computer. Omitted, the behaviour is unchanged.
+
+  `scripts/Enable-SelfHostedWinRM.ps1` now also makes sure that endpoint is registered, on the
+  already-configured path as well, and the remoting suite prefers it — so the remote DSC v2 test
+  runs instead of skipping. Both remain non-fatal: an endpoint that cannot be registered is a
+  warning and a skip with the reason, not a build break.
+
 ### Fixed
 
 - **Every remote DSC v2 evaluation threw before reaching the resource.**

@@ -114,14 +114,35 @@ Describe "Target/WinRM against a live WinRM listener" -Tag Integration, Remoting
             return
         }
 
-        $session = & $script:WinRMPath -Context @{ ComputerName = $script:Target }
+        # Which endpoint the PSSession lands on decides whether there is an Invoke-DscResource on
+        # the far side at all. New-PSSession without -ConfigurationName connects to the host's
+        # DEFAULT endpoint - Windows PowerShell 5.1 - and a current Windows build no longer
+        # carries an in-box Invoke-DscResource there, so the evaluation has nothing to run. The
+        # PowerShell 7 endpoint is where PSDesiredStateConfiguration 2.x is installed, so prefer
+        # it when the host has one registered (Enable-PSRemoting under pwsh registers it; the
+        # runner's Enable-SelfHostedWinRM.ps1 step does that).
+        #
+        # Probed with a throwaway session rather than Get-PSSessionConfiguration, which needs
+        # elevation - the question here is only whether a session can be opened on it.
+        $endpointName = $null
+        $endpointProbe = New-PSSession -ComputerName $script:Target -ConfigurationName 'PowerShell.7' -ErrorAction SilentlyContinue
+        if ($endpointProbe) {
+            $endpointName = 'PowerShell.7'
+            Remove-PSSession -Session $endpointProbe -ErrorAction SilentlyContinue
+        }
+
+        $targetContext = @{ ComputerName = $script:Target }
+        if ($endpointName) { $targetContext.ConfigurationName = $endpointName }
+
+        $session = & $script:WinRMPath -Context $targetContext
         $script:OpenedSessions.Add($session)
 
         # The dependency-free fixture resource the DSC v2 smoke test uses, rather than an in-box
         # resource: PSDesiredStateConfiguration 2.x ships none, and the point of the assertion is
         # the remote call shape, not the resource. The far side is this same machine over a
         # loopback WinRM connection, so the fixture path resolves there too - but PSModulePath is
-        # per-runspace, so the REMOTE runspace has to be told about it.
+        # per-runspace, so the REMOTE runspace has to be told about it. PSModulePath also differs
+        # per endpoint - the PowerShell 7 endpoint does not inherit Windows PowerShell's.
         $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../../..')).Path
         $fixtureRoot    = Join-Path $repositoryRoot 'Tests/Fixtures/DscV2'
 
@@ -153,7 +174,8 @@ Describe "Target/WinRM against a live WinRM listener" -Tag Integration, Remoting
         }
 
         if (-not [string]::IsNullOrEmpty([string]$remoteReadiness)) {
-            Set-ItResult -Skipped -Because "$remoteReadiness."
+            $endpointDescription = if ($endpointName) { "the [$endpointName] endpoint" } else { 'the default WinRM endpoint (no PowerShell 7 endpoint is registered)' }
+            Set-ItResult -Skipped -Because "$remoteReadiness on $endpointDescription."
             return
         }
 

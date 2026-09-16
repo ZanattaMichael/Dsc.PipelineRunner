@@ -445,13 +445,17 @@ function Start-DscRunner {
                         $credentialCacheKey = "$tCredAction|$($tCred.Name)|$($tCred.UserNameVariable)"
                     }
 
+                    # configurationName selects the remote endpoint a WinRM PSSession lands on.
+                    # It is part of the cache key because two resources naming the same computer
+                    # but different endpoints need different sessions.
                     $targetContext = @{
-                        ComputerName = [string]$task.target.computerName
-                        Engine       = $resolvedEngine
-                        Credential   = $targetCredential
+                        ComputerName      = [string]$task.target.computerName
+                        Engine            = $resolvedEngine
+                        Credential        = $targetCredential
+                        ConfigurationName = [string]$task.target.configurationName
                     }
 
-                    $sessionCacheKey = "$targetAction|$($targetContext.ComputerName)|$credentialCacheKey"
+                    $sessionCacheKey = "$targetAction|$($targetContext.ComputerName)|$($targetContext.ConfigurationName)|$credentialCacheKey"
                     if (-not $sessionCache.ContainsKey($sessionCacheKey)) {
                         Write-Verbose "Opening new '$targetAction' session for target: [$($targetContext.ComputerName)]"
                         $sessionCache[$sessionCacheKey] = Invoke-Action -Hook Target -Name $targetAction -Context $targetContext

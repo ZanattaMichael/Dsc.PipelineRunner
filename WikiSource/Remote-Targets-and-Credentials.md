@@ -30,8 +30,8 @@ resources:
       Ensure: Present
 ```
 
-The `target` block reads exactly three keys — `action`, `computerName` and `credential`. No
-other key in the block is used.
+The `target` block reads exactly four keys — `action`, `computerName`, `credential` and
+`configurationName`. No other key in the block is used.
 
 | Action | Transport | Works with |
 | --- | --- | --- |
@@ -65,6 +65,28 @@ engine can take the shape it needs without the configuration having to know whic
 
 `computerName` is required; omitting it throws before any session is opened.
 
+#### `configurationName` — which endpoint the `PSSession` lands on
+
+```yaml
+    target:
+      action: WinRM
+      computerName: web01.contoso.com
+      configurationName: PowerShell.7
+```
+
+Optional, and applied to the `PSSession` only — a `CimSession` is a CIM connection with no
+PowerShell endpoint to choose.
+
+Omitted, the session lands on the target's **default** WinRM endpoint, which on Windows is
+Windows PowerShell 5.1. That matters for `DscV2`: a current Windows build no longer carries an
+in-box `Invoke-DscResource` there, so the remote evaluation has nothing to run on the far side.
+`PowerShell.7` is the endpoint `Enable-PSRemoting` registers when it is run under `pwsh`, and it
+is where `PSDesiredStateConfiguration` 2.x lives. Name it when the target runs PowerShell 7 —
+which is what the self-hosted runner's remoting suite does.
+
+Sessions are cached per endpoint as well as per computer, so two resources naming the same host
+with different `configurationName` values get different sessions.
+
 ### `SSH`
 
 ```yaml
@@ -89,7 +111,7 @@ transport for DscV2/Invoke-DscResource); the resolved engine was 'DscV2'.
 
 ### Session caching
 
-Sessions are cached on `(action, computerName, credential)`. Several resources aimed at one
+Sessions are cached on `(action, computerName, configurationName, credential)`. Several resources aimed at one
 host share one connection rather than opening a fresh session each:
 
 ```yaml

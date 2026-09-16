@@ -108,7 +108,7 @@ context, and the result is written into the property named by `propertyName` (de
 
 `Local` — the default — never invokes the Target hook, so a local-only configuration takes
 exactly the path it always did. Otherwise a session is opened and cached on
-`(action, computerName, credential)`, so several resources aimed at one host share one
+`(action, computerName, configurationName, credential)`, so several resources aimed at one host share one
 connection. Every cached session is closed in the file's `finally`.
 
 A failure to establish the target records `FAIL` and moves on.

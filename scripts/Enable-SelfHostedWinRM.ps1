@@ -12,14 +12,24 @@ before the suite runs.
 It is deliberately conservative, because a self-hosted runner is a long-lived machine rather than
 an ephemeral agent:
 
-  * It probes first and makes NO changes when a listener is already reachable, so a runner that is
-    already configured is untouched on every subsequent build.
+  * It probes first and makes no listener changes when a listener is already reachable, so a
+    runner that is already configured is untouched on every subsequent build. The one thing it
+    still checks on that path is the PowerShell 7 endpoint (below), because a host can have a
+    perfectly good listener and no endpoint the DSC v2 remote path can use.
   * It never clobbers an existing TrustedHosts list. The entry for this computer is appended to
     whatever is already there, and a list already set to '*' is left alone.
   * It is non-fatal. Anything that prevents configuration (most often: the runner service is not
     elevated) is reported as a warning and the script still exits 0, so an environment problem on
     the runner does not turn an unrelated pull request red. The suite then skips exactly as it did
     before, and the step summary says why.
+
+It also makes sure the 'PowerShell.7' session configuration exists. New-PSSession without
+-ConfigurationName lands on the host's DEFAULT endpoint, which is Windows PowerShell 5.1, and a
+current Windows build no longer carries an in-box Invoke-DscResource there - so the remote DSC v2
+evaluation the suite exists to prove has nothing to run on the far side. Enable-PSRemoting run
+under pwsh registers that endpoint, where PSDesiredStateConfiguration 2.x is installed. It is
+registered only when a session cannot already be opened on it, and failing to register it is a
+warning like everything else here.
 
 Enabling PowerShell remoting opens a listener on a persistent host, so this is intended for a
 dedicated CI runner - not for a developer workstation.
@@ -76,6 +86,9 @@ function Test-WinRMReachable {
     Get-WinRMSkipReason (Tests/TestHelpers/CommonTestFunctions.psm1) probes the same way, so what
     this script reports and what the suite decides cannot disagree.
     #>
+    # An advanced function in its own right, so $PSCmdlet.ShouldProcess below resolves: the
+    # script-scope $PSCmdlet is not visible from inside a function.
+    [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$Target)
 
     try {
@@ -87,6 +100,59 @@ function Test-WinRMReachable {
     }
 }
 
+function Initialize-PowerShell7Endpoint {
+    <#
+    .SYNOPSIS
+    Registers the 'PowerShell.7' WinRM endpoint where a session cannot already be opened on it.
+
+    .DESCRIPTION
+    Probed by opening a throwaway session rather than by reading Get-PSSessionConfiguration, for
+    the same reason the listener probe authenticates: the only question that matters is whether
+    the suite can connect, and a registration that exists but refuses connections would otherwise
+    read as success.
+    #>
+    # An advanced function in its own right, so $PSCmdlet.ShouldProcess below resolves: the
+    # script-scope $PSCmdlet is not visible from inside a function.
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$Target)
+
+    $probe = New-PSSession -ComputerName $Target -ConfigurationName 'PowerShell.7' -ErrorAction SilentlyContinue
+    if ($probe) {
+        Remove-PSSession -Session $probe -ErrorAction SilentlyContinue
+        Write-StepSummary "WinRM: the [PowerShell.7] endpoint is already usable on [$Target]. No changes made."
+        return
+    }
+
+    $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+
+    if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-StepSummary "WinRM: the [PowerShell.7] endpoint is **not registered** and this process is not elevated, so the remote DSC v2 test will skip (the default endpoint is Windows PowerShell, which has no Invoke-DscResource on this build)."
+        return
+    }
+
+    try {
+        # Run under pwsh, this registers the PowerShell.7 endpoint. It is idempotent, and it is
+        # reached only when a session could not be opened on that endpoint.
+        if ($PSCmdlet.ShouldProcess($Target, 'Enable-PSRemoting (register the PowerShell.7 endpoint)')) {
+            Enable-PSRemoting -Force -SkipNetworkProfileCheck -ErrorAction Stop | Out-Null
+        }
+    }
+    catch {
+        Write-StepSummary "WinRM: could not register the [PowerShell.7] endpoint ($($_.Exception.Message)). The remote DSC v2 test will skip."
+        return
+    }
+
+    $probe = New-PSSession -ComputerName $Target -ConfigurationName 'PowerShell.7' -ErrorAction SilentlyContinue
+    if ($probe) {
+        Remove-PSSession -Session $probe -ErrorAction SilentlyContinue
+        Write-StepSummary "WinRM: registered the [PowerShell.7] endpoint on [$Target]."
+    }
+    else {
+        Write-StepSummary "WinRM: Enable-PSRemoting reported success but no session can be opened on the [PowerShell.7] endpoint. The remote DSC v2 test will skip."
+    }
+}
+
 if (-not $IsWindows) {
     Write-StepSummary "WinRM: skipped - not a Windows host, so there is no WSMan stack to configure."
     return
@@ -94,7 +160,8 @@ if (-not $IsWindows) {
 
 # 1. Probe first. A runner that is already configured must not be reconfigured on every build.
 if (Test-WinRMReachable -Target $ComputerName) {
-    Write-StepSummary "WinRM: already usable - [$ComputerName] answered an authenticated Test-WSMan. No changes made."
+    Write-StepSummary "WinRM: already usable - [$ComputerName] answered an authenticated Test-WSMan. No listener changes made."
+    Initialize-PowerShell7Endpoint -Target $ComputerName
     return
 }
 
@@ -166,6 +233,7 @@ catch {
 #    connect, and the suite's probe is the only thing that decides whether the tests run.
 if (Test-WinRMReachable -Target $ComputerName) {
     Write-StepSummary "WinRM: enabled - [$ComputerName] now answers an authenticated Test-WSMan. The live remoting tests will run."
+    Initialize-PowerShell7Endpoint -Target $ComputerName
 }
 else {
     Write-Warning "WinRM was configured but [$ComputerName] still does not answer an authenticated Test-WSMan. The remoting suite will skip. Where the message is an access denial rather than a connection failure, the listener is up and the refusal is an authentication/authorization decision on the runner - see the CHANGELOG entry for the remaining machine-level causes."
