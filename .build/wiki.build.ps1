@@ -11,7 +11,18 @@
         a clean agent with no resolved dependencies - which is what makes it usable as a
         per-pull-request check rather than only a release step.
 #>
-
+# All four parameters below are read inside the task's script block, not in the script body.
+# PSScriptAnalyzer's PSReviewUnusedParameter does not traverse a script block passed as an
+# argument to a command, so it reports every InvokeBuild task parameter as unused. Same false
+# positive already suppressed for $Context in Actions/Connect/None.ps1.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'OutputDirectory',
+    Justification = 'Read inside the Build_Wiki_Content task script block, which PSReviewUnusedParameter does not traverse.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ProjectPath',
+    Justification = 'Read inside the Build_Wiki_Content task script block, which PSReviewUnusedParameter does not traverse.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'WikiContentFolderName',
+    Justification = 'Read inside the Build_Wiki_Content task script block, which PSReviewUnusedParameter does not traverse.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ModuleVersion',
+    Justification = 'Read inside the Build_Wiki_Content task script block, which PSReviewUnusedParameter does not traverse.')]
 param(
     # Output directory, supplied by Build.ps1.
     [Parameter()]
