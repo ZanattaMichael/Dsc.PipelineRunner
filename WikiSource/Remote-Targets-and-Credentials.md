@@ -177,6 +177,18 @@ no CIM-over-SSH transport for `Invoke-DscResource`:
 transport for DscV2/Invoke-DscResource); the resolved engine was 'DscV2'.
 ```
 
+> **What the target needs.** `sshd` on the target must have a **`powershell` subsystem**
+> registered, because that is what PowerShell's SSH transport asks for once the connection is up.
+> On Linux that is a line in `/etc/ssh/sshd_config`:
+>
+> ```
+> Subsystem powershell /usr/bin/pwsh -sshs -NoLogo
+> ```
+>
+> On Windows the path is the `pwsh.exe` location instead. Without it the login succeeds and the
+> subsystem request is refused, so `New-PSSession` fails against a host you can plainly `ssh`
+> into — the most common reason SSH remoting "does not work" on a reachable machine.
+
 > **Authentication.** The runner passes only `ComputerName`, the resolved engine and the
 > resolved credential to a Target action. The SSH action *can* use a `UserName` and a
 > `KeyFilePath`, but no `target` key reaches them today — SSH authentication falls back to the

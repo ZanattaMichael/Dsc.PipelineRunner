@@ -9,6 +9,12 @@ Drives the integration suites that need a real dependency but not a real Windows
     Start-DscRunner pass over a configuration file on disk.
   * SecretManagementCredential.Integration.tests.ps1 - the Credential/SecretManagement action
     against a live Microsoft.PowerShell.SecretStore vault.
+  * SSHTarget.Integration.tests.ps1 - the SSH Target action against a real sshd, connecting the
+    host to itself. It skips itself (with the reason) unless there is an sshd with a 'powershell'
+    subsystem that the current account can reach by key non-interactively; the hosted integration
+    workflow sets that up, so running this script by hand elsewhere skips the suite rather than
+    failing. PIPELINERUNNER_SSH_TARGET overrides the default 'localhost' target and
+    PIPELINERUNNER_SSH_KEY names an authorised private key for the KeyFilePath assertion.
 
 Kept out of the default tests.ps1 run, which excludes the 'Integration' tag because the unit
 gate must stay hermetic and fast. This is what the hosted integration workflow invokes; it can

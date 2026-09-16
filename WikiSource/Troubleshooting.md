@@ -384,6 +384,24 @@ block in the runner account's `~/.ssh/config`. On an agent that means the **serv
 profile, not the profile you get when you sign in to the machine yourself, and that account's
 public key has to be authorised on the target.
 
+### `ssh` works, but the SSH target never opens a session
+
+The connection and the session are two separate steps. `ssh app01 hostname` only proves the
+login works; PowerShell then asks sshd for a **`powershell` subsystem**, and a host without one
+refuses that request. The failure therefore lands on a machine you can plainly reach.
+
+Register it on the target in `/etc/ssh/sshd_config` and restart sshd:
+
+```
+Subsystem powershell /usr/bin/pwsh -sshs -NoLogo
+```
+
+Use the `pwsh.exe` path on a Windows target. Check it from the runner account:
+
+```powershell
+New-PSSession -HostName app01.contoso.com -SSHTransport
+```
+
 ### `Environment variable(s) 'X'/'Y' are not set`
 
 Both `UserNameVariable` and `PasswordVariable` must name variables that are set **in the

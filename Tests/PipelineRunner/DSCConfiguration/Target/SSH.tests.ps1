@@ -1,6 +1,10 @@
 <#
 Mocked only (#57 §4 scope note): mocks New-PSSession, so this validates dispatch/parameter
 logic and the DscV2 fail-fast guard, not a live SSH connection.
+
+The live connection is covered separately by
+Tests/PipelineRunner/DSCConfiguration/Integration/SSHTarget.Integration.tests.ps1 (tag
+HostedIntegration), which opens a real session against an sshd with a PowerShell subsystem.
 #>
 Describe "Actions/Target/SSH Tests" -Tag Unit, Target {
 

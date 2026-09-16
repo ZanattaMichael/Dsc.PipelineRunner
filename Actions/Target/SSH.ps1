@@ -7,9 +7,18 @@ Opens a PSSession over SSH (PowerShell 7+ SSH remoting). SSH has no CIM-over-SSH
 this target is only usable with the DscV3 engine (which reaches its remote target through
 Invoke-Command over a PSSession, not a CimSession) - fails fast, before opening a connection,
 when paired with the DscV2 engine so the mismatch is reported clearly rather than as a
-mysterious later failure. Only unit-tested with New-PSSession mocked (#57 scope note) - this
-module cannot open a live SSH connection in this environment, and no CI job opens one either, so
-unlike the WinRM target there is no live proof of the SSH path.
+mysterious later failure.
+
+Proved against a real sshd by Tests/PipelineRunner/DSCConfiguration/Integration/
+SSHTarget.Integration.tests.ps1, which runs on the hosted Ubuntu agent: it registers a
+'powershell' subsystem in sshd_config, authorises the agent account's own key, and connects the
+agent to itself, so the parameter hashtable below is accepted by the real New-PSSession and the
+session it returns carries the shipped DscV3 engine action to the far side. The unit suite beside
+it still mocks New-PSSession and covers dispatch and the DscV2 fail-fast guard.
+
+The target's sshd must have that subsystem registered - a host that accepts an ssh login but has
+no 'powershell' subsystem refuses the subsystem request, and New-PSSession fails on a machine that
+is plainly reachable.
 
 Authentication is the runner account's own: the runner passes only ComputerName, Engine and
 Credential to a Target action, so UserName/KeyFilePath above are never populated from a 'target'

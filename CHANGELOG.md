@@ -22,6 +22,26 @@ All notable changes to this project will be documented in this file.
   runs instead of skipping. Both remain non-fatal: an endpoint that cannot be registered is a
   warning and a skip with the reason, not a build break.
 
+- **Live SSH remoting coverage.** `Tests/PipelineRunner/DSCConfiguration/Integration/
+  SSHTarget.Integration.tests.ps1` (tag `HostedIntegration`) opens a real session against a real
+  `sshd`, closing the last remote path that had no live proof at all — the SSH Target action was
+  unit-tested only with `New-PSSession` mocked, which validates dispatch and the `DscV2`
+  fail-fast guard but cannot tell whether the parameters it builds are accepted, whether the
+  session comes back usable, or whether it carries the engine to the far side. The same gap in
+  the WinRM path is what hid two remote DSC v2 defects until the live WinRM suite went in.
+
+  `.github/workflows/Integration-HostedAgent.yml` provisions it on the hosted Ubuntu agent:
+  `openssh-server`, a `powershell` subsystem in `sshd_config`, the agent account's own key
+  authorised against itself, and `dsc` copied into `/usr/local/bin` so the *remote* account can
+  find it (`$GITHUB_PATH` reaches this job's steps, not the shell `sshd` starts). The suite
+  connects the agent to itself — a real remote connection, serviced by a separate `pwsh` process,
+  needing no second machine — and drives the shipped `Actions/Engine/DscV3.ps1` over the session.
+
+  `Get-SshRemotingSkipReason` (`Tests/TestHelpers`) decides whether it can run, distinguishing no
+  `ssh` client, a host that cannot be authenticated to non-interactively, and one reachable by
+  `ssh` whose `sshd` has no `powershell` subsystem. Anywhere those do not hold — a workstation
+  running the script by hand — the suite skips with the reason instead of failing.
+
 ### Documentation
 
 - **The identity the pipeline runs as is now documented as a requirement, not an assumption.**
@@ -44,6 +64,13 @@ All notable changes to this project will be documented in this file.
   denied`, Kerberos/`TrustedHosts`, no `Invoke-DscResource` on the far side, a failed remote
   reboot, a vault that resolves only interactively, and SSH keys under the wrong profile), and
   the comment-based help of both Target actions.
+
+- **The `powershell` subsystem an SSH target needs.** `sshd` refuses the subsystem request
+  PowerShell makes once the connection is up unless one is registered, so `New-PSSession` fails
+  against a host `ssh` reaches perfectly well. Now stated in the `SSH` section of
+  `WikiSource/Remote-Targets-and-Credentials.md`, with a new
+  `WikiSource/Troubleshooting.md` entry (*`ssh` works, but the SSH target never opens a
+  session*) and the `sshd_config` line to add.
 
 ### Fixed
 

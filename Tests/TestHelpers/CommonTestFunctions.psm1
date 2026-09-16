@@ -223,4 +223,63 @@ function Get-LiveVaultSkipReason {
     return $null
 }
 
-Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath, Get-WinRMSkipReason, Get-LiveVaultSkipReason
+<#
+.SYNOPSIS
+Returns why the live SSH remoting integration suite cannot run here, or $null when it can.
+
+.DESCRIPTION
+See Get-WinRMSkipReason for why this is a module command rather than a variable in the test file
+(Pester evaluates -Skip: during discovery and BeforeAll during execution - separate scopes).
+
+Three conditions, probed in the order they fail in practice:
+
+  1. PowerShell's SSH remoting has no transport of its own - it shells out to the platform ssh
+     client - so without an 'ssh' on PATH nothing else is worth trying.
+  2. The client must be able to authenticate to the target NON-INTERACTIVELY. BatchMode=yes is
+     what makes that a failure rather than a password prompt that hangs a CI job forever, and
+     host-key checking is deliberately left at its default: a suite that silently accepted an
+     unknown host key would be proving less than it appears to.
+  3. sshd on the target must have a 'powershell' subsystem registered. That is a line in
+     sshd_config, not something the ssh client can report, so the only honest probe is to open
+     a real session and close it again - the SSH analogue of Get-WinRMSkipReason's authenticated
+     Test-WSMan. Without it the connection succeeds and the subsystem request is refused, which
+     would otherwise surface as every test failing rather than the suite skipping.
+
+.PARAMETER ComputerName
+The SSH target. Defaults to PIPELINERUNNER_SSH_TARGET, then 'localhost' - the loopback form the
+hosted integration workflow sets up, where the agent SSHes to itself.
+#>
+function Get-SshRemotingSkipReason {
+    [CmdletBinding()]
+    param(
+        [string]$ComputerName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+        $ComputerName = $env:PIPELINERUNNER_SSH_TARGET
+    }
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) {
+        $ComputerName = 'localhost'
+    }
+
+    if (-not (Get-Command -Name ssh -CommandType Application -ErrorAction SilentlyContinue)) {
+        return 'No ssh client is on PATH; PowerShell SSH remoting shells out to one.'
+    }
+
+    $probeOutput = & ssh -o BatchMode=yes -o ConnectTimeout=10 $ComputerName 'exit 0' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        return "ssh could not authenticate to [$ComputerName] non-interactively (exit $LASTEXITCODE): $($probeOutput.Trim())"
+    }
+
+    try {
+        $probeSession = New-PSSession -HostName $ComputerName -SSHTransport -ErrorAction Stop
+        Remove-PSSession -Session $probeSession -ErrorAction SilentlyContinue
+    }
+    catch {
+        return "ssh reaches [$ComputerName], but no PowerShell remoting session could be opened over it (is the 'powershell' subsystem registered in sshd_config?): $($_.Exception.Message)"
+    }
+
+    return $null
+}
+
+Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath, Get-WinRMSkipReason, Get-LiveVaultSkipReason, Get-SshRemotingSkipReason
