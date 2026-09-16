@@ -84,8 +84,6 @@ BREAKING CHANGE (#17): -exportConfigDir is now -ExportConfigDir, and -Authentica
 been removed in favour of the parameter set implied by -PATToken. -Mode is no longer mandatory
 and defaults to 'Test'. -JITToken is no longer mandatory.
 #>
-
-
 function Invoke-DscPipelineRunner {
     # Utilizes the CmdletBinding attribute to enable advanced function features similar to cmdlets.
     [CmdletBinding(DefaultParameterSetName='ManagedIdentity')]

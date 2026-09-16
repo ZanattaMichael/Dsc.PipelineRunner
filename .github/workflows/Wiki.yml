@@ -1,0 +1,51 @@
+# Compiles the wiki on every pull request so that wiki drift fails a PR rather than a release.
+#
+# The Release workflow publishes output/WikiContent to the repository wiki, but that step is
+# deliberately non-blocking - a wiki failure must not fail a release whose package has already
+# been published. That leaves nothing enforcing the wiki's own invariants, so this gate does it
+# at PR time instead: a page missing from .pageorder, a .pageorder entry with no page, or an
+# exported command with no .SYNOPSIS all throw out of scripts/Build-WikiContent.ps1.
+#
+# The build script reads comment-based help from the AST (Parser::ParseFile plus
+# FunctionDefinitionAst.GetHelpContent()) rather than importing the module, so this needs no
+# module resolution and no runtime dependencies - just a checkout and pwsh.
+
+name: Wiki (build gate)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+  # Reused as a release gate by the tag-driven Release workflow.
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wiki:
+    name: Build wiki content
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wiki content
+        shell: pwsh
+        run: |
+          $result = ./scripts/Build-WikiContent.ps1 -SourcePath $PWD -OutputPath ./output/WikiContent
+          Write-Host ("Built {0} conceptual page(s) and {1} command page(s); {2} total." -f `
+              $result.ConceptualPages, $result.CommandPages, $result.TotalPages)
+
+      - name: Upload wiki content
+        uses: actions/upload-artifact@v4
+        with:
+          name: wiki-content
+          path: output/WikiContent
+          if-no-files-found: error
