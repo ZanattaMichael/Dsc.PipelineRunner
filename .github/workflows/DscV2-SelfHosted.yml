@@ -18,8 +18,12 @@ on:
 
 # Serialize (don't cancel) superseded runs for the same branch/PR: this workflow drives a real
 # self-hosted PowerShell-DSC host, so killing an in-progress run risks leaving it mid-apply.
+# The group key names this workflow literally instead of using ${{ github.workflow }}. Inside a
+# `workflow_call` invocation that expression resolves to the CALLING workflow's name, so every
+# gate Release.yml reuses would land in one shared group and the gates that cancel in progress
+# would cancel their siblings before a runner was ever assigned to them.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: dsc-v2-selfhosted-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

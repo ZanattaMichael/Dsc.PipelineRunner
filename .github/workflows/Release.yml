@@ -20,6 +20,11 @@ name: Release
 # runners to be online (it queues rather than failing). A preview does not wait on their
 # results to publish, but the jobs are still dispatched so the suite runs.
 #
+# Each reused workflow must declare a `concurrency` group that names itself literally. Inside a
+# `workflow_call` invocation ${{ github.workflow }} resolves to *this* workflow's name, so a
+# group built from it comes out identical across all seven gates, and the ones that cancel in
+# progress cancel their siblings before a runner is ever assigned to them.
+#
 # Required repository secrets:
 #   GALLERY_API_TOKEN - PowerShell Gallery API key. If unset, the Gallery publish is skipped
 #                       and only the GitHub Release is created (the publish task self-guards

@@ -27,8 +27,12 @@ on:
 # Serialize (don't cancel) superseded runs for the same branch/PR: this workflow does real
 # build/teardown against a live Azure DevOps org, so killing an in-progress run mid-teardown
 # would risk leaving the org in an inconsistent state.
+# The group key names this workflow literally instead of using ${{ github.workflow }}. Inside a
+# `workflow_call` invocation that expression resolves to the CALLING workflow's name, so every
+# gate Release.yml reuses would land in one shared group and the gates that cancel in progress
+# would cancel their siblings before a runner was ever assigned to them.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: azdo-v3-selfhosted-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

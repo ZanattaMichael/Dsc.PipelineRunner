@@ -74,6 +74,22 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Every release gate was cancelled before a runner was assigned.** The seven suites
+  `.github/workflows/Release.yml` reuses via `workflow_call` each declared
+  `concurrency: group: ${{ github.workflow }}-${{ github.ref }}`. Inside a called workflow
+  `github.workflow` resolves to the *caller's* name, so all seven computed the one group
+  `Release-refs/tags/<tag>`, and the four carrying `cancel-in-progress: true` cancelled their
+  siblings as each entered it. In release run 35149112946 (`v1.1.0-preview3`) all eight gate
+  jobs ended `cancelled` roughly a second after starting with no `runner_name` — never
+  dispatched, so the tag shipped with nothing linted or tested. Each reusable workflow now
+  names its own group (`lint-`, `code-coverage-`, `integration-hosted-`, …), which keeps the
+  per-workflow de-duplication on `push` and `pull_request` while letting the gates run
+  independently under `workflow_call`.
+
+  The preview publish itself was not a defect: `Release.yml` deliberately lets a prerelease
+  publish regardless of the gate results. A *full* release requires every gate to report
+  `success`, and a cancelled gate does not, so this would have blocked `vX.Y.Z` outright.
+
 - **Every remote DSC v2 evaluation threw before reaching the resource.**
   `Actions/Engine/DscV2.ps1` added `-CimSession` to its `Invoke-DscResource` call whenever a
   target had resolved a session. That parameter exists only on Windows PowerShell 5.1's in-box

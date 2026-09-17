@@ -24,8 +24,12 @@ on:
   # same invariants.
   workflow_call:
 
+# The group key names this workflow literally instead of using ${{ github.workflow }}. Inside a
+# `workflow_call` invocation that expression resolves to the CALLING workflow's name, so every
+# gate Release.yml reuses would land in one shared group and the gates that cancel in progress
+# would cancel their siblings before a runner was ever assigned to them.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: wiki-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
