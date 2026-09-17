@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-17
+
 ### Added
 
 - **`target: configurationName` — the WinRM endpoint a `PSSession` lands on.** Optional, and
