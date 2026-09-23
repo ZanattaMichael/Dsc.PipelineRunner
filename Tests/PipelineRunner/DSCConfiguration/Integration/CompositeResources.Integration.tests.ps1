@@ -343,7 +343,15 @@ resources:
         BeforeAll {
             $script:Calls = [System.Collections.Generic.List[object]]::new()
             $script:Result = Start-DscRunner -FilePath $script:MagentaPath -EngineAction (New-RecordingEngine -Calls $script:Calls)
-            $script:TestOrder = @($script:Calls | Where-Object { $_.Method -eq 'Test' } | ForEach-Object { $_.Name })
+            # The engine is handed the resource's type name ('Repo'), not its instance name, so a
+            # call is identified by its type and the property that tells its instances apart.
+            $script:TestOrder = @($script:Calls | Where-Object { $_.Method -eq 'Test' } | ForEach-Object {
+                    $property = $_.Property
+                    $label = foreach ($key in 'Name', 'GroupName', 'RepositoryName', 'ProjectName') {
+                        if ($property -and $property[$key]) { $property[$key]; break }
+                    }
+                    '{0}:{1}' -f $_.Name, $label
+                })
         }
 
         It "evaluates every member resource and completes" {
@@ -354,17 +362,27 @@ resources:
         }
 
         It "orders members by their rewritten dependencies" {
-            $script:TestOrder.IndexOf('Org') | Should -BeLessThan $script:TestOrder.IndexOf('Shared::Project')
-            $script:TestOrder.IndexOf('Shared::Project') | Should -BeLessThan $script:TestOrder.IndexOf('Shared::Readers')
-            $script:TestOrder.IndexOf('Shared::Repos::Main') | Should -BeLessThan $script:TestOrder.IndexOf('Shared::Repos::Docs')
-            foreach ($member in 'Shared::Project', 'Shared::Readers', 'Shared::Repos::Main', 'Shared::Repos::Docs') {
-                $script:TestOrder.IndexOf($member) | Should -BeLessThan $script:TestOrder.IndexOf('Audit')
+            # Shared::Project, Shared::Readers, Shared::Repos::Main and Shared::Repos::Docs.
+            $sharedMembers = 'Project:Shared-Magenta', 'Group:Shared-Magenta Readers', 'Repo:Shared-Magenta-main', 'Repo:Shared-Magenta-docs'
+            foreach ($label in @('Org:Contoso', 'Audit:') + $sharedMembers) {
+                $script:TestOrder | Should -Contain $label
+            }
+            $script:TestOrder.IndexOf('Org:Contoso') | Should -BeLessThan $script:TestOrder.IndexOf('Project:Shared-Magenta')
+            $script:TestOrder.IndexOf('Project:Shared-Magenta') | Should -BeLessThan $script:TestOrder.IndexOf('Group:Shared-Magenta Readers')
+            $script:TestOrder.IndexOf('Repo:Shared-Magenta-main') | Should -BeLessThan $script:TestOrder.IndexOf('Repo:Shared-Magenta-docs')
+            foreach ($member in $sharedMembers) {
+                $script:TestOrder.IndexOf($member) | Should -BeLessThan $script:TestOrder.IndexOf('Audit:')
             }
         }
 
         It "hands the engine the substituted properties" {
-            $docs = $script:Calls | Where-Object { $_.Method -eq 'Test' -and $_.Name -eq 'Magenta::Repos::Docs' } | Select-Object -First 1
-            $docs.Property.RepositoryName | Should -Be 'Magenta-docs'
+            # Magenta::Repos::Docs: the prefix comes from the outer instance, through the nested one.
+            $repos = @($script:Calls | Where-Object { $_.Method -eq 'Test' -and $_.Name -eq 'Repo' } | ForEach-Object { $_.Property.RepositoryName })
+            $repos | Should -Contain 'Magenta-docs'
+            $repos | Should -Contain 'Magenta-main'
+            $readers = @($script:Calls | Where-Object { $_.Method -eq 'Test' -and $_.Name -eq 'Group' -and $_.Property.ProjectName -eq 'Magenta' })
+            $readers.Count | Should -Be 1
+            $readers[0].Property.GroupName | Should -Be 'Magenta Viewers'
         }
 
         It "reports each member under its expanded name" {

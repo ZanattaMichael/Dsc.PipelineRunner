@@ -109,6 +109,11 @@ function Expand-CompositeResource {
     )
 
     $logPrefix      = '[Expand-CompositeResource]'
+
+    # The parameters are read by the nested helpers below; bound once here so an absent table is
+    # simply an empty one.
+    $compositeDefinitions = if ($null -ne $Definitions) { $Definitions } else { @{} }
+    $depthLimit = $MaxDepth
     $compositeTypeRegex = '^Composite/'
     $tokenRegex     = '<composite=([^<>]*)>'
     $wholeTokenRegex = '^<composite=([^<>]*)>$'
@@ -142,14 +147,14 @@ function Expand-CompositeResource {
         return $value
     }
 
-    function Set-EntryValue {
+    function Write-EntryValue {
         param ([System.Collections.IDictionary] $Dictionary, [string] $Name, $Value)
         $existingKey = Get-EntryKey -Dictionary $Dictionary -Name $Name
         if ($null -eq $existingKey) { $existingKey = $Name }
         $Dictionary[$existingKey] = $Value
     }
 
-    function Remove-Entry {
+    function Clear-EntryKey {
         param ([System.Collections.IDictionary] $Dictionary, [string] $Name)
         $existingKey = Get-EntryKey -Dictionary $Dictionary -Name $Name
         if ($null -ne $existingKey) { $Dictionary.Remove($existingKey) }
@@ -355,10 +360,9 @@ function Expand-CompositeResource {
         }
         $requestedName = $typeMatch.Groups[1].Value
 
-        $compositeName = $null
-        if ($null -ne $Definitions) { $compositeName = Get-EntryKey -Dictionary $Definitions -Name $requestedName }
+        $compositeName = Get-EntryKey -Dictionary $compositeDefinitions -Name $requestedName
         if ($null -eq $compositeName) {
-            $known = if ($null -ne $Definitions -and $Definitions.Count -gt 0) { ($Definitions.Keys | Sort-Object) -join ', ' } else { '(none - add Composites/<Name>.yml to the configuration)' }
+            $known = if ($compositeDefinitions.Count -gt 0) { ($compositeDefinitions.Keys | Sort-Object) -join ', ' } else { '(none - add Composites/<Name>.yml to the configuration)' }
             throw "$logPrefix Composite instance [$instanceKey] refers to composite '$requestedName', which is not defined. Defined composites: $known."
         }
         $compositeName = [string]$compositeName
@@ -367,8 +371,8 @@ function Expand-CompositeResource {
             throw "$logPrefix Composite '$compositeName' is recursive: $((@($Chain) + $compositeName) -join ' -> '). A composite may not contain itself, directly or indirectly."
         }
         $chainHere = @($Chain) + $compositeName
-        if ($chainHere.Count -gt $MaxDepth) {
-            throw "$logPrefix Composite instance [$instanceKey] is nested $($chainHere.Count) levels deep ($($chainHere -join ' -> ')), deeper than the limit of $MaxDepth."
+        if ($chainHere.Count -gt $depthLimit) {
+            throw "$logPrefix Composite instance [$instanceKey] is nested $($chainHere.Count) levels deep ($($chainHere -join ' -> ')), deeper than the limit of $depthLimit."
         }
 
         foreach ($key in $Instance.Keys) {
@@ -380,7 +384,7 @@ function Expand-CompositeResource {
             }
         }
 
-        $definition = $Definitions[$compositeName]
+        $definition = $compositeDefinitions[$compositeName]
         foreach ($key in $definition.Keys) {
             if ([string]$key -notin $definitionKeys) {
                 throw "$logPrefix Composite definition '$compositeName' has the unsupported key '$key'. Supported keys: $($definitionKeys -join ', ')."
@@ -453,11 +457,11 @@ function Expand-CompositeResource {
                     $existingValue = Get-EntryValue -Dictionary $target -Name ([string]$settingKey)
                     if ([string]$settingKey -eq 'properties' -and $existingValue -is [System.Collections.IDictionary] -and $settingValue -is [System.Collections.IDictionary]) {
                         foreach ($propertyKey in $settingValue.Keys) {
-                            Set-EntryValue -Dictionary $existingValue -Name ([string]$propertyKey) -Value $settingValue[$propertyKey]
+                            Write-EntryValue -Dictionary $existingValue -Name ([string]$propertyKey) -Value $settingValue[$propertyKey]
                         }
                     }
                     else {
-                        Set-EntryValue -Dictionary $target -Name ([string]$settingKey) -Value $settingValue
+                        Write-EntryValue -Dictionary $target -Name ([string]$settingKey) -Value $settingValue
                     }
                 }
             }
@@ -474,7 +478,7 @@ function Expand-CompositeResource {
         $leafKeys = [System.Collections.Generic.List[string]]::new()
         foreach ($entry in $prepared) {
             $resource = $entry.Resource
-            Set-EntryValue -Dictionary $resource -Name 'name' -Value $entry.ExpandedName
+            Write-EntryValue -Dictionary $resource -Name 'name' -Value $entry.ExpandedName
 
             foreach ($referenceKey in @('dependsOn', 'notify')) {
                 $references = [System.Collections.Generic.List[string]]::new()
@@ -486,30 +490,30 @@ function Expand-CompositeResource {
                 foreach ($reference in $inherited) { Add-UniqueReference -List $references -Reference $reference }
 
                 if ($references.Count -gt 0) {
-                    Set-EntryValue -Dictionary $resource -Name $referenceKey -Value $references.ToArray()
+                    Write-EntryValue -Dictionary $resource -Name $referenceKey -Value $references.ToArray()
                 }
                 elseif ($null -ne (Get-EntryKey -Dictionary $resource -Name $referenceKey)) {
-                    Remove-Entry -Dictionary $resource -Name $referenceKey
+                    Clear-EntryKey -Dictionary $resource -Name $referenceKey
                 }
             }
 
             if ($null -ne $instancePreCondition -and -not [string]::IsNullOrWhiteSpace([string]$instancePreCondition)) {
                 $memberPreCondition = Get-EntryValue -Dictionary $resource -Name 'preCondition'
                 if ($null -eq $memberPreCondition) { $memberPreCondition = Get-EntryValue -Dictionary $resource -Name 'condition' }
-                Remove-Entry -Dictionary $resource -Name 'condition'
+                Clear-EntryKey -Dictionary $resource -Name 'condition'
                 if ($null -eq $memberPreCondition -or [string]::IsNullOrWhiteSpace([string]$memberPreCondition)) {
-                    Set-EntryValue -Dictionary $resource -Name 'preCondition' -Value ([string]$instancePreCondition)
+                    Write-EntryValue -Dictionary $resource -Name 'preCondition' -Value ([string]$instancePreCondition)
                 }
                 else {
-                    Set-EntryValue -Dictionary $resource -Name 'preCondition' -Value "($instancePreCondition) -and ($memberPreCondition)"
+                    Write-EntryValue -Dictionary $resource -Name 'preCondition' -Value "($instancePreCondition) -and ($memberPreCondition)"
                 }
             }
 
             if ($null -ne $instanceTarget -and $null -eq (Get-EntryKey -Dictionary $resource -Name 'target')) {
-                Set-EntryValue -Dictionary $resource -Name 'target' -Value (Copy-CompositeValue -Value $instanceTarget)
+                Write-EntryValue -Dictionary $resource -Name 'target' -Value (Copy-CompositeValue -Value $instanceTarget)
             }
             if ($null -ne $instanceCredential -and $null -eq (Get-EntryKey -Dictionary $resource -Name 'resourceCredential')) {
-                Set-EntryValue -Dictionary $resource -Name 'resourceCredential' -Value (Copy-CompositeValue -Value $instanceCredential)
+                Write-EntryValue -Dictionary $resource -Name 'resourceCredential' -Value (Copy-CompositeValue -Value $instanceCredential)
             }
 
             if (Test-CompositeResource -Resource $resource) {
@@ -592,7 +596,7 @@ function Expand-CompositeResource {
                 if ([object]::ReferenceEquals($current, $resource) -and -not $expandedKeys.Contains($resourceKey)) {
                     $current = Copy-CompositeValue -Value (ConvertTo-ResourceDictionary -Resource $resource)
                 }
-                Set-EntryValue -Dictionary $current -Name $referenceKey -Value $rewritten.ToArray()
+                Write-EntryValue -Dictionary $current -Name $referenceKey -Value $rewritten.ToArray()
             }
         }
 
