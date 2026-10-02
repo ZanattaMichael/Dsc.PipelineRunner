@@ -46,6 +46,10 @@ jobs:
       # Repo-level Actions variable; the suite falls back to the config's Organization_Name
       # (and ultimately 'akkodistestorg') when this is unset.
       AZUREDEVOPSORG: ${{ vars.AZUREDEVOPSORG }}
+      # The AzureDevOpsDscNative version the suite runs against. Pinned so a new gallery release
+      # (or whatever happens to be installed on a runner) cannot change what CI exercises; the
+      # dependency step installs exactly this version and the suite imports exactly this version.
+      AZDODSCNATIVE_VERSION: '1.0.0'
 
     steps:
       - uses: actions/checkout@v4
@@ -79,10 +83,25 @@ jobs:
               Install-Module -Name $m -Force -Scope CurrentUser -AllowClobber
             }
           }
-          if (-not (Get-Module -ListAvailable -Name AzureDevOpsDscNative)) {
-            Write-Host "Installing AzureDevOpsDscNative (prerelease) ..."
-            Install-Module -Name AzureDevOpsDscNative -AllowPrerelease -Force -Scope CurrentUser -AllowClobber
+          # AzureDevOpsDscNative is pinned to AZDODSCNATIVE_VERSION. Invoke-DscResource, Get-DscResource
+          # and dsc's PowerShell adapter resolve the module by name and take the highest version they
+          # find, so other copies this job installed into the runner account's CurrentUser scope are
+          # removed first; a copy installed outside that scope is reported, not touched.
+          $pinned = [version]$env:AZDODSCNATIVE_VERSION
+          $userModuleRoot = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell/Modules/AzureDevOpsDscNative'
+          Get-ChildItem -LiteralPath $userModuleRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $env:AZDODSCNATIVE_VERSION } |
+            ForEach-Object {
+              Write-Host "Removing AzureDevOpsDscNative $($_.Name) from $userModuleRoot ..."
+              Remove-Item -LiteralPath $_.FullName -Recurse -Force
+            }
+          if (-not (Get-Module -ListAvailable -Name AzureDevOpsDscNative | Where-Object { $_.Version -eq $pinned })) {
+            Write-Host "Installing AzureDevOpsDscNative $env:AZDODSCNATIVE_VERSION ..."
+            Install-Module -Name AzureDevOpsDscNative -RequiredVersion $env:AZDODSCNATIVE_VERSION -AllowPrerelease `
+              -Force -Scope CurrentUser -AllowClobber
           }
+          Get-Module -ListAvailable -Name AzureDevOpsDscNative | Where-Object { $_.Version -ne $pinned } |
+            ForEach-Object { Write-Warning "AzureDevOpsDscNative $($_.Version) is also installed at $($_.ModuleBase); remove it so it cannot shadow $pinned." }
 
       - name: Report environment
         shell: pwsh

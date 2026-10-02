@@ -51,6 +51,13 @@ All notable changes to this project will be documented in this file.
   workflows), replacing the former `AZDO_ORGANIZATION_NAME` variable. When set, it is also written
   into the compiled nodes' `Organization_Name`, so resource identities target the same
   organization the suite authenticates to. Unset, the Example Configuration's value is used.
+- **The self-hosted Azure DevOps suites pin AzureDevOpsDscNative** via `AZDODSCNATIVE_VERSION`
+  (currently `1.0.0`) in `AzureDevOps-SelfHosted.yml` and `AzureDevOpsV3-SelfHosted.yml`. The
+  dependency step previously installed whatever the gallery's latest prerelease was, so a new
+  release - or a freshly provisioned runner - silently changed the module CI tested against. It now
+  installs exactly the pinned version, removes other copies from the runner account's CurrentUser
+  scope (Invoke-DscResource, Get-DscResource and dsc's adapter otherwise resolve the highest), and
+  the suites import exactly that version.
 
 ### Documentation
 
