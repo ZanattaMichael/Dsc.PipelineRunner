@@ -79,9 +79,15 @@ jobs:
               Install-Module -Name $m -Force -Scope CurrentUser -AllowClobber
             }
           }
-          if (-not (Get-Module -ListAvailable -Name AzureDevOpsDscNative)) {
-            Write-Host "Installing AzureDevOpsDscNative (prerelease) ..."
-            Install-Module -Name AzureDevOpsDscNative -AllowPrerelease -Force -Scope CurrentUser -AllowClobber
+          # Always run against the newest AzureDevOpsDscNative on the gallery (prereleases included):
+          # install it when the runner does not already have that version. The suites import the
+          # highest installed version, so an older copy left on the runner cannot be selected.
+          $latest = Find-Module -Name AzureDevOpsDscNative -AllowPrerelease -ErrorAction Stop
+          $latestVersion = [version]($latest.Version -replace '-.*$', '')
+          if (-not (Get-Module -ListAvailable -Name AzureDevOpsDscNative | Where-Object { $_.Version -eq $latestVersion })) {
+            Write-Host "Installing AzureDevOpsDscNative $($latest.Version) ..."
+            Install-Module -Name AzureDevOpsDscNative -RequiredVersion $latest.Version -AllowPrerelease `
+              -Force -Scope CurrentUser -AllowClobber
           }
 
       - name: Report environment

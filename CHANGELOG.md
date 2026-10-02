@@ -51,6 +51,10 @@ All notable changes to this project will be documented in this file.
   workflows), replacing the former `AZDO_ORGANIZATION_NAME` variable. When set, it is also written
   into the compiled nodes' `Organization_Name`, so resource identities target the same
   organization the suite authenticates to. Unset, the Example Configuration's value is used.
+- **The self-hosted Azure DevOps suites always run against the newest AzureDevOpsDscNative.** The
+  dependency step previously installed the module only when no version was present, so a runner kept
+  whatever it had first. It now installs the gallery's latest release (prereleases included) when
+  that exact version is missing, and the suites import the highest installed version.
 
 ### Documentation
 
