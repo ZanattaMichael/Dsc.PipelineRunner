@@ -294,6 +294,52 @@ The pipeline runner provides a set of features applicable to all Desired State C
 
 These features collectively enhance the robustness and adaptability of DSC resources managed by the pipeline runner, allowing for more precise and context-sensitive configuration management.
 
+### Composite Resources
+
+A composite resource is a named, parameterised group of ordinary resources. It is defined once
+in `Composites/<Name>.yml` at the root of the configuration repository, and used from any
+layer with a single `type: Composite/<Name>` entry. At compile time each instance is expanded
+into its member resources, so the runner only ever sees ordinary resources.
+
+```yaml
+# Composites/StandardProject.yml
+parameters:
+  ProjectName:                      # required
+  Visibility:
+    defaultValue: private
+resources:
+  - name: Project
+    type: AzureDevOpsDscNative/AzDoProject
+    properties:
+      ProjectName: <composite=ProjectName>
+      Visibility: <composite=Visibility>
+  - name: Readers
+    type: AzureDevOpsDscNative/AzDoProjectGroup
+    dependsOn:
+      - AzureDevOpsDscNative/AzDoProject/Project
+    properties:
+      ProjectName: <composite=ProjectName>
+      GroupName: <composite=ProjectName> Readers
+```
+
+```yaml
+# Projects/Present/Magenta.yml
+resources:
+  - name: Magenta
+    type: Composite/StandardProject
+    properties:
+      ProjectName: Magenta
+```
+
+This compiles to `AzureDevOpsDscNative/AzDoProject/Magenta::Project` and
+`AzureDevOpsDscNative/AzDoProjectGroup/Magenta::Readers`. The instance's `dependsOn`,
+`notify`, `preCondition`, `target` and `resourceCredential` are passed on to every member. A
+per-instance `overrides` block adjusts individual members. Composites can be nested, and a
+`dependsOn` on `Composite/StandardProject/Magenta` waits for the whole group. Every mistake,
+such as an unknown composite or a missing parameter, fails the compile and names the instance.
+See the [Composite Resources](https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki/Composite-Resources)
+wiki page and [docs/composite-resources.md](docs/composite-resources.md).
+
 ### Configuration Specific Commands
 
 In the realm of configuration, there are specialized commands designed to modify the pipeline runner execution process. These commands provide greater control over how configurations are applied and managed. The key commands include:
@@ -322,6 +368,8 @@ In the realm of configuration, there are specialized commands designed to modify
 ### Deep Dive: Configuration Merging and Executing Process
 
 1. Datum merges the example configuration based on the resolution precedence.
+1. Every `type: Composite/<Name>` resource is expanded into the members of its definition
+   (`Composites/<Name>.yml`), so the compiled file contains only ordinary resources.
 1. Once the YAML file for the project has been generated, Datum will execute any `[x={ $Node.ProjectPresence }=]` script blocks within the `_variables` property.
 1. The pipeline runner ingests the configuration, loading and interpolating all variables and parameters into memory.
 1. The runner executes the `Pre-Parse` and `Format` rules.

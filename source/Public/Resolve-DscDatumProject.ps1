@@ -5,7 +5,8 @@
 .DESCRIPTION
     The Resolve-DscDatumProject function processes the configuration for a specified node in a Datum project.
     It retrieves node groups, creates a configuration data hashtable, accesses properties, resolves resources, parameters,
-    conditions, and variables, and finally converts the configuration to YAML format and saves it to an output file.
+    conditions, and variables, expands composite resource instances (type: Composite/<Name>) into their member resources,
+    and finally converts the configuration to YAML format and saves it to an output file.
 
 .PARAMETER NodeName
     The name of the node to process. This parameter is mandatory.
@@ -65,6 +66,16 @@ Function Resolve-DscDatumProject {
     }
 
     Write-Verbose "Resolved resources, parameters, conditions, and variables for node: $($NodeName.Name)"
+
+    # Composite resources: replace every `type: Composite/<Name>` instance with the members of
+    # its definition (Composites/<Name>.yml), so the compiled file only ever carries ordinary
+    # resources. Runs after hierarchy resolution, so an instance is merged and overridden by
+    # name like any other resource first. See Expand-CompositeResource.
+    if ($null -ne $configuration.resources) {
+        $compositeDefinitions = Get-CompositeDefinition -Datum $Datum
+        $configuration.resources = @(Expand-CompositeResource -Resources @($configuration.resources) -Definitions $compositeDefinitions)
+        Write-Verbose "Expanded composite resources for node: $($NodeName.Name)"
+    }
     
     # Iterate through the top-level node and execute the datum script blocks
 

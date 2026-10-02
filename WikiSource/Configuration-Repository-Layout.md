@@ -10,6 +10,8 @@ file independently.
 ```
 config/
 ├── Datum.yml                       # resolution precedence, lookup options, PipelineRunnerSettings
+├── Composites/                     # optional: composite resource definitions (not in ResolutionPrecedence)
+│   └── StandardProject.yml
 ├── Projects/
 │   ├── Present/
 │   │   └── Magenta.yml             # node-specific: the most specific layer
@@ -25,7 +27,9 @@ config/
 ```
 
 That is the shape of the repository's own `Example Configuration/` directory, and it is the
-shape the rest of this wiki's examples assume.
+shape the rest of this wiki's examples assume. The `Composites/` folder is optional and is
+**not** part of `ResolutionPrecedence`. It holds reusable groups of resources, which are
+documented on [Composite Resources](Composite-Resources).
 
 ## `Datum.yml`
 
@@ -152,11 +156,29 @@ resources:
 Because `resources` merges on `name`, this does not declare a second `Project` resource — it
 overrides `visibility` on the one the policy layer already declared.
 
+### Reusing a group of resources
+
+A resource with `type: Composite/<Name>` is an instance of a composite resource. It is defined
+once in `Composites/<Name>.yml` and expanded into its member resources when the configuration is
+compiled:
+
+```yaml
+resources:
+
+  - name: Magenta
+    type: Composite/StandardProject
+    properties:
+      ProjectName: Magenta
+```
+
+An instance merges and overrides by `name` like any other resource. See
+[Composite Resources](Composite-Resources).
+
 ## What compilation produces
 
 `Build-DatumConfiguration` writes one `*.yml` per node into the cache directory. That file is
-flat: precedence has been applied, `[x={ }=]` handlers have run, and there is no
-`PipelineRunnerSettings` block left. `Invoke-DscRunner` then enumerates those files and calls
+flat: precedence has been applied, `[x={ }=]` handlers have run, composite resource instances
+have been expanded into their members, and there is no `PipelineRunnerSettings` block left. `Invoke-DscRunner` then enumerates those files and calls
 the runner once per file.
 
 ```powershell

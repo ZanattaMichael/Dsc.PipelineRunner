@@ -20,6 +20,11 @@ reads from a resource, in the order the runner reads them, with worked examples 
 | [`target`](#target) | no | map | Where this resource executes. |
 | [`resourceCredential`](#resourcecredential) | no | map | Resolves a credential into a property. |
 
+A resource whose `type` is `Composite/<Name>` is not a DSC resource. It is an instance of a
+[composite resource](Composite-Resources), and it is replaced by the composite's member
+resources when the configuration is compiled. It accepts a subset of these keys, plus
+`overrides`.
+
 A resource carrying every one of them:
 
 ```yaml
