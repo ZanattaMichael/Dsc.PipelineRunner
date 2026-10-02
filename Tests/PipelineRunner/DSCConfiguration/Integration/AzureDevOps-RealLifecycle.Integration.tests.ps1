@@ -228,6 +228,16 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             $context = @{ OrganizationName = $script:OrganizationName; AuthenticationType = 'ManagedIdentity' }
             $null = Invoke-Action -Hook Connect -Name 'AzureDevOps' -Context $context
         }
+
+        # Write-Host is mocked above, so the runner's own failure listing never reaches the log.
+        # Name the failing resources in the assertion message instead.
+        function Format-FailedResourceList {
+            param($RunResult)
+            $lines = @($RunResult.FailedResources | ForEach-Object {
+                    '{0}/{1}: {2}' -f $_.ResourceType, $_.InstanceName, $_.ErrorMessage
+                })
+            'these resources failed: ' + ($lines -join '; ')
+        }
     }
 
     AfterAll {
@@ -292,13 +302,13 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             # 2. BUILD: apply the Present node. Over convergence every resource reaches desired state.
             $build = Start-DscRunner -FilePath $script:BuildConfigPath -Mode 'Set' -Engine 'DscV2' -RunnerSettings $script:RunnerSettings
             $build.Status    | Should -Be 'Completed'
-            $build.FailCount | Should -Be 0
+            $build.FailCount | Should -Be 0 -Because (Format-FailedResourceList $build)
 
             # 3. IDEMPOTENT: a Test pass over the just-built environment reports no drift.
             $script:StopTaskProcessing = $false
             $verify = Start-DscRunner -FilePath $script:BuildConfigPath -Mode 'Test' -Engine 'DscV2' -RunnerSettings $script:RunnerSettings
             $verify.Status    | Should -Be 'Completed'
-            $verify.FailCount | Should -Be 0
+            $verify.FailCount | Should -Be 0 -Because (Format-FailedResourceList $verify)
 
             # 4. TEARDOWN: apply the Absent node. The Project's postExecutionScript calls
             #    Stop-TaskProcessing, so removing the project halts the rest of the run.
