@@ -42,6 +42,16 @@ All notable changes to this project will be documented in this file.
   `ssh` whose `sshd` has no `powershell` subsystem. Anywhere those do not hold — a workstation
   running the script by hand — the suite skips with the reason instead of failing.
 
+### Changed
+
+- **Azure DevOps integration suites take their organization from the `AZUREDEVOPSORG` repository
+  variable.** `AzureDevOps-Lifecycle`, `AzureDevOps-RealLifecycle` and
+  `AzureDevOps-RealLifecycle-DscV3` read `$env:AZUREDEVOPSORG` (set from `vars.AZUREDEVOPSORG` in
+  the `AzureDevOps-SelfHosted`, `AzureDevOpsV3-SelfHosted` and `Integration-HostedAgent`
+  workflows), replacing the former `AZDO_ORGANIZATION_NAME` variable. When set, it is also written
+  into the compiled nodes' `Organization_Name`, so resource identities target the same
+  organization the suite authenticates to. Unset, the Example Configuration's value is used.
+
 ### Documentation
 
 - **The identity the pipeline runs as is now documented as a requirement, not an assumption.**

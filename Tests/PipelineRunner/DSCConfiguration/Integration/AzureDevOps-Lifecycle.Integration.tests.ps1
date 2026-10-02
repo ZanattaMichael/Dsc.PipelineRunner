@@ -127,6 +127,11 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
                 }
             }
 
+            # Point the compiled configuration at the organization under test (AZUREDEVOPSORG).
+            if (-not [string]::IsNullOrWhiteSpace($env:AZUREDEVOPSORG)) {
+                $variablesOut['Organization_Name'] = $env:AZUREDEVOPSORG
+            }
+
             $compiled = @{
                 resources  = $resolved.resources
                 parameters = $resolved.parameters
@@ -143,10 +148,16 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         try {
             $datum = New-DatumStructure -DefinitionFile 'Datum.yml'
 
-            # The Azure DevOps organization the environment lives in, straight from the shipped
-            # OrganizationPolicies/Organization.yml (Organization_Name).
-            $script:OrganizationName = [string](Resolve-Datum -PropertyPath 'variables' -DatumStructure $datum `
-                    -Variable @{ Project = 'Magenta'; ProjectPresence = 'Present' })['Organization_Name']
+            # The Azure DevOps organization the environment lives in: the AZUREDEVOPSORG repository
+            # variable (surfaced as an env var by the workflow) wins, else the shipped
+            # OrganizationPolicies/Organization.yml value (Organization_Name).
+            $script:OrganizationName = if (-not [string]::IsNullOrWhiteSpace($env:AZUREDEVOPSORG)) {
+                $env:AZUREDEVOPSORG
+            }
+            else {
+                [string](Resolve-Datum -PropertyPath 'variables' -DatumStructure $datum `
+                        -Variable @{ Project = 'Magenta'; ProjectPresence = 'Present' })['Organization_Name']
+            }
 
             $script:MagentaConfigPath = Build-CompiledNode -Datum $datum -ProjectPresence 'Present' -ProjectName 'Magenta' -OutputDirectory $script:CompiledDir
             $script:BlueConfigPath    = Build-CompiledNode -Datum $datum -ProjectPresence 'Absent'  -ProjectName 'Blue'    -OutputDirectory $script:CompiledDir

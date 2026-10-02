@@ -9,8 +9,9 @@ name: Azure DevOps Real Lifecycle Self-Hosted
 # agents.
 #
 # Configuration:
-#   - vars.AZDO_ORGANIZATION_NAME (repository Actions variable): overrides the Example
-#     Configuration's Organization_Name at runtime. Defaults to 'akkodistestorg' when unset.
+#   - vars.AZUREDEVOPSORG (repository Actions variable): the Azure DevOps organization the suite
+#     targets; overrides the Example Configuration's Organization_Name at runtime. Defaults to
+#     'akkodistestorg' when unset.
 
 on:
   push:
@@ -44,7 +45,7 @@ jobs:
       AZDODSC_CACHE_DIRECTORY: ${{ github.workspace }}/.azdodsc-cache
       # Repo-level Actions variable; the suite falls back to the config's Organization_Name
       # (and ultimately 'akkodistestorg') when this is unset.
-      AZDO_ORGANIZATION_NAME: ${{ vars.AZDO_ORGANIZATION_NAME }}
+      AZUREDEVOPSORG: ${{ vars.AZUREDEVOPSORG }}
 
     steps:
       - uses: actions/checkout@v4
