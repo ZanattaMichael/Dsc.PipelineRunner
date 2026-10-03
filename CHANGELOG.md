@@ -55,6 +55,12 @@ All notable changes to this project will be documented in this file.
   dependency step previously installed the module only when no version was present, so a runner kept
   whatever it had first. It now installs the gallery's latest release (prereleases included) when
   that exact version is missing, and the suites import the highest installed version.
+- **AzureDevOpsDscNative runs from the runner account's CurrentUser scope only.** The self-hosted
+  runners are shared with other agents that install their own machine-wide copies, and the
+  dependency step and both real-lifecycle suites considered every scope - so another agent's copy
+  could be selected. The step now checks and installs the latest release in CurrentUser alone and
+  stops if a newer copy elsewhere would be resolved instead; the suites import only the
+  CurrentUser copy. Copies in other scopes are left untouched.
 
 ### Documentation
 
