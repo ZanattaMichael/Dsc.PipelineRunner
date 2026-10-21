@@ -54,14 +54,13 @@ function Invoke-DscExecutable {
     $standardInputText = if ($PSBoundParameters.ContainsKey('StandardInput')) { $StandardInput } else { $null }
 
     if ($null -ne $Session) {
+        # Kept to a single straight-line statement: PSScriptAnalyzer's
+        # UseUsingScopeModifierInNewRunspaces rule misreads param-declared variables that are
+        # referenced inside a nested if/else within a remote script block. Piping a $null
+        # standard input simply gives the executable an empty stdin, which is harmless for dsc.
         $remoteResult = Invoke-Command -Session $Session -ScriptBlock {
             param($RemoteExecutable, $RemoteArguments, $RemoteStandardInput)
-            if ($null -ne $RemoteStandardInput) {
-                $remoteOutput = $RemoteStandardInput | & $RemoteExecutable @RemoteArguments 2>&1
-            }
-            else {
-                $remoteOutput = & $RemoteExecutable @RemoteArguments 2>&1
-            }
+            $remoteOutput = $RemoteStandardInput | & $RemoteExecutable @RemoteArguments 2>&1
             return @{
                 ExitCode = $LASTEXITCODE
                 Output   = ($remoteOutput | Out-String)
