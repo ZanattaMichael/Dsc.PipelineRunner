@@ -34,6 +34,12 @@ can read it from the process table.
 #>
 function Invoke-DscExecutable {
     [CmdletBinding()]
+    # The remote script block receives $RemoteExecutable/$RemoteArguments/$RemoteStandardInput
+    # through its own param() block and -ArgumentList, which is the documented way to hand
+    # values to Invoke-Command -Session. The rule only recognises $using: and reports those
+    # param-declared variables as undeclared, so this is a false positive, not a missing scope.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+        Justification = 'The remote script block declares its inputs in param() and receives them via -ArgumentList; the rule does not account for that pattern.')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]
@@ -54,10 +60,8 @@ function Invoke-DscExecutable {
     $standardInputText = if ($PSBoundParameters.ContainsKey('StandardInput')) { $StandardInput } else { $null }
 
     if ($null -ne $Session) {
-        # Kept to a single straight-line statement: PSScriptAnalyzer's
-        # UseUsingScopeModifierInNewRunspaces rule misreads param-declared variables that are
-        # referenced inside a nested if/else within a remote script block. Piping a $null
-        # standard input simply gives the executable an empty stdin, which is harmless for dsc.
+        # A $null standard input simply gives the executable an empty stdin, which is harmless
+        # for dsc (the only caller) and keeps the remote block to one statement.
         $remoteResult = Invoke-Command -Session $Session -ScriptBlock {
             param($RemoteExecutable, $RemoteArguments, $RemoteStandardInput)
             $remoteOutput = $RemoteStandardInput | & $RemoteExecutable @RemoteArguments 2>&1
