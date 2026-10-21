@@ -141,6 +141,38 @@ they connect to:
   `finally` block, including on failure, so a compromised or misbehaving resource cannot
   leave a remote session open past the run that created it.
 
+### Regression tests for these guarantees
+
+Every control above is pinned by an explicit, security-tagged test, so a change that weakens
+one fails the ordinary unit gate rather than waiting for the next audit:
+
+- `Tests/PipelineRunner/Security/SecretExposure.Security.tests.ps1` — no secret value (any
+  shape: `[PSCredential]`, `[SecureString]`, sensitive-named plaintext, nested) ever appears in
+  the `dsc` argument vector, the verbose stream, or a thrown error; the git wrapper never
+  returns a token (raw or Basic-encoded) on any stream, never sets an unscoped
+  `http.extraHeader`, never sends the header to a non-https remote, and never leaves it in the
+  environment.
+- `Tests/PipelineRunner/Security/ConditionSideEffects.Security.tests.ps1` — a corpus of every
+  side-effecting PowerShell shape (commands, obfuscated invocation, assignment, `++`/`--`,
+  method and static calls, redirection, `exit`, `break`, `continue`) is rejected by the
+  condition validator in both `preCondition` and `postCondition`, while the documented pure
+  predicates still pass. The end-to-end proofs through the real resource loop (the redirection
+  target is never created, `break`/`continue` never escape the loop, `exit` never ends the
+  process) live in the `Security` contexts of
+  `Tests/PipelineRunner/DSCConfiguration/Public/Start-DscRunner.tests.ps1`.
+- `Tests/PipelineRunner/Security/ConfigurationSource.Security.tests.ps1` — insecure or
+  option-shaped remote URLs and option-shaped revisions are rejected before git is invoked,
+  the checkout always terminates its ref with `--`, a pinned SHA mismatch fails the run, an
+  action name can never resolve outside `Actions/<Hook>/`, and cleanup never deletes a
+  caller-owned directory.
+- `Tests/PipelineRunner/Security/Workflows.Security.tests.ps1` — every workflow declares token
+  permissions, none uses `pull_request_target`, every self-hosted job reachable from
+  `pull_request` is guarded against fork PRs, no `run:` step interpolates attacker-controlled
+  event data, and every action is pinned to a version or SHA.
+
+Run them on their own with `Invoke-Pester -Path ./Tests/PipelineRunner -TagFilter Security`;
+they also run as part of the default unit gate (`./tests.ps1`).
+
 ### Future hardening
 
 Constrained-language execution and AST-based allow-listing of permitted resource types

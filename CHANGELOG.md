@@ -57,6 +57,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Explicit security regression suite (`Tests/PipelineRunner/Security/`, tag `Security`).**
+  Four suites pin the guarantees restored by the audit entries above so a future change that
+  weakens one fails the ordinary unit gate: secrets never reach the `dsc` argument vector, the
+  verbose stream or a thrown error, and the git wrapper never exposes or over-shares its token;
+  a corpus of every side-effecting PowerShell shape is rejected by the condition validator
+  (with end-to-end proofs through the real resource loop in `Start-DscRunner.tests.ps1`:
+  a redirection target is never created, `break`/`continue` never escape the loop, `exit`
+  never ends the process); insecure or option-shaped URLs and revisions never reach git, an
+  action name never resolves outside `Actions/<Hook>/`, cleanup never deletes a caller-owned
+  directory; and every workflow declares token permissions, avoids `pull_request_target`,
+  guards self-hosted jobs against fork PRs, keeps untrusted event data out of `run:` steps and
+  pins its actions. SECURITY.md lists them under "Regression tests for these guarantees".
+
 - **`target: configurationName` — the WinRM endpoint a `PSSession` lands on.** Optional, and
   applied to the `PSSession` only: a `CimSession` is a CIM connection with no PowerShell endpoint
   to choose. It exists because fixing the `-CimSession` defect below moved the remote DSC v2
