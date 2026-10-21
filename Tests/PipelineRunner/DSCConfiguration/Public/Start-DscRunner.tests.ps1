@@ -1150,6 +1150,73 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         }
     }
 
+    Context "remote target session cache is keyed per credential identity" {
+
+        BeforeAll {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+
+            # Stand in for the Target and Credential hooks only; Engine still dispatches through the
+            # real loader to the (mocked) Invoke-DscResource path.
+            Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -MockWith {
+                param($Hook, $Name, $ScriptBlock, $Context)
+                return @{ ComputerName = $Context.ComputerName; IsRemote = $true; CimSession = $null; PSSession = $null }
+            }
+            Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Credential' } -MockWith {
+                param($Hook, $Name, $ScriptBlock, $Context)
+                $secure = ConvertTo-SecureString -String ([string]$Context.Password) -AsPlainText -Force
+                return [System.Management.Automation.PSCredential]::new([string]$Context.UserName, $secure)
+            }
+        }
+
+        It "opens a separate session for each distinct Static identity on the same host" {
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{
+                            type = "Module/Resource"; name = "AsAlice"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'alice'; Password = 'pw-a' } }
+                        }
+                        @{
+                            type = "Module/Resource"; name = "AsBob"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'bob'; Password = 'pw-b' } }
+                        }
+                    )
+                }
+            }
+
+            Start-DscRunner -FilePath $script:testJsonPath | Out-Null
+
+            # Before the fix the key was "<action>|<Name>|<UserNameVariable>", which is identical for
+            # both resources, so AsBob silently reused AsAlice's session and ran as alice.
+            Assert-MockCalled -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -Exactly 2 -Scope It
+        }
+
+        It "still reuses one session when the identity is the same" {
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{
+                            type = "Module/Resource"; name = "First"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'alice'; Password = 'pw-a' } }
+                        }
+                        @{
+                            type = "Module/Resource"; name = "Second"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'alice'; Password = 'pw-a' } }
+                        }
+                    )
+                }
+            }
+
+            Start-DscRunner -FilePath $script:testJsonPath | Out-Null
+
+            Assert-MockCalled -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -Exactly 1 -Scope It
+        }
+    }
+
     Context "reboot handling (#57 §3)" {
 
         BeforeAll {

@@ -25,6 +25,10 @@ on:
   # Reused as a release gate by the tag-driven Release workflow.
   workflow_call:
 
+# Least-privilege token: nothing in this workflow writes back to the repository.
+permissions:
+  contents: read
+
 # Cancel a superseded run for the same branch/PR instead of letting duplicate push+pull_request
 # runs (or back-to-back pushes) pile up and race each other. Safe to cancel: this workflow runs
 # on an ephemeral hosted agent and touches nothing outside it.

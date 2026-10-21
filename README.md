@@ -516,9 +516,11 @@ of it is optional, and none of it needs configuring:
   `HEAD` SHA is written to the information stream, so the pipeline log records the commit that
   actually ran.
 - **Credentials never reach the command line.** The token is injected as an HTTP
-  `Authorization` header through git's environment-based configuration and redacted from error
-  text. Pass a `[SecureString]` or a plain string; with neither, `$env:SYSTEM_ACCESSTOKEN` is
-  used when it is set.
+  `Authorization` header through git's environment-based configuration, scoped to the origin
+  of the configured remote so git never presents it to another host, and scrubbed from
+  everything git prints. Pass a `[SecureString]` or a plain string; with neither,
+  `$env:SYSTEM_ACCESSTOKEN` is used when it is set. The same rule holds for the DSC v3 engine:
+  resolved credentials reach `dsc` on standard input, not as an argument.
 - **Temporary directories are owner-only and removed.** A clone (or a fallback cache
   directory) is created with owner-only permissions — `0700` on Unix, a single full-control ACE
   on Windows — and deleted when the run ends, including when it ends by throwing. Only a

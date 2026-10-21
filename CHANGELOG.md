@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **DSC v3 resource credentials no longer appear on the `dsc` command line.** The engine
+  serialised a resolved `[PSCredential]`/`[SecureString]` into the instance JSON and passed it
+  as `--input <json>`, which put the plaintext into the process's argument vector - readable by
+  every local user via `/proc/<pid>/cmdline` or `Win32_Process.CommandLine`, and recorded by
+  process-creation auditing (Sysmon, event 4688). The JSON is now piped to `dsc` on standard
+  input with `--file -`, locally and over a remote `Invoke-Command` session alike
+  (`Invoke-DscExecutable -StandardInput`). The plaintext values are also scrubbed from `dsc`'s
+  own output before a failure is thrown, since `dsc` echoes the offending input on a schema
+  error.
+- **The git `Authorization` header is scoped to the configured remote.** It was injected as the
+  global `http.extraHeader`, which git sends to every HTTP host it contacts - including whatever
+  a redirect from the configured remote lands on - so a redirect could hand the pipeline token
+  to a third party. The header is now `http.<scheme://host[:port]/>.extraHeader` for the https
+  remote named on the call, and a call that names no https remote (checkout, rev-parse) sends
+  no credential at all. Every line git returns, stderr included, is now scrubbed of both the raw
+  token and the encoded Basic credential; previously only an exception message was redacted and
+  merged stderr passed through untouched into thrown errors. One consequence: a remote whose
+  host *redirects* to a different host (for example an old `*.visualstudio.com` address that
+  forwards to `dev.azure.com`) no longer authenticates on the second host - point the
+  configuration at the final URL.
+- **`-ConfigurationRevision` cannot inject git options.** A revision beginning with `-` was
+  passed straight to `git checkout` as a positional argument, where git would parse it as an
+  option. Such a value is now rejected before any git call, and the checkout terminates its
+  argument list with `--`.
+- **`preCondition`/`postCondition` reject four more side-effecting shapes.** The validator
+  looked only for command invocations, assignments and method calls, which let through a file
+  redirection (`'x' > path` writes a file), `exit` (terminates the runner process), `break` /
+  `continue` (escape the script block and abort or skip the runner's own resource loop - the
+  effect `stopProcessing()` is deliberately confined to `postCondition`), and `++`/`--`
+  (mutate a variable with no assignment statement). All four are now rejected with a message
+  naming the construct.
+- **Target sessions are cached per credential identity.** The cache key for a remote target
+  session was `<action>|<Name>|<UserNameVariable>`, which is identical for two `Static` (or
+  two `SecretManagement` with the same secret name but different vaults) credentials on one
+  host, so the second resource silently reused the first's session and ran as its identity.
+  The key now includes every credential setting except the password value.
+- **Action names are validated.** `Invoke-Action` built `Actions/<Hook>/<Name>.ps1` from a
+  configuration-supplied `target.action` / `credential.action` without checking it, so a name
+  containing `..` or a path separator would have executed a script outside the Actions tree. A
+  name must now be a bare file stem (letters, digits, `.`, `_`, `-`).
+- **CI: self-hosted jobs no longer run for pull requests from forks, and every workflow
+  declares a least-privilege token.** `AzureDevOps-SelfHosted`, `AzureDevOpsV3-SelfHosted` and
+  `DscV2-SelfHosted` run on `pull_request` for every branch on a self-hosted runner that holds a
+  managed identity into a live Azure DevOps organization; on a public repository that let a
+  fork's pull request execute arbitrary code on that machine with that identity. Those jobs
+  are now skipped when the PR head repository is not this repository (same-repo PRs, pushes,
+  dispatches and reusable calls are unaffected), and the six workflows that had no
+  `permissions:` block now request `contents: read` only.
+
 ### Added
 
 - **`target: configurationName` — the WinRM endpoint a `PSSession` lands on.** Optional, and

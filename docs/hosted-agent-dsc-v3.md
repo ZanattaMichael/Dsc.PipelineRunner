@@ -85,7 +85,10 @@ DevOps):
   the runner converts and holds it securely.
 - **No token appears in any output stream.** The `git` wrapper injects the credential as
   an HTTP `Authorization` header through git's environment-based config
-  (`GIT_CONFIG_*`), never on the process command line, and redacts it from error text.
+  (`GIT_CONFIG_*`), scoped to the configured remote's origin and never on the process
+  command line, and scrubs it from everything git prints. The DSC v3 engine follows the same
+  rule for resource credentials: the instance JSON is piped to `dsc` on standard input
+  (`--file -`), not passed as an `--input` argument.
 - **The pipeline's own token is auto-detected.** If you supply no explicit token, the
   runner reads `$env:SYSTEM_ACCESSTOKEN` — the token most CI systems already expose to a
   job — so no secret has to be passed by hand.

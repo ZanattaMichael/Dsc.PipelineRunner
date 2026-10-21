@@ -20,7 +20,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
     #     AZDODSC_CACHE_DIRECTORY -- the persisted session rehydrates inside those child processes, so
     #     managed-identity auth works under the v3 engine exactly as it does under v2.
     #   * Each resource is evaluated through the REAL DscV3 engine (Actions/Engine/DscV3.ps1 ->
-    #     Invoke-DscExecutable -> `dsc resource <verb> --resource AzureDevOpsDscNative/AzDo* --input <json>`)
+    #     Invoke-DscExecutable -> `dsc resource <verb> --resource AzureDevOpsDscNative/AzDo* --file -` with the JSON on stdin)
     #     against the REAL class-based AzureDevOpsDscNative resources surfaced by the DSC v3 PowerShell
     #     adapter, which call the live Azure DevOps REST API. No engine or provider is mocked.
     #
@@ -53,7 +53,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
     # include nested [Hashtable] values (for example AzDoGitPermission.Permissions -- an array of
     # @{ Identity = <string>; Permission = @{ <perm> = 'Allow' } }). Microsoft's DSC v3 PowerShell
     # adapter round-trips resource properties through JSON: our engine serialises the desired state to
-    # JSON on `dsc resource <verb> --input`, and the adapter deserialises it in the child pwsh and
+    # JSON on `dsc resource <verb>`'s standard input (`--file -`), and the adapter deserialises it in the child pwsh and
     # assigns it back onto the class instance. That deserialisation yields PSCustomObject, which the
     # class's [Hashtable] property rejects -- the resource dies with
     #   Exception setting "Permissions": Cannot convert value "@{Permission=; Identity=[Magenta]\CON Readers}"
@@ -70,7 +70,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
     # processes, and the real DscV3 engine executing dsc.exe against the live organization and
     # surfacing a legible runner result -- and it does NOT assert a full green convergence of resources
     # the adapter cannot hydrate. Full real build/teardown is covered by the DSC v2 suite; the
-    # cross-platform v3 engine mechanics (verb mapping, --input serialisation, exit-code and
+    # cross-platform v3 engine mechanics (verb mapping, stdin JSON serialisation, exit-code and
     # JSON-result handling) are covered by the mocked AzureDevOps-Lifecycle suite. The full-lifecycle
     # scenario is retained below as an explicit -Skip so it can be un-skipped once the upstream
     # resources accept v3-adapter (PSCustomObject) input.
@@ -403,7 +403,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
 
             # This is the real DscV3 engine path end to end: Start-DscRunner -Engine DscV3 ->
             # Invoke-EngineAction -> the real Actions/Engine/DscV3.ps1 -> Invoke-DscExecutable ->
-            # `dsc resource test --resource AzureDevOpsDscNative/AzDo* --input <json>` against the REAL
+            # `dsc resource test --resource AzureDevOpsDscNative/AzDo* --file -` against the REAL
             # dsc.exe, the REAL class-based resources surfaced by the v3 PowerShell adapter, and the
             # LIVE Azure DevOps organization -- authenticated with the managed identity rehydrated into
             # the adapter's child processes. Nothing here is faked.

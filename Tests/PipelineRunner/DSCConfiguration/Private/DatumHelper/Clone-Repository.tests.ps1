@@ -141,6 +141,23 @@ Describe 'Clone-Repository Function Tests' {
             { Clone-Repository -DatumURLConfig 'https://example.com/repo.git' -Revision 'no-such-branch' } |
                 Should -Throw -ExpectedMessage "*Could not check out revision*"
         }
+
+        It 'Should refuse a revision that begins with a dash before calling git' {
+            { Clone-Repository -DatumURLConfig 'https://example.com/repo.git' -Revision '--orphan' } |
+                Should -Throw -ExpectedMessage "*may not begin with '-'*"
+            { Clone-Repository -DatumURLConfig 'https://example.com/repo.git' -Revision ' -b' } |
+                Should -Throw -ExpectedMessage "*may not begin with '-'*"
+
+            $script:gitCalls.Count | Should -Be 0
+        }
+
+        It 'Should terminate the checkout argument list with -- so the revision is never read as an option or path' {
+            Clone-Repository -DatumURLConfig 'https://example.com/repo.git' -Revision 'v1.2.3'
+
+            $checkout = @($script:gitCalls | Where-Object { $_ -contains 'checkout' })[0]
+            $checkout[-1] | Should -Be '--'
+            $checkout[-2] | Should -Be 'v1.2.3'
+        }
     }
 
     Context 'When git clone fails' {

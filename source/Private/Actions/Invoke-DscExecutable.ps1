@@ -23,6 +23,12 @@ remoting of its own and must be installed on the target machine (see
 scripts/Install-DscV3.ps1's remote-invocation form). $null (the default) runs locally,
 today's behavior.
 
+.PARAMETER StandardInput
+Optional text written to the executable's standard input. The DscV3 engine passes the resource
+instance JSON this way (with `--file -`) rather than as an `--input` argument, so a resolved
+credential inside that JSON never appears on the process command line, where any local user
+can read it from the process table.
+
 .OUTPUTS
 [hashtable] @{ ExitCode = <int>; Output = <string> }
 #>
@@ -36,18 +42,31 @@ function Invoke-DscExecutable {
         [string]$Executable = 'dsc',
 
         [AllowNull()]
-        [object]$Session = $null
+        [object]$Session = $null,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$StandardInput = $null
     )
+
+    # A [string] parameter can never hold $null, so "no standard input" is tracked by whether
+    # the caller bound it at all; the executable's stdin is left untouched in that case.
+    $standardInputText = if ($PSBoundParameters.ContainsKey('StandardInput')) { $StandardInput } else { $null }
 
     if ($null -ne $Session) {
         $remoteResult = Invoke-Command -Session $Session -ScriptBlock {
-            param($RemoteExecutable, $RemoteArguments)
-            $remoteOutput = & $RemoteExecutable @RemoteArguments 2>&1
+            param($RemoteExecutable, $RemoteArguments, $RemoteStandardInput)
+            if ($null -ne $RemoteStandardInput) {
+                $remoteOutput = $RemoteStandardInput | & $RemoteExecutable @RemoteArguments 2>&1
+            }
+            else {
+                $remoteOutput = & $RemoteExecutable @RemoteArguments 2>&1
+            }
             return @{
                 ExitCode = $LASTEXITCODE
                 Output   = ($remoteOutput | Out-String)
             }
-        } -ArgumentList $Executable, $Arguments
+        } -ArgumentList $Executable, $Arguments, $standardInputText
 
         return @{
             ExitCode = $remoteResult.ExitCode
@@ -55,7 +74,12 @@ function Invoke-DscExecutable {
         }
     }
 
-    $output = & $Executable @Arguments 2>&1
+    if ($null -ne $standardInputText) {
+        $output = $standardInputText | & $Executable @Arguments 2>&1
+    }
+    else {
+        $output = & $Executable @Arguments 2>&1
+    }
     return @{
         ExitCode = $LASTEXITCODE
         Output   = ($output | Out-String)

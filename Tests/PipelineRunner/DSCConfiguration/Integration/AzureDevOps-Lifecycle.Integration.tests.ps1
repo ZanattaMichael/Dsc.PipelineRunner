@@ -35,7 +35,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
     #   * DscV2: Invoke-DscResource   is the stateful provider (Test reads existence, Set creates or
     #            removes, Get returns current Ensure).
     #   * DscV3: Invoke-DscExecutable returns DSC v3 JSON result shapes and mutates the same org, so
-    #            the real DscV3.ps1 mapping (verb selection, --input JSON, exit-code and JSON parsing)
+    #            the real DscV3.ps1 mapping (verb selection, stdin JSON, exit-code and JSON parsing)
     #            is exercised.
     #
     # Everything else is real: the Datum compile of the shipped configuration, the Connect action,
@@ -252,15 +252,16 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         }
 
         # DSC v3 provider. The real Actions/Engine/DscV3.ps1 calls this with the argument vector
-        # @('resource', <verb>, '--resource', <type>, '--input', <json>). It returns DSC v3 JSON
-        # result shapes and mutates the same org, so the engine's real verb mapping, --input
-        # serialization, exit-code check and JSON parsing all run.
+        # @('resource', <verb>, '--resource', <type>, '--file', '-') and the instance JSON on
+        # -StandardInput (never in argv, so a resolved credential stays out of the process table).
+        # It returns DSC v3 JSON result shapes and mutates the same org, so the engine's real verb
+        # mapping, JSON serialization, exit-code check and JSON parsing all run.
         Mock -CommandName Invoke-DscExecutable -MockWith {
-            param($Arguments, $Executable)
+            param($Arguments, $Executable, $Session, $StandardInput)
 
             $verb      = $Arguments[1]
             $type      = $Arguments[3]
-            $inputJson = $Arguments[5]
+            $inputJson = $StandardInput
             $inputHash = $inputJson | ConvertFrom-Json -AsHashtable
             $desired   = if ($inputHash -is [System.Collections.IDictionary] -and $inputHash.Contains('Ensure')) { [string]$inputHash['Ensure'] } else { 'Present' }
             $exists    = $Global:AdoOrg.ContainsKey($type)
