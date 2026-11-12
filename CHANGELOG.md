@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **Property-string expansion no longer runs arbitrary code.** Resource property values were
+  expanded with `ExpandString`, which evaluates any `$(...)` sub-expression as PowerShell - so a
+  value such as `$(Remove-Item ...)` ran in the runner even with `AllowExecutionScripts` off and
+  even though conditions are restricted. A new private `Expand-SafeString` validates every
+  embedded expression with the same allow-list as conditions (`Assert-SafeConditionExpression`:
+  the function-language accessors, operators and variable reads; no other commands, assignments
+  or method calls) and fails closed. **Behaviour change:** a property that relied on
+  `$((Get-Date).ToString(...))` or another command/method call inside `$(...)` is now rejected;
+  `$(variables('X'))`, `$(if ...)` and `$env:NAME` keep working.
+
+### Performance
+
+- Plain property strings (no `$` or backtick) skip `ExpandString` entirely.
+- `Expand-StringInArray` / `Expand-ParameterInArray` build their output in a `List` instead of
+  growing an array with `+=` (flattening behaviour is unchanged).
+- `Start-DscRunner` reads the configuration with `Get-Content -Raw`, tallies pass/fail/skip in a
+  single pass instead of four `Where-Object` pipelines, and splits the resource type once.
+
 ### Added
 
 - **`target: configurationName` — the WinRM endpoint a `PSSession` lands on.** Optional, and
