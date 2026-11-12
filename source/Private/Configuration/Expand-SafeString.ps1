@@ -30,7 +30,7 @@ The raw string from the configuration.
 # configurations use them inside $(if ...). Conditions forbid every method call, so before an
 # embedded expression is validated each such call is replaced by its (still-validated) argument
 # list; every other method call is left in place and rejected.
-function Remove-PureStringMethodCall {
+function ConvertTo-ValidatableExpression {
     param([string] $Text)
 
     $pure = 'IsNullOrEmpty', 'IsNullOrWhiteSpace'
@@ -86,7 +86,7 @@ function Expand-SafeString {
     if ($expandable -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
         foreach ($nested in $expandable.NestedExpressions) {
             try {
-                Assert-SafeConditionExpression -Expression (Remove-PureStringMethodCall -Text $nested.Extent.Text)
+                Assert-SafeConditionExpression -Expression (ConvertTo-ValidatableExpression -Text $nested.Extent.Text)
             }
             catch {
                 throw "[Expand-SafeString] Refusing to expand a property value that runs code. $($_.Exception.Message)"
