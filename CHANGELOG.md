@@ -14,7 +14,9 @@ All notable changes to this project will be documented in this file.
   the function-language accessors, operators and variable reads; no other commands, assignments
   or method calls) and fails closed. **Behaviour change:** a property that relied on
   `$((Get-Date).ToString(...))` or another command/method call inside `$(...)` is now rejected;
-  `$(variables('X'))`, `$(if ...)` and `$env:NAME` keep working.
+  `$(variables('X'))`, `$(if ...)`, `$env:NAME` and the pure predicates
+  `[string]::IsNullOrEmpty` / `[string]::IsNullOrWhiteSpace` (used by the example configurations)
+  keep working.
 
 ### Performance
 

@@ -27,6 +27,15 @@ Describe "Expand-SafeString Function Tests" -Tag Unit, Runner, Configuration, Se
         Expand-SafeString -Value 'say "hi" $(variables(''ProjectName''))' | Should -BeExactly 'say "hi" Blue'
     }
 
+    It "allows the pure [string]::IsNullOrEmpty predicate used by the example configurations" {
+        Expand-SafeString -Value '$( if ([string]::IsNullOrEmpty((variables ''Missing''))) { ''Present'' } else { variables ''Missing'' } )' |
+            Should -BeExactly 'Present'
+    }
+
+    It "still validates the arguments of an allowed static call" {
+        { Expand-SafeString -Value '$([string]::IsNullOrEmpty((Get-Date)))' } | Should -Throw '*Refusing to expand*'
+    }
+
     It "refuses <Name>" -ForEach @(
         @{ Name = 'a command';          Value = '$(Remove-Item /tmp/never -Recurse)' }
         @{ Name = 'a method call';      Value = '$([IO.File]::ReadAllText("/etc/passwd"))' }

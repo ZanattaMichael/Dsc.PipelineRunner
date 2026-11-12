@@ -26,6 +26,34 @@ The raw string from the configuration.
 .OUTPUTS
 [string] the expanded value.
 #>
+# [string]::IsNullOrEmpty / IsNullOrWhiteSpace are pure predicates and the shipped example
+# configurations use them inside $(if ...). Conditions forbid every method call, so before an
+# embedded expression is validated each such call is replaced by its (still-validated) argument
+# list; every other method call is left in place and rejected.
+function Remove-PureStringMethodCall {
+    param([string] $Text)
+
+    $pure = 'IsNullOrEmpty', 'IsNullOrWhiteSpace'
+    while ($true) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$null, [ref]$null)
+        $calls = $ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+            $args[0].Static -and
+            $args[0].Expression -is [System.Management.Automation.Language.TypeExpressionAst] -and
+            $args[0].Expression.TypeName.FullName -in 'string', 'System.String' -and
+            $args[0].Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $args[0].Member.Value -in $pure
+        }, $true)
+        if (-not $calls -or $calls.Count -eq 0) { return $Text }
+
+        # The last-starting call cannot contain another allowed call, so its offsets stay valid.
+        $call = $calls | Sort-Object { $_.Extent.StartOffset } | Select-Object -Last 1
+        $argumentText = @($call.Arguments | ForEach-Object { $_.Extent.Text }) -join ', '
+        $Text = $Text.Substring(0, $call.Extent.StartOffset) + '@(' + $argumentText + ')' +
+                $Text.Substring($call.Extent.EndOffset)
+    }
+}
+
 function Expand-SafeString {
     [CmdletBinding()]
     [OutputType([string])]
@@ -58,7 +86,7 @@ function Expand-SafeString {
     if ($expandable -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
         foreach ($nested in $expandable.NestedExpressions) {
             try {
-                Assert-SafeConditionExpression -Expression $nested.Extent.Text
+                Assert-SafeConditionExpression -Expression (Remove-PureStringMethodCall -Text $nested.Extent.Text)
             }
             catch {
                 throw "[Expand-SafeString] Refusing to expand a property value that runs code. $($_.Exception.Message)"
