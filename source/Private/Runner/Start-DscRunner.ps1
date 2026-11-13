@@ -197,7 +197,7 @@ function Start-DscRunner {
     # -LiteralPath throughout: a configuration path is data, and a bracket in a directory
     # name would otherwise be read as a wildcard.
     if ($fileExtension -eq ".yaml" -or $fileExtension -eq ".yml") {
-        $pipeline = Get-Content -LiteralPath $FilePath | ConvertFrom-Yaml
+        $pipeline = Get-Content -LiteralPath $FilePath -Raw | ConvertFrom-Yaml
         Write-Verbose "Loaded YAML configuration from file: $FilePath"
     }
     else {
@@ -206,7 +206,7 @@ function Start-DscRunner {
         # (e.g. Sort-DependsOn's $Resource.Type, Start-DscRunner's $task.Condition) and would
         # silently collapse every resource onto the same empty key. Normalize to case-insensitive
         # hashtables so a JSON configuration behaves exactly like the YAML loader's output.
-        $pipeline = ConvertTo-CaseInsensitiveHashtable -InputObject (Get-Content -LiteralPath $FilePath | ConvertFrom-Json -AsHashtable)
+        $pipeline = ConvertTo-CaseInsensitiveHashtable -InputObject (Get-Content -LiteralPath $FilePath -Raw | ConvertFrom-Json -AsHashtable)
         Write-Verbose "Loaded JSON configuration from file: $FilePath"
     }
 
@@ -385,8 +385,9 @@ function Start-DscRunner {
             }
 
             # Extract the module name and resource type from the task's type property
-            $module = $task.type.Split("/")[0]
-            $resourceType = $task.type.Split("/")[1]
+            $typeParts = $task.type.Split("/")
+            $module = $typeParts[0]
+            $resourceType = $typeParts[1]
             Write-Verbose "Extracted module name: $module and resource type: $resourceType"
 
             $resourceStatus = 'OK'
@@ -686,10 +687,19 @@ function Start-DscRunner {
         }
 
         # Summarize from the deduplicated records.
-        $passCount = @($results | Where-Object { $_.Status -eq 'OK' }).Count
-        $failCount = @($results | Where-Object { $_.Status -eq 'FAIL' }).Count
-        $skipCount = @($results | Where-Object { $_.Status -eq 'SKIP' }).Count
-        $failedResources = @($results | Where-Object { $_.Status -eq 'FAIL' })
+        # One pass over the results instead of four Where-Object pipelines.
+        $passCount = 0
+        $failCount = 0
+        $skipCount = 0
+        $failedList = [System.Collections.Generic.List[pscustomobject]]::new()
+        foreach ($record in $results) {
+            switch ($record.Status) {
+                'OK'   { $passCount++ }
+                'FAIL' { $failCount++; $failedList.Add($record) }
+                'SKIP' { $skipCount++ }
+            }
+        }
+        $failedResources = $failedList.ToArray()
 
         # Always write the report (even on early stop / abort), when a path is supplied.
         if ($ReportPath) {

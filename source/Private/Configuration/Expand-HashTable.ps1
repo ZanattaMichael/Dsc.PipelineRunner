@@ -64,8 +64,9 @@ Function Expand-HashTable {
             $inputValue = Expand-HashTable -InputHashTable $InputHashTable[$key]
         }
         else {
-            # Expand the string using the ExecutionContext object
-            $inputValue = $ExecutionContext.InvokeCommand.ExpandString($InputHashTable[$key])
+            # Expand the string, but only after Expand-SafeString has proved any embedded
+            # expression is a side-effect-free read (plain strings skip the engine entirely)
+            $inputValue = Expand-SafeString -Value ([string]$InputHashTable[$key])
         } 
     
         # Add the property to the hashtable
