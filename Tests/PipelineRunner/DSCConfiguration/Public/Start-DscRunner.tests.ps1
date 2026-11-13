@@ -10,6 +10,11 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         $InvokePreParseRulesPath = (Get-FunctionPath 'Invoke-PreParseRules.ps1').FullName
         $InvokeFormatTasksPath = (Get-FunctionPath 'Invoke-FormatTasks.ps1').FullName
         $InvokeExpandHashTablePath = (Get-FunctionPath 'Expand-HashTable.ps1').FullName
+        # Expand-HashTable / Expand-StringInArray expand strings through Expand-SafeString,
+        # which validates embedded expressions with the condition allow-list.
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
+        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
         # Resource properties now resolve <params=Name> tokens before string interpolation,
         # so the parameter-expansion chain is loaded alongside Expand-HashTable (#5).
         $InvokeExpandParametersPath = (Get-FunctionPath 'Expand-Parameters.ps1').FullName

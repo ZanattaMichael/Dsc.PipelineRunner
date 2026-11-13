@@ -25,24 +25,30 @@ function Expand-ParameterInArray {
     )
 
     # Process each element in the array
-    $expandedArray = @()
+    $expandedArray = [System.Collections.Generic.List[object]]::new()
     foreach ($item in $InputArray) {
         if ($item -is [bool]) {
             # Keep the boolean value as is
-            $expandedArray += $item
+            $expandedArray.Add($item)
         }       
         elseif (($item -is [string]) -and ($item -match '^\<params\=(?<name>.+)\>$')) {
 
             # Substitute the parameter with the parameter value. Presence is a key lookup, so
             # a parameter defined as an empty string resolves rather than being reported
             # missing (see Resolve-PipelineParameter).
-            $expandedArray += Resolve-PipelineParameter -Name $Matches['name']
+            $resolved = Resolve-PipelineParameter -Name $Matches['name']
+            # `+=` flattened an array-valued parameter into the output; keep that behaviour.
+            if ($resolved -is [array]) { $expandedArray.AddRange($resolved) } else { $expandedArray.Add($resolved) }
         }
         elseif ($item -is [hashtable]) {
-            $expandedArray += Expand-Parameters -InputHashTable $item
+            $expandedArray.Add((Expand-Parameters -InputHashTable $item))
         } 
+        elseif ($item -is [array]) {
+            # `+=` flattened a nested array one level; AddRange keeps that behaviour.
+            $expandedArray.AddRange($item)
+        }
         else {
-            $expandedArray += $item
+            $expandedArray.Add($item)
         }
     }
 

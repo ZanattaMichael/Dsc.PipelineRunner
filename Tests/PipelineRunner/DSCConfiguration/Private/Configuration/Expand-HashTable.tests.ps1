@@ -4,6 +4,11 @@ Describe "Expand-HashTable Function Tests" -Tag Unit, Runner, Configuration {
 
         # Load the functions to test
         $preParseFilePath = (Get-FunctionPath 'Expand-HashTable.ps1').FullName
+        # Expand-HashTable / Expand-StringInArray expand strings through Expand-SafeString,
+        # which validates embedded expressions with the condition allow-list.
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
+        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
         $expandStringInArrayFilePath = (Get-FunctionPath 'Expand-StringInArray.ps1').FullName
 
         . $preParseFilePath
