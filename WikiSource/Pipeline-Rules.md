@@ -13,6 +13,7 @@ Pipeline Rules/
 │   └── Sort-DependsOn.ps1
 └── PreParse/                               # every file in the directory runs, alphabetically
     ├── Test-CircularReferences.ps1
+    ├── Test-CompositeResourcesExpanded.ps1
     ├── Test-ExecutionScriptsAllowed.ps1
     └── Test-ResourcesForIncorrectProperties.ps1
 ```
@@ -143,6 +144,25 @@ a diamond is not reported.
 
 A `dependsOn` naming a resource that is not present is **skipped** here with a verbose message
 — an unresolved dependency is a different problem, and the ordering rules report it.
+
+### `Test-CompositeResourcesExpanded`
+
+A safety net for [Composite Resources](Composite-Resources). A `type: Composite/<Name>`
+instance is expanded into its member resources when the configuration is **compiled**, so a
+compiled file never contains one. A file that does was either written by hand or compiled by a
+module version that predates composites. There is no DSC resource called `Composite/<Name>`, so
+without this rule it would fail later, one resource at a time, with a misleading
+*resource not found*.
+
+The rule collects every such instance and throws once, naming all of them:
+
+```
+[Test-CompositeResourcesExpanded] 1 composite resource instance(s) reached the runner
+unexpanded: [Composite/StandardProject/Magenta]. Composite resources are expanded when the
+configuration is compiled ...
+```
+
+The rule sorts ahead of `Test-ResourcesForIncorrectProperties`, so it reports first.
 
 ### `Test-ExecutionScriptsAllowed`
 

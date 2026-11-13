@@ -53,9 +53,45 @@ rather than a reason to stop. Guard it:
 
 ---
 
+## The compile fails
+
+### `[Expand-CompositeResource] Composite instance [Composite/X/Y] ...`
+
+A [composite resource](Composite-Resources) instance could not be expanded. The compile stops,
+and nothing is written for that node. The message names the instance and says what is wrong.
+The most common causes are:
+
+- `refers to composite 'X', which is not defined`: there is no `Composites/X.yml` at the root
+  of the configuration. The message lists the composites that were found. Check the file name,
+  and check that the file is not in a sub-folder.
+- `does not set the required parameter(s) 'X'`: add the parameter under the instance's
+  `properties`, or give it a `defaultValue` in the definition.
+- `sets 'X', which composite 'Y' does not declare`: the instance's `properties` are the
+  composite's **parameters**, not a member's DSC properties. Declare the parameter, or use
+  `overrides` to set a member property directly.
+- `which is not a composite instance in this configuration`: a `dependsOn` or `notify` names
+  `Composite/<Name>/<instance>`, but this node has no such instance.
+
+To see what an instance expanded to, compile and read the node's YAML as shown above. Each
+member is named `<instance>::<member>`.
+
+### `Composites/X is not a composite definition`
+
+This is a warning, not a failure. The entry under `Composites/` is a sub-folder, or a file that
+does not contain a YAML mapping, and it is ignored. Only `<Name>.yml` files at the root of
+`Composites/` are definitions.
+
+---
+
 ## The run fails before any resource runs
 
 These are pre-parse failures. Every one of them aborts the file.
+
+### `N composite resource instance(s) reached the runner unexpanded`
+
+`Test-CompositeResourcesExpanded`. The file contains a `type: Composite/<Name>` resource, which
+only the compile step can expand. Recompile the configuration with this module version, rather
+than handing the runner a hand-written or older compiled file.
 
 ### `Resource [X] was not found in module [Y]`
 

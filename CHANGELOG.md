@@ -77,6 +77,47 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Composite resources: reusable, parameterised groups of resources**
+  ([#65](https://github.com/ZanattaMichael/Dsc.PipelineRunner/issues/65)).
+  - **Defining one.** Put a definition in `Composites/<Name>.yml` at the root of the
+    configuration repository. It has a `parameters` map (each parameter is required, or has a
+    `defaultValue`) and a list of member `resources`. Members use `<composite=Name>` tokens.
+  - **Using one.** Declare an instance from any layer with `type: Composite/<Name>`. Its
+    `properties` are the parameter values.
+  - **What the compile does.** `Resolve-DscDatumProject` expands each instance after the
+    hierarchy is merged, so an instance merges and overrides by `name` like any other resource.
+    The compiled per-node file, and so the runner, its rules, engines and report, only ever
+    contain ordinary resources. Nothing changes at run time.
+  - **Names.** Members are named `<instance>::<member>`. References between members are
+    rewritten to those names.
+  - **Inherited from the instance.** The instance's `dependsOn` and `notify` are added to every
+    member. Its `preCondition` is combined with each member's own using `-and`. Its `target`
+    and `resourceCredential` apply to members that do not set their own.
+  - **Per-instance changes.** An `overrides` block, keyed by member name, adjusts individual
+    members.
+  - **Nesting and references.** Composites nest, with cycle detection and a depth limit. A
+    `dependsOn` or `notify` on `Composite/<Name>/<instance>` resolves to every member.
+  - **Errors.** Every mistake fails the compile, writes nothing for that node, and names the
+    instance. That covers an unknown composite, a missing or undeclared parameter, an
+    undeclared token, `postCondition` or an execution script on an instance, a reference to an
+    instance that does not exist, a recursive definition, and a duplicate resource.
+  - **Definitions stay out of the hierarchy.** They need no `Datum.yml` change and must not be
+    listed in `ResolutionPrecedence`.
+  - **New code.** `Get-CompositeDefinition` and `Expand-CompositeResource` are in
+    `source/Private/Configuration/`.
+  - **New pre-parse rule.** `Test-CompositeResourcesExpanded` stops a run, before any resource
+    is evaluated, when a file still contains an unexpanded `Composite/` resource, such as a
+    hand-written file or one compiled by an older module.
+  - **Tests.** There are unit suites for both functions, the rule and the
+    `Resolve-DscDatumProject` wiring. A `HostedIntegration` suite
+    (`CompositeResources.Integration.tests.ps1`) runs a real Datum compile of a tree with
+    `Composites/`, followed by a real `Start-DscRunner` pass.
+  - **Documentation.** There is a new
+    [Composite Resources](https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki/Composite-Resources)
+    wiki page, a design record in `docs/composite-resources.md`, and updates to the
+    Configuration Repository Layout, Resource Properties, Pipeline Rules and Troubleshooting
+    pages and to the README.
+
 - **Explicit security regression suite (`Tests/PipelineRunner/Security/`, tag `Security`).**
   Four suites pin the guarantees restored by the audit entries above so a future change that
   weakens one fails the ordinary unit gate: secrets never reach the `dsc` argument vector, the

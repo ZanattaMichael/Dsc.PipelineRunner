@@ -7,6 +7,9 @@ Drives the integration suites that need a real dependency but not a real Windows
 
   * NotifyUsing.Integration.tests.ps1 - notify/using() gated reads through a genuine
     Start-DscRunner pass over a configuration file on disk.
+  * CompositeResources.Integration.tests.ps1 - composite resources through a real Datum compile
+    (New-DatumStructure + Resolve-DscDatumProject over a Composites/ tree) and a real
+    Start-DscRunner pass over the compiled output.
   * SecretManagementCredential.Integration.tests.ps1 - the Credential/SecretManagement action
     against a live Microsoft.PowerShell.SecretStore vault.
   * SSHTarget.Integration.tests.ps1 - the SSH Target action against a real sshd, connecting the
