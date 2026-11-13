@@ -27,22 +27,25 @@ function Expand-StringInArray {
     )
 
     # Process each element in the array
-    $expandedArray = @()
+    $expandedArray = [System.Collections.Generic.List[object]]::new()
     foreach ($item in $InputArray) {
         if ($item -is [bool]) {
             # Keep the boolean value as is
-            $expandedArray += $item
+            $expandedArray.Add($item)
         }       
         elseif ($item -is [string]) {
             # Perform expansion logic here (example: expanding environment variables)
-            $expandedItem = $ExecutionContext.InvokeCommand.ExpandString($item)
-            $expandedArray += $expandedItem
+            $expandedArray.Add((Expand-SafeString -Value $item))
         }
         elseif ($item -is [hashtable]) {
-            $expandedArray += Expand-HashTable -InputHashTable $item
+            $expandedArray.Add((Expand-HashTable -InputHashTable $item))
         } 
+        elseif ($item -is [array]) {
+            # `+=` flattened a nested array one level; AddRange keeps that behaviour.
+            $expandedArray.AddRange($item)
+        }
         else {
-            $expandedArray += $item
+            $expandedArray.Add($item)
         }
     }
 

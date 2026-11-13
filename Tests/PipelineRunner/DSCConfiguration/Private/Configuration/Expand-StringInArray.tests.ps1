@@ -5,6 +5,11 @@ Describe "Expand-StringInArray Function Tests" -Tag Unit, Runner, Configuration 
         # Load the functions to test
         $preParseFilePath = (Get-FunctionPath 'Expand-StringInArray.ps1').FullName
         $expandExpandHashTableFilePath = (Get-FunctionPath 'Expand-HashTable.ps1').FullName
+        # Expand-HashTable / Expand-StringInArray expand strings through Expand-SafeString,
+        # which validates embedded expressions with the condition allow-list.
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
+        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
 
         . $preParseFilePath
         . $expandExpandHashTableFilePath
@@ -19,11 +24,14 @@ Describe "Expand-StringInArray Function Tests" -Tag Unit, Runner, Configuration 
             $result | Should -BeExactly $expected
         }
 
-        It "should expand strings with PowerShell expressions" {
-            $inputObj = @("Today is $((Get-Date).ToString('dddd'))")
-            $expected = @("Today is $(Get-Date -Format 'dddd')")
-            $result = Expand-StringInArray -InputArray $inputObj
-            $result | Should -BeExactly $expected
+        It "should expand side-effect-free sub-expressions" {
+            $result = Expand-StringInArray -InputArray @('Value $(if ($true) { ''yes'' } else { ''no'' })')
+            $result | Should -BeExactly @('Value yes')
+        }
+
+        It "should refuse a sub-expression that runs a command or method" {
+            { Expand-StringInArray -InputArray @('Today is $((Get-Date).ToString("dddd"))') } |
+                Should -Throw '*Refusing to expand*'
         }
     }
 
