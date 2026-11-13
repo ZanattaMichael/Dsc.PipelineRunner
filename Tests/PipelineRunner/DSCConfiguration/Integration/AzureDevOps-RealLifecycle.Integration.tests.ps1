@@ -47,10 +47,19 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         # --- The real Azure DevOps resource module. New-AzDoAuthenticationProvider lives in the
         # bundled AzureDevOpsDsc.Common companion, which sits under the installed module tree and is
         # NOT on PSModulePath, so import it by path after the native module resolves. -----------------
+        # Only the CurrentUser-scope copy is used: the self-hosted runners are shared with other agents,
+        # whose machine-wide copies must not be picked up (the workflow installs ours into CurrentUser).
+        $userModuleRoot = if ($IsWindows) {
+            Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Modules'
+        }
+        else {
+            Join-Path $HOME '.local/share/powershell/Modules'
+        }
         $native = Get-Module -ListAvailable -Name AzureDevOpsDscNative |
+            Where-Object { $_.ModuleBase.StartsWith($userModuleRoot, [System.StringComparison]::OrdinalIgnoreCase) } |
             Sort-Object Version -Descending | Select-Object -First 1
         if (-not $native) {
-            throw "AzureDevOpsDscNative is not installed. Install it on the self-hosted runner (Install-Module AzureDevOpsDscNative -AllowPrerelease)."
+            throw "AzureDevOpsDscNative is not installed in the CurrentUser scope ($userModuleRoot). Install it for the runner account (Install-Module AzureDevOpsDscNative -AllowPrerelease -Scope CurrentUser)."
         }
         # AzureDevOpsDscNative.psm1 nested-imports AzureDevOpsDsc.Common as part of ITS OWN import,
         # which calls Get-LocalizedData at module-load time to load its localized strings.

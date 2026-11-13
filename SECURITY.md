@@ -28,9 +28,11 @@ Concretely:
   `postCondition`, `preExecutionScript` and `postExecutionScript` fields are also evaluated
   as PowerShell.
   - `preCondition` and `postCondition` are constrained to side-effect-free predicates: they
-    may not invoke commands, assign variables, or call methods, other than the allow-listed
-    `parameters()`, `variables()`, `reference()`, `equals()` and `not()` accessors (see
-    issue #35). `postCondition` additionally allows `result()` (the just-applied resource's
+    may not invoke commands, assign or increment variables, call methods, redirect output to
+    a file, or use `exit`, `break` or `continue` (each of which has an effect outside the
+    predicate: a file write, terminating the runner, or escaping the runner's own resource
+    loop), other than through the allow-listed function-language accessors such as
+    `parameters()`, `variables()`, `reference()`, `equals()` and `not()` (see issue #35). `postCondition` additionally allows `result()` (the just-applied resource's
     `[DscMethodResult]`) and `stopProcessing()` (requests that the remaining resources in
     the file be skipped) — these two are allow-listed **only** for `postCondition`, never
     for `preCondition`, so a pre-check can never mutate run state (see issue #57).
@@ -74,7 +76,14 @@ unconditionally:
   stream, so the pipeline log records the exact commit that ran.
 - **Credential handling.** Clone tokens are held as `[SecureString]` and injected as an HTTP
   `Authorization` header through git's environment-based configuration — never on the
-  process command line — and redacted from error text.
+  process command line. The header is scoped to the origin of the configured remote
+  (`http.https://host/.extraHeader`), so git does not present it to any other host a redirect
+  might land on, and it is only sent at all by a call that names an https remote. Every line
+  git returns, stderr included, is scrubbed of both the raw token and the encoded credential
+  before it can reach an error message or the log.
+- **Revision pinning cannot inject options.** A `-ConfigurationRevision` that begins with `-`
+  is rejected before any git call, and the checkout terminates its argument list with `--`,
+  so a revision is only ever read as a ref.
 - **Temporary directories.** Clones and fallback cache directories are created owner-only
   (`0700` on Unix, a single full-control ACE on Windows) and removed when the run ends,
   including when it ends by throwing. Only directories the runner created are removed; a
@@ -115,10 +124,54 @@ they connect to:
   with any DSC `[PSCredential]` property, PowerShell's own `SensitiveData`/argument
   redaction applies when the module (or `Write-Verbose`/tracing) formats it — the runner
   does not print resolved credential values itself.
+- **The DSC v3 engine never puts a secret on a command line.** `dsc.exe` has no credential
+  type, so a resolved `[PSCredential]`/`[SecureString]` is serialised into the instance JSON
+  in plaintext. That JSON is written to `dsc`'s standard input (`--file -`), never passed as
+  an `--input` argument: a command-line argument is readable by every local user through the
+  process table and is captured by process-creation auditing. The same applies on a remote
+  target, where the JSON crosses the already-encrypted `Invoke-Command` channel and is piped
+  to `dsc` on the far side. If `dsc` fails, the plaintext values are scrubbed from its output
+  before the failure is surfaced, because `dsc` echoes the offending input on a schema error.
+- **Target sessions are cached per identity.** A session opened for a `target` is reused only
+  by resources whose target action, computer name, endpoint and complete credential settings
+  (user name, vault, variable names — everything except the password value) match, so two
+  resources aimed at one host with different credentials never share a session.
 - Sessions opened for a `target` are cached per `(target action, computer name,
   credential)` for the duration of a single run and are always closed in the run's
   `finally` block, including on failure, so a compromised or misbehaving resource cannot
   leave a remote session open past the run that created it.
+
+### Regression tests for these guarantees
+
+Every control above is pinned by an explicit, security-tagged test, so a change that weakens
+one fails the ordinary unit gate rather than waiting for the next audit:
+
+- `Tests/PipelineRunner/Security/SecretExposure.Security.tests.ps1` — no secret value (any
+  shape: `[PSCredential]`, `[SecureString]`, sensitive-named plaintext, nested) ever appears in
+  the `dsc` argument vector, the verbose stream, or a thrown error; the git wrapper never
+  returns a token (raw or Basic-encoded) on any stream, never sets an unscoped
+  `http.extraHeader`, never sends the header to a non-https remote, and never leaves it in the
+  environment.
+- `Tests/PipelineRunner/Security/ConditionSideEffects.Security.tests.ps1` — a corpus of every
+  side-effecting PowerShell shape (commands, obfuscated invocation, assignment, `++`/`--`,
+  method and static calls, redirection, `exit`, `break`, `continue`) is rejected by the
+  condition validator in both `preCondition` and `postCondition`, while the documented pure
+  predicates still pass. The end-to-end proofs through the real resource loop (the redirection
+  target is never created, `break`/`continue` never escape the loop, `exit` never ends the
+  process) live in the `Security` contexts of
+  `Tests/PipelineRunner/DSCConfiguration/Public/Start-DscRunner.tests.ps1`.
+- `Tests/PipelineRunner/Security/ConfigurationSource.Security.tests.ps1` — insecure or
+  option-shaped remote URLs and option-shaped revisions are rejected before git is invoked,
+  the checkout always terminates its ref with `--`, a pinned SHA mismatch fails the run, an
+  action name can never resolve outside `Actions/<Hook>/`, and cleanup never deletes a
+  caller-owned directory.
+- `Tests/PipelineRunner/Security/Workflows.Security.tests.ps1` — every workflow declares token
+  permissions, none uses `pull_request_target`, every self-hosted job reachable from
+  `pull_request` is guarded against fork PRs, no `run:` step interpolates attacker-controlled
+  event data, and every action is pinned to a version or SHA.
+
+Run them on their own with `Invoke-Pester -Path ./Tests/PipelineRunner -TagFilter Security`;
+they also run as part of the default unit gate (`./tests.ps1`).
 
 ### Future hardening
 

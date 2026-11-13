@@ -20,6 +20,17 @@ Describe "Invoke-DscExecutable Function Tests" -Tag Unit, Actions, Engine {
             $null = Invoke-DscExecutable -Arguments @('--version') -Executable (Get-Process -Id $PID).Path
             Assert-MockCalled -CommandName Invoke-Command -Exactly 0 -Scope It
         }
+
+        It "Writes -StandardInput to the executable's standard input" {
+            # pwsh echoes whatever arrives on its stdin via $input, so the marker only appears in
+            # the output if it genuinely travelled over the pipe rather than argv.
+            $result = Invoke-DscExecutable -Executable (Get-Process -Id $PID).Path `
+                -Arguments @('-NoProfile', '-NonInteractive', '-Command', '$input') `
+                -StandardInput 'stdin-marker-5f2c'
+
+            $result.ExitCode | Should -Be 0
+            $result.Output | Should -Match 'stdin-marker-5f2c'
+        }
     }
 
     Context "Remote-target execution (#57 §4)" {
@@ -66,6 +77,21 @@ Describe "Invoke-DscExecutable Function Tests" -Tag Unit, Actions, Engine {
 
             $Global:InvokeDscExecutableCapturedArgList[0] | Should -Be 'dsc'
             $Global:InvokeDscExecutableCapturedArgList[1] | Should -Contain 'resource'
+            Remove-Variable -Name InvokeDscExecutableCapturedArgList -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "Carries -StandardInput to the remote scriptblock as its third argument" {
+            $Global:InvokeDscExecutableCapturedArgList = $null
+            Mock -CommandName Invoke-Command -MockWith {
+                param($Session, $ScriptBlock, $ArgumentList)
+                $Global:InvokeDscExecutableCapturedArgList = $ArgumentList
+                return @{ ExitCode = 0; Output = 'ok' }
+            }
+
+            $fakeSession = [pscustomobject]@{ Marker = 'fake-remote-session' }
+            $null = Invoke-DscExecutable -Arguments @('resource', 'set', '--file', '-') -Executable 'dsc' -Session $fakeSession -StandardInput '{"a":1}'
+
+            $Global:InvokeDscExecutableCapturedArgList[2] | Should -Be '{"a":1}'
             Remove-Variable -Name InvokeDscExecutableCapturedArgList -Scope Global -ErrorAction SilentlyContinue
         }
     }

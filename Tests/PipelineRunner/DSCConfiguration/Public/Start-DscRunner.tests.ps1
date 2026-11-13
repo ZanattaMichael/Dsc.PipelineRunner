@@ -1077,6 +1077,101 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
         }
     }
 
+    Context "Security: side effects without a command never execute end-to-end (audit 2026-10)" -Tag Security {
+
+        # The four shapes the audit found slipping past the AST guard, run through the REAL
+        # resource loop. A regression here is observable, not inferred: the redirection target
+        # must not exist afterwards, the loop must reach the next resource, and the process must
+        # still be alive to make the assertions.
+        BeforeAll {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+        }
+
+        It "a preCondition redirection never creates the file and the run continues" {
+            $script:redirectionCanary = Join-Path $TestDrive 'owned-by-precondition.txt'
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/Resource"; name = "Resource1"; properties = @{ prop1 = "value1" }; preCondition = "'pwned' > '$($script:redirectionCanary)'" }
+                        @{ type = "Module/Resource"; name = "Resource2"; properties = @{ prop2 = "value2" } }
+                    )
+                }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath
+
+            Test-Path -LiteralPath $script:redirectionCanary | Should -BeFalse
+            ($result.Results | Where-Object { $_.InstanceName -eq 'Resource1' }).Status | Should -Be 'FAIL'
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Test' -and $Property.prop2 -eq 'value2' } -Exactly 1 -Scope It
+        }
+
+        It "a postCondition redirection never creates the file" {
+            $script:redirectionCanary = Join-Path $TestDrive 'owned-by-postcondition.txt'
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/Resource"; name = "Resource1"; properties = @{ prop1 = "value1" }; postCondition = "result().InDesiredState -or ('pwned' > '$($script:redirectionCanary)')" }
+                    )
+                }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath
+
+            Test-Path -LiteralPath $script:redirectionCanary | Should -BeFalse
+            ($result.Results | Where-Object { $_.InstanceName -eq 'Resource1' }).Status | Should -Be 'FAIL'
+        }
+
+        It "a preCondition '<Statement>' cannot escape into the resource loop: the next resource still runs" -TestCases @(
+            @{ Statement = 'break' }
+            @{ Statement = 'continue' }
+            @{ Statement = 'break outer' }
+        ) {
+            param($Statement)
+            $script:loopEscapeStatement = $Statement
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/Resource"; name = "Resource1"; properties = @{ prop1 = "value1" }; preCondition = $script:loopEscapeStatement }
+                        @{ type = "Module/Resource"; name = "Resource2"; properties = @{ prop2 = "value2" } }
+                    )
+                }
+            }
+
+            $result = Start-DscRunner -FilePath $script:testJsonPath
+
+            $result.Status | Should -Be 'Completed'
+            ($result.Results | Where-Object { $_.InstanceName -eq 'Resource1' }).Status | Should -Be 'FAIL'
+            ($result.Results | Where-Object { $_.InstanceName -eq 'Resource2' }).Status | Should -Be 'OK'
+            Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter { $Method -eq 'Test' -and $Property.prop2 -eq 'value2' } -Exactly 1 -Scope It
+        }
+
+        It "a preCondition 'exit' never terminates the runner process" {
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{ type = "Module/Resource"; name = "Resource1"; properties = @{ prop1 = "value1" }; preCondition = 'exit 7' }
+                        @{ type = "Module/Resource"; name = "Resource2"; properties = @{ prop2 = "value2" } }
+                    )
+                }
+            }
+
+            # Reaching the assertions at all is the proof: an executed `exit 7` would have ended
+            # this PowerShell host and the whole test run with it.
+            $result = Start-DscRunner -FilePath $script:testJsonPath
+
+            ($result.Results | Where-Object { $_.InstanceName -eq 'Resource1' }).Status | Should -Be 'FAIL'
+            ($result.Results | Where-Object { $_.InstanceName -eq 'Resource2' }).Status | Should -Be 'OK'
+        }
+    }
+
     Context "preExecutionScript (#57 §2)" {
 
         BeforeAll {
@@ -1152,6 +1247,73 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
             Assert-MockCalled -CommandName Invoke-DscResource -ParameterFilter {
                 $Method -eq 'Test' -and $Property.Credential -is [System.Management.Automation.PSCredential] -and $Property.Credential.UserName -eq 'svc-account'
             } -Exactly 1 -Scope It
+        }
+    }
+
+    Context "remote target session cache is keyed per credential identity" {
+
+        BeforeAll {
+            Mock -CommandName Get-Content -MockWith { '{"parameters": {}, "variables": {}, "resources": []}' }
+
+            # Stand in for the Target and Credential hooks only; Engine still dispatches through the
+            # real loader to the (mocked) Invoke-DscResource path.
+            Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -MockWith {
+                param($Hook, $Name, $ScriptBlock, $Context)
+                return @{ ComputerName = $Context.ComputerName; IsRemote = $true; CimSession = $null; PSSession = $null }
+            }
+            Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Credential' } -MockWith {
+                param($Hook, $Name, $ScriptBlock, $Context)
+                $secure = ConvertTo-SecureString -String ([string]$Context.Password) -AsPlainText -Force
+                return [System.Management.Automation.PSCredential]::new([string]$Context.UserName, $secure)
+            }
+        }
+
+        It "opens a separate session for each distinct Static identity on the same host" {
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{
+                            type = "Module/Resource"; name = "AsAlice"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'alice'; Password = 'pw-a' } }
+                        }
+                        @{
+                            type = "Module/Resource"; name = "AsBob"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'bob'; Password = 'pw-b' } }
+                        }
+                    )
+                }
+            }
+
+            Start-DscRunner -FilePath $script:testJsonPath | Out-Null
+
+            # Before the fix the key was "<action>|<Name>|<UserNameVariable>", which is identical for
+            # both resources, so AsBob silently reused AsAlice's session and ran as alice.
+            Assert-MockCalled -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -Exactly 2 -Scope It
+        }
+
+        It "still reuses one session when the identity is the same" {
+            Mock -CommandName ConvertFrom-Json -MockWith {
+                @{
+                    parameters = @{}
+                    variables  = @{}
+                    resources  = @(
+                        @{
+                            type = "Module/Resource"; name = "First"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'alice'; Password = 'pw-a' } }
+                        }
+                        @{
+                            type = "Module/Resource"; name = "Second"; properties = @{ prop1 = "value1" }
+                            target = @{ action = 'WinRM'; computerName = 'node01'; credential = @{ action = 'Static'; UserName = 'alice'; Password = 'pw-a' } }
+                        }
+                    )
+                }
+            }
+
+            Start-DscRunner -FilePath $script:testJsonPath | Out-Null
+
+            Assert-MockCalled -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -Exactly 1 -Scope It
         }
     }
 

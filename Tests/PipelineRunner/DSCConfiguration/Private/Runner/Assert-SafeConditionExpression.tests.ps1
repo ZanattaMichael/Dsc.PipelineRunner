@@ -368,5 +368,69 @@ Describe "Assert-SafeConditionExpression Function Tests" -Tag Unit, Runner {
                     Should -Throw '*command invocation*'
             }
         }
+
+        Context "side effects that carry no command, assignment or method call" {
+
+            # Each of these parses to an AST with no CommandAst, AssignmentStatementAst or
+            # InvokeMemberExpressionAst, so the original allow-list let them through even though
+            # every one of them has an effect outside the predicate.
+
+            It "rejects a file redirection, which writes to disk" {
+                { Assert-SafeConditionExpression -Expression "'pwned' > `$env:TEMP/owned.txt" } |
+                    Should -Throw '*file redirection*'
+            }
+
+            It "rejects a file redirection buried inside an otherwise valid comparison" {
+                { Assert-SafeConditionExpression -Expression "`$true -and ('a' > /dev/null)" } |
+                    Should -Throw '*file redirection*'
+            }
+
+            It "rejects an append redirection" {
+                { Assert-SafeConditionExpression -Expression "'x' >> C:\evil.txt" } |
+                    Should -Throw '*file redirection*'
+            }
+
+            It "rejects exit, which would terminate the runner process" {
+                { Assert-SafeConditionExpression -Expression 'exit 3' } |
+                    Should -Throw '*exit statement*'
+            }
+
+            It "rejects break, which escapes into and aborts the runner's resource loop" {
+                { Assert-SafeConditionExpression -Expression 'break' } |
+                    Should -Throw '*break statement*'
+            }
+
+            It "rejects continue, which escapes into and skips the runner's resource loop" {
+                { Assert-SafeConditionExpression -Expression 'continue' } |
+                    Should -Throw '*continue statement*'
+            }
+
+            It "rejects a postfix increment, which mutates a variable without an assignment" {
+                { Assert-SafeConditionExpression -Expression '$FailCounter++' } |
+                    Should -Throw '*increment/decrement*'
+            }
+
+            It "rejects a prefix decrement" {
+                { Assert-SafeConditionExpression -Expression '--$FailCounter' } |
+                    Should -Throw '*increment/decrement*'
+            }
+
+            It "rejects the same shapes in a postCondition" {
+                { Assert-SafeConditionExpression -Expression "(result).InDesiredState -or ('x' > /tmp/y)" -AllowStopProcessing } |
+                    Should -Throw '*file redirection*'
+                { Assert-SafeConditionExpression -Expression 'break' -AllowStopProcessing } |
+                    Should -Throw '*break statement*'
+            }
+
+            It "still allows the non-mutating unary operators" {
+                { Assert-SafeConditionExpression -Expression '-not $Flag' } | Should -Not -Throw
+                { Assert-SafeConditionExpression -Expression '(-$Offset) -lt 0' } | Should -Not -Throw
+                { Assert-SafeConditionExpression -Expression '!$Flag' } | Should -Not -Throw
+            }
+
+            It "still allows a comparison operator that merely looks like a redirection" {
+                { Assert-SafeConditionExpression -Expression '$Count -gt 2 -and $Count -lt 10' } | Should -Not -Throw
+            }
+        }
     }
 }

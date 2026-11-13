@@ -98,11 +98,13 @@ Describe "Actions/Engine/DscV3 Tests" -Tag Unit, Engine {
             }
         }
 
-        It "Still sends the real, unredacted secret to Invoke-DscExecutable" {
+        It "Still sends the real, unredacted secret to Invoke-DscExecutable - on standard input, never in argv" {
             $Global:DscV3CapturedArguments = $null
+            $Global:DscV3CapturedStandardInput = $null
             Mock -CommandName Invoke-DscExecutable -MockWith {
-                param($Arguments, $Executable, $Session)
+                param($Arguments, $Executable, $Session, $StandardInput)
                 $Global:DscV3CapturedArguments = $Arguments
+                $Global:DscV3CapturedStandardInput = $StandardInput
                 return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
             }
 
@@ -111,18 +113,99 @@ Describe "Actions/Engine/DscV3 Tests" -Tag Unit, Engine {
                 Property = @{ Password = 'SuperSecretValue123' }
             }
 
-            ($Global:DscV3CapturedArguments -join ' ') | Should -Match 'SuperSecretValue123'
+            $Global:DscV3CapturedStandardInput | Should -Match 'SuperSecretValue123'
+            ($Global:DscV3CapturedArguments -join ' ') | Should -Not -Match 'SuperSecretValue123'
+            Remove-Variable -Name DscV3CapturedArguments, DscV3CapturedStandardInput -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+
+    Context "Instance JSON travels over stdin, not the command line" {
+
+        It "Passes --file - and never --input" {
+            $Global:DscV3CapturedArguments = $null
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                param($Arguments, $Executable, $Session, $StandardInput)
+                $Global:DscV3CapturedArguments = $Arguments
+                return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
+            }
+
+            $null = & $script:DscV3Path -Context @{
+                Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{ Name = 'svc' }
+            }
+
+            $Global:DscV3CapturedArguments | Should -Not -Contain '--input'
+            $fileIndex = [array]::IndexOf($Global:DscV3CapturedArguments, '--file')
+            $fileIndex | Should -BeGreaterOrEqual 0
+            $Global:DscV3CapturedArguments[$fileIndex + 1] | Should -Be '-'
             Remove-Variable -Name DscV3CapturedArguments -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "Sends the serialized properties as the standard input" {
+            $Global:DscV3CapturedStandardInput = $null
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                param($Arguments, $Executable, $Session, $StandardInput)
+                $Global:DscV3CapturedStandardInput = $StandardInput
+                return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
+            }
+
+            $null = & $script:DscV3Path -Context @{
+                Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{ Name = 'svc'; Port = 8080 }
+            }
+
+            $parsed = $Global:DscV3CapturedStandardInput | ConvertFrom-Json
+            $parsed.Name | Should -Be 'svc'
+            $parsed.Port | Should -Be 8080
+            Remove-Variable -Name DscV3CapturedStandardInput -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "Scrubs a resolved secret out of dsc's error output before throwing" {
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 2; Output = 'ERROR: schema validation failed for input {"Credential":{"password":"p@ssw0rd"}}' }
+            }
+            $securePassword = ConvertTo-SecureString -String 'p@ssw0rd' -AsPlainText -Force
+            $cred = [System.Management.Automation.PSCredential]::new('svc-account', $securePassword)
+
+            $thrown = $null
+            try {
+                $null = & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{ Credential = $cred } }
+            }
+            catch { $thrown = $_.Exception.Message }
+
+            $thrown | Should -Not -BeNullOrEmpty
+            $thrown | Should -Not -Match 'p@ssw0rd'
+            $thrown | Should -Match '\[REDACTED\]'
+            $thrown | Should -Match 'exit 2'
+        }
+
+        It "Scrubs a resolved SecureString out of a JSON parse failure before throwing" {
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 0; Output = 'not-json token=hunter2' }
+            }
+            Mock -CommandName ConvertFrom-Json -MockWith { throw "Unexpected token 'hunter2'" }
+
+            $thrown = $null
+            try {
+                $null = & $script:DscV3Path -Context @{
+                    Method = 'Get'; ModuleName = 'Mod'; Name = 'Res'
+                    Property = @{ ApiKey = (ConvertTo-SecureString -String 'hunter2' -AsPlainText -Force) }
+                }
+            }
+            catch { $thrown = $_.Exception.Message }
+
+            $thrown | Should -Match 'Could not parse'
+            $thrown | Should -Not -Match 'hunter2'
         }
     }
 
     Context "Resource-property credential resolution (#57 §5)" {
 
-        It "Converts a PSCredential property into a {username, password} object before --input" {
+        It "Converts a PSCredential property into a {username, password} object in the stdin JSON" {
             $Global:DscV3CapturedArguments = $null
+            $Global:DscV3CapturedStandardInput = $null
             Mock -CommandName Invoke-DscExecutable -MockWith {
-                param($Arguments, $Executable, $Session)
+                param($Arguments, $Executable, $Session, $StandardInput)
                 $Global:DscV3CapturedArguments = $Arguments
+                $Global:DscV3CapturedStandardInput = $StandardInput
                 return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
             }
 
@@ -134,10 +217,10 @@ Describe "Actions/Engine/DscV3 Tests" -Tag Unit, Engine {
                 Property = @{ Credential = $cred }
             }
 
-            $inputArg = $Global:DscV3CapturedArguments[$Global:DscV3CapturedArguments.IndexOf('--input') + 1]
-            $inputArg | Should -Match 'svc-account'
-            $inputArg | Should -Match 'p@ssw0rd'
-            Remove-Variable -Name DscV3CapturedArguments -Scope Global -ErrorAction SilentlyContinue
+            $Global:DscV3CapturedStandardInput | Should -Match 'svc-account'
+            $Global:DscV3CapturedStandardInput | Should -Match 'p@ssw0rd'
+            ($Global:DscV3CapturedArguments -join ' ') | Should -Not -Match 'p@ssw0rd'
+            Remove-Variable -Name DscV3CapturedArguments, DscV3CapturedStandardInput -Scope Global -ErrorAction SilentlyContinue
         }
 
         It "Force-redacts a resolved credential property from the verbose log regardless of its name" {

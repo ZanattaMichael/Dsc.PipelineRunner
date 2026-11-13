@@ -136,4 +136,92 @@ Describe 'git Function Tests' {
                 Should -Be 'x-access-token:secure-pat-value'
         }
     }
+
+    Context 'Authorization header scoping' {
+
+        BeforeEach {
+            $script:capturedKey = 'unset'
+            Mock Get-Command {
+                $script:capturedKey = $env:GIT_CONFIG_KEY_0
+                return @{
+                    Name        = 'git'
+                    CommandType = 'Application'
+                    Definition  = New-MockFilePath 'git.exe'
+                }
+            }
+        }
+
+        It 'Scopes the header to the origin of the https remote instead of every host git contacts' {
+            $global:JITToken = 'a-raw-personal-access-token'
+
+            git @('clone', '--single-branch', 'https://dev.azure.com/org/project/_git/config', '/tmp/dest')
+
+            $script:capturedKey | Should -Be 'http.https://dev.azure.com/.extraHeader'
+        }
+
+        It 'Keeps a non-default port in the scope' {
+            $global:JITToken = 'a-raw-personal-access-token'
+
+            git @('clone', 'https://git.internal:8443/org/repo.git')
+
+            $script:capturedKey | Should -Be 'http.https://git.internal:8443/.extraHeader'
+        }
+
+        It 'Injects no header at all for a call that names no https remote' {
+            $global:JITToken = 'a-raw-personal-access-token'
+
+            git @('-C', '/tmp/dest', 'checkout', '--quiet', 'main', '--')
+
+            $script:capturedKey | Should -BeNullOrEmpty
+            $env:GIT_CONFIG_COUNT | Should -BeNullOrEmpty
+        }
+
+        It 'Does not treat an ssh remote as a reason to send the HTTP credential' {
+            $global:JITToken = 'a-raw-personal-access-token'
+
+            git @('clone', 'git@github.com:org/repo.git')
+
+            $script:capturedKey | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'Output redaction' {
+
+        BeforeAll {
+            $script:rawToken = 'secret-xyz-token'
+            $script:encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:$script:rawToken"))
+        }
+
+        It 'Scrubs the raw token and the encoded credential from stdout' {
+            $global:JITToken = $script:rawToken
+            # Stand a script block in for git.exe: `& $command @args` invokes it like the application.
+            Mock Get-Command { return { "trace: sending '$env:GIT_CONFIG_VALUE_0' for secret-xyz-token" } }
+
+            $result = (git @('clone', 'https://example.com/repo.git')) -join "`n"
+
+            $result | Should -Not -Match 'secret-xyz-token'
+            $result | Should -Not -Match ([regex]::Escape($script:encoded))
+            $result | Should -Match '\*\*\*'
+        }
+
+        It 'Scrubs stderr that is merged into the returned output' {
+            $global:JITToken = $script:rawToken
+            Mock Get-Command { return { Write-Error "fatal: Authorization: Basic $($env:GIT_CONFIG_VALUE_0 -replace '^Authorization: Basic ','') rejected" } }
+
+            $result = (git @('clone', 'https://example.com/repo.git')) -join "`n"
+
+            $result | Should -Not -Match ([regex]::Escape($script:encoded))
+            $result | Should -Match '\*\*\*'
+        }
+
+        It 'Scrubs the encoded credential from a thrown error' {
+            $global:JITToken = $script:rawToken
+            Mock Get-Command { throw "spawn failed; header was $script:encoded" }
+
+            $result = (git @('clone', 'https://example.com/repo.git')) -join "`n"
+
+            $result | Should -Not -Match ([regex]::Escape($script:encoded))
+            $result | Should -Be 'spawn failed; header was ***'
+        }
+    }
 }

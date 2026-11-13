@@ -92,4 +92,39 @@ return "target:$($Context.ComputerName)"
         }
     }
 
+    Context "Action name validation" {
+
+        BeforeAll {
+            # A script OUTSIDE the Actions tree that a traversal name would otherwise reach.
+            $escapePath = Join-Path $TestDrive 'Escaped.ps1'
+            @'
+param([hashtable]$Context = @{})
+return 'escaped-the-actions-tree'
+'@ | Set-Content -Path $escapePath
+        }
+
+        It "Rejects a name that traverses out of Actions/<Hook>/ with forward slashes" {
+            { Invoke-Action -Hook Source -Name '../../Escaped' -Context @{} } | Should -Throw '*not valid*'
+        }
+
+        It "Rejects a name that traverses out of Actions/<Hook>/ with backslashes" {
+            { Invoke-Action -Hook Source -Name '..\..\Escaped' -Context @{} } | Should -Throw '*not valid*'
+        }
+
+        It "Rejects an absolute path as a name" {
+            { Invoke-Action -Hook Credential -Name (Join-Path $TestDrive 'Escaped') -Context @{} } | Should -Throw '*not valid*'
+        }
+
+        It "Rejects a name that starts with a dot" {
+            { Invoke-Action -Hook Source -Name '.hidden' -Context @{} } | Should -Throw '*not valid*'
+        }
+
+        It "Still accepts the shipped action names" {
+            foreach ($name in 'Local', 'Git', 'DscV2', 'DscV3', 'AzureDevOps', 'SecretManagement', 'My-Custom_Action.v2') {
+                # Validation passes; the lookup then fails only because the fixture does not exist.
+                { Invoke-Action -Hook Source -Name $name -Context @{} } | Should -Throw '*was not found*'
+            }
+        }
+    }
+
 }

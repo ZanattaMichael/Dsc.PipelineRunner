@@ -66,6 +66,14 @@ function Invoke-Action {
         throw "[Invoke-Action] No action name or -ScriptBlock supplied for hook '$Hook'."
     }
 
+    # The name is a bare file stem under Actions/<Hook>/, nothing more. A name carrying a path
+    # separator or '..' would resolve to - and execute - a script outside the Actions tree, so
+    # reject it rather than let a configuration's `target.action`/`credential.action` select
+    # an arbitrary .ps1 on the agent.
+    if ($Name -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*$' -or $Name -match '\.\.') {
+        throw "[Invoke-Action] Action name '$Name' for hook '$Hook' is not valid. An action name is the bare file name (without .ps1) of a script under Actions/$Hook/ and may contain only letters, digits, '.', '_' and '-'."
+    }
+
     # Resolve Actions/<Hook>/<Name>.ps1 relative to the installed module, mirroring
     # how Invoke-PreParseRules / Invoke-CustomTask locate the Pipeline Rules.
     $moduleBase = (Get-Module 'Dsc.PipelineRunner').ModuleBase

@@ -120,6 +120,21 @@ function Assert-SafeConditionExpression {
     # it may call the allow-listed function-language accessors, but it must not invoke any
     # other command, assign variables, or call methods (all of which can mutate the runner's
     # own state and its audit record — see #35).
+    #
+    # Four further statement shapes carry side effects without any CommandAst, assignment or
+    # method call, so they are rejected explicitly:
+    #   - a file redirection (`'x' > path`) writes to disk;
+    #   - `exit` terminates the runner process itself;
+    #   - `break` / `continue` escape the script block and abort or skip the runner's own
+    #     resource loop - the exact run-control effect stopProcessing() is scoped to postCondition
+    #     for;
+    #   - `++` / `--` mutate a variable without an AssignmentStatementAst.
+    $mutatingUnaryTokens = @(
+        [System.Management.Automation.Language.TokenKind]::PlusPlus,
+        [System.Management.Automation.Language.TokenKind]::MinusMinus,
+        [System.Management.Automation.Language.TokenKind]::PostfixPlusPlus,
+        [System.Management.Automation.Language.TokenKind]::PostfixMinusMinus
+    )
     $forbidden = $ast.FindAll({
         (
             ($args[0] -is [System.Management.Automation.Language.CommandAst]) -and
@@ -129,7 +144,15 @@ function Assert-SafeConditionExpression {
             ))
         ) -or
         $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -or
-        $args[0] -is [System.Management.Automation.Language.InvokeMemberExpressionAst]
+        $args[0] -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -or
+        $args[0] -is [System.Management.Automation.Language.FileRedirectionAst] -or
+        $args[0] -is [System.Management.Automation.Language.ExitStatementAst] -or
+        $args[0] -is [System.Management.Automation.Language.BreakStatementAst] -or
+        $args[0] -is [System.Management.Automation.Language.ContinueStatementAst] -or
+        (
+            ($args[0] -is [System.Management.Automation.Language.UnaryExpressionAst]) -and
+            ($mutatingUnaryTokens -contains $args[0].TokenKind)
+        )
     }, $true)
 
     if ($forbidden) {
@@ -137,8 +160,13 @@ function Assert-SafeConditionExpression {
         $kind = switch ($offender) {
             { $_ -is [System.Management.Automation.Language.CommandAst] }             { 'command invocation'; break }
             { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] } { 'variable assignment'; break }
+            { $_ -is [System.Management.Automation.Language.FileRedirectionAst] }     { 'file redirection'; break }
+            { $_ -is [System.Management.Automation.Language.ExitStatementAst] }       { 'exit statement'; break }
+            { $_ -is [System.Management.Automation.Language.BreakStatementAst] }      { 'break statement'; break }
+            { $_ -is [System.Management.Automation.Language.ContinueStatementAst] }   { 'continue statement'; break }
+            { $_ -is [System.Management.Automation.Language.UnaryExpressionAst] }     { 'increment/decrement'; break }
             default                                                                  { 'method call' }
         }
-        throw "[Dsc.PipelineRunner] A 'condition' must be a side-effect-free predicate. Rejected condition [$Expression] because it contains a $kind [$($offender.Extent.Text)]. Conditions may only call $($allowedCommands -join ', '); they may not invoke other commands, assign variables, or call methods."
+        throw "[Dsc.PipelineRunner] A 'condition' must be a side-effect-free predicate. Rejected condition [$Expression] because it contains a $kind [$($offender.Extent.Text)]. Conditions may only call $($allowedCommands -join ', '); they may not invoke other commands, assign or increment variables, call methods, redirect output to a file, or use exit, break or continue."
     }
 }

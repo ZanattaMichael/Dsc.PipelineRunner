@@ -76,7 +76,7 @@ unconditionally — there is no setting that relaxes any of it:
 | Transport | `https`, `ssh` and SCP-style `git@host:path` only. A plain `http://` URL throws a terminating error naming the scheme. |
 | Revision pinning | `-ConfigurationRevision` checks out a branch, tag or commit. A full 40-character SHA is verified against the clone's resolved `HEAD`; a mismatch fails the run. |
 | Provenance in the log | The resolved `HEAD` SHA is written to the information stream on every clone, so the pipeline log records the commit that actually ran. |
-| Credential handling | Tokens are held as `[SecureString]` and injected as an HTTP `Authorization` header through git's environment-based configuration, never on the process command line, and redacted from error text. |
+| Credential handling | Tokens are held as `[SecureString]` and injected as an HTTP `Authorization` header through git's environment-based configuration, never on the process command line. The header is scoped to the configured remote's origin (`http.https://host/.extraHeader`) so a redirect cannot carry it to another host, and every line git prints is scrubbed of the token before it is returned. A `-ConfigurationRevision` beginning with `-` is rejected so it cannot be read as a git option. |
 | Temporary directories | Clones and fallback cache directories are created owner-only (`0700` on Unix, a single full-control ACE on Windows) and removed in a `finally`, so they do not survive a failed run. Only directories the runner created are removed — a caller-supplied path is never deleted. `-KeepTemporaryDirectory` opts out for debugging. |
 
 This narrows the *transport*, not the boundary itself: a configuration delivered intact over
