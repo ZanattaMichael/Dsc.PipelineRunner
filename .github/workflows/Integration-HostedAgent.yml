@@ -115,4 +115,8 @@ jobs:
       # deliberately NOT the default when the script is run by hand on a workstation.
       - name: Run hosted integration tests
         shell: pwsh
+        env:
+          # Repo-level Actions variable naming the Azure DevOps organization; the suites fall back
+          # to the Example Configuration's Organization_Name when unset.
+          AZUREDEVOPSORG: ${{ vars.AZUREDEVOPSORG }}
         run: ./scripts/Invoke-HostedIntegrationTests.ps1 -AllowSecretStoreReset

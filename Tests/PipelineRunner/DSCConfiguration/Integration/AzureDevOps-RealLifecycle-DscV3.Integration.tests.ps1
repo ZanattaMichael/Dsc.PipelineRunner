@@ -156,6 +156,11 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         . (Get-FunctionPath 'SetVariables.ps1').FullName
         . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
         . (Get-FunctionPath 'Expand-HashTable.ps1').FullName
+        # Expand-HashTable / Expand-StringInArray expand strings through Expand-SafeString,
+        # which validates embedded expressions with the condition allow-list.
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
+        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
         . (Get-FunctionPath 'Expand-StringInArray.ps1').FullName
         # Resource properties now resolve <params=Name> tokens before string interpolation,
         # so the parameter-expansion chain is loaded alongside Expand-HashTable (#5).
@@ -229,6 +234,12 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
                 }
             }
 
+            # Point the compiled configuration at the organization under test (AZUREDEVOPSORG), so
+            # identities built from Organization_Name match the organization we authenticate to.
+            if (-not [string]::IsNullOrWhiteSpace($env:AZUREDEVOPSORG)) {
+                $variablesOut['Organization_Name'] = $env:AZUREDEVOPSORG
+            }
+
             $compiled = @{
                 resources  = $resolved.resources
                 parameters = $resolved.parameters
@@ -248,12 +259,12 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             # The project the lifecycle turns on (the shipped Present example node).
             $script:ProjectName = 'Magenta'
 
-            # The organization: an AZDO_ORGANIZATION_NAME override wins, else the shipped
-            # OrganizationPolicies/Organization.yml value.
+            # The organization: the AZUREDEVOPSORG repository variable (surfaced as an env var by the
+            # workflow) wins, else the shipped OrganizationPolicies/Organization.yml value.
             $configOrganization = [string](Resolve-Datum -PropertyPath 'variables' -DatumStructure $datum `
                     -Variable @{ Project = $script:ProjectName; ProjectPresence = 'Present' })['Organization_Name']
-            $script:OrganizationName = if (-not [string]::IsNullOrWhiteSpace($env:AZDO_ORGANIZATION_NAME)) {
-                $env:AZDO_ORGANIZATION_NAME
+            $script:OrganizationName = if (-not [string]::IsNullOrWhiteSpace($env:AZUREDEVOPSORG)) {
+                $env:AZUREDEVOPSORG
             }
             else {
                 $configOrganization

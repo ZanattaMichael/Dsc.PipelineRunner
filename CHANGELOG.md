@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **Property-string expansion no longer runs arbitrary code.** Resource property values were
+  expanded with `ExpandString`, which evaluates any `$(...)` sub-expression as PowerShell - so a
+  value such as `$(Remove-Item ...)` ran in the runner even with `AllowExecutionScripts` off and
+  even though conditions are restricted. A new private `Expand-SafeString` validates every
+  embedded expression with the same allow-list as conditions (`Assert-SafeConditionExpression`:
+  the function-language accessors, operators and variable reads; no other commands, assignments
+  or method calls) and fails closed. **Behaviour change:** a property that relied on
+  `$((Get-Date).ToString(...))` or another command/method call inside `$(...)` is now rejected;
+  `$(variables('X'))`, `$(if ...)`, `$env:NAME` and the pure predicates
+  `[string]::IsNullOrEmpty` / `[string]::IsNullOrWhiteSpace` (used by the example configurations)
+  keep working.
+
+### Performance
+
+- Plain property strings (no `$` or backtick) skip `ExpandString` entirely.
+- `Expand-StringInArray` / `Expand-ParameterInArray` build their output in a `List` instead of
+  growing an array with `+=` (flattening behaviour is unchanged).
+- `Start-DscRunner` reads the configuration with `Get-Content -Raw`, tallies pass/fail/skip in a
+  single pass instead of four `Where-Object` pipelines, and splits the resource type once.
+
 ### Added
 
 - **Composite resources: reusable, parameterised groups of resources**
@@ -82,6 +104,20 @@ All notable changes to this project will be documented in this file.
   `ssh` client, a host that cannot be authenticated to non-interactively, and one reachable by
   `ssh` whose `sshd` has no `powershell` subsystem. Anywhere those do not hold — a workstation
   running the script by hand — the suite skips with the reason instead of failing.
+
+### Changed
+
+- **Azure DevOps integration suites take their organization from the `AZUREDEVOPSORG` repository
+  variable.** `AzureDevOps-Lifecycle`, `AzureDevOps-RealLifecycle` and
+  `AzureDevOps-RealLifecycle-DscV3` read `$env:AZUREDEVOPSORG` (set from `vars.AZUREDEVOPSORG` in
+  the `AzureDevOps-SelfHosted`, `AzureDevOpsV3-SelfHosted` and `Integration-HostedAgent`
+  workflows), replacing the former `AZDO_ORGANIZATION_NAME` variable. When set, it is also written
+  into the compiled nodes' `Organization_Name`, so resource identities target the same
+  organization the suite authenticates to. Unset, the Example Configuration's value is used.
+- **The self-hosted Azure DevOps suites always run against the newest AzureDevOpsDscNative.** The
+  dependency step previously installed the module only when no version was present, so a runner kept
+  whatever it had first. It now installs the gallery's latest release (prereleases included) when
+  that exact version is missing, and the suites import the highest installed version.
 
 ### Documentation
 

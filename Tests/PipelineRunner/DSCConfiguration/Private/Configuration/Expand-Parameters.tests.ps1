@@ -5,6 +5,11 @@ Describe "Expand-Parameters Function Tests" -Tag Unit, Runner, Configuration {
         # Load the functions to test
         $preParseFilePath = (Get-FunctionPath 'Expand-Parameters.ps1').FullName
         $expandExpandHashTableFilePath = (Get-FunctionPath 'Expand-HashTable.ps1').FullName
+        # Expand-HashTable / Expand-StringInArray expand strings through Expand-SafeString,
+        # which validates embedded expressions with the condition allow-list.
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
+        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
         $expandParameterInArrayFilePath = (Get-FunctionPath 'Expand-ParameterInArray.ps1').FullName
         
         $resolveParameterFilePath = (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
