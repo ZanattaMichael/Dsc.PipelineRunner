@@ -133,16 +133,20 @@ confirmed by `dsc` itself.
 
 JSON has no credential type, so a `[pscredential]` property is resolved to
 `{ username, password }` and a bare `[securestring]` to its plaintext value, immediately before
-the `--input` payload is built. That payload goes either to the local `dsc` process or, for a
-remote target, over the already-encrypted `Invoke-Command -Session` channel. It is never
-written to disk via `--file`.
+the instance JSON is built. That JSON is written to `dsc`'s standard input (`--file -`) rather
+than passed as an `--input` argument, because a command-line argument is visible to every local
+user in the process table and is captured by process-creation auditing. It goes either to the
+local `dsc` process or, for a remote target, over the already-encrypted `Invoke-Command
+-Session` channel and is piped to `dsc` on the far side. It is never written to disk. Should
+`dsc` fail, the resolved plaintext values are scrubbed from its output before the error is
+surfaced.
 
 The verbose log is built from a **separately redacted** copy: any property that started life as
 a credential or secure string is force-redacted regardless of its name, and a name-based
 heuristic catches the rest.
 
 ```
-[Actions/Engine/DscV3] dsc resource set --resource Contoso/SqlDatabase --input {"ServerName":"sql01","Credential":"[REDACTED]"}
+[Actions/Engine/DscV3] dsc resource set --resource Contoso/SqlDatabase --file - <<< {"ServerName":"sql01","Credential":"[REDACTED]"}
 ```
 
 ### Result shapes

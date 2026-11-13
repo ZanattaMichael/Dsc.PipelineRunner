@@ -16,6 +16,10 @@ on:
   # Reused as a release gate by the tag-driven Release workflow.
   workflow_call:
 
+# Least-privilege token: nothing in this workflow writes back to the repository.
+permissions:
+  contents: read
+
 # Serialize (don't cancel) superseded runs for the same branch/PR: this workflow drives a real
 # self-hosted PowerShell-DSC host, so killing an in-progress run risks leaving it mid-apply.
 # The group key names this workflow literally instead of using ${{ github.workflow }}. Inside a
@@ -28,6 +32,13 @@ concurrency:
 
 jobs:
   dsc-v2-selfhosted:
+    # Self-hosted runners execute the checked-out code with the runner machine's own identity -
+    # here, one that can reach a live Azure DevOps organization through managed identity. A pull
+    # request from a fork is untrusted code, so it must never land on this runner: the job is
+    # skipped for fork PRs and runs unchanged for same-repository PRs, pushes, manual dispatches
+    # and reusable-workflow calls. (The hosted-agent workflows run on ephemeral GitHub VMs with no
+    # standing credentials, so they do not need this guard.)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: DSC v2 engine on self-hosted
     runs-on: [self-hosted]
 

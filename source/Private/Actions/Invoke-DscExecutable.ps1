@@ -23,11 +23,23 @@ remoting of its own and must be installed on the target machine (see
 scripts/Install-DscV3.ps1's remote-invocation form). $null (the default) runs locally,
 today's behavior.
 
+.PARAMETER StandardInput
+Optional text written to the executable's standard input. The DscV3 engine passes the resource
+instance JSON this way (with `--file -`) rather than as an `--input` argument, so a resolved
+credential inside that JSON never appears on the process command line, where any local user
+can read it from the process table.
+
 .OUTPUTS
 [hashtable] @{ ExitCode = <int>; Output = <string> }
 #>
 function Invoke-DscExecutable {
     [CmdletBinding()]
+    # The remote script block receives $RemoteExecutable/$RemoteArguments/$RemoteStandardInput
+    # through its own param() block and -ArgumentList, which is the documented way to hand
+    # values to Invoke-Command -Session. The rule only recognises $using: and reports those
+    # param-declared variables as undeclared, so this is a false positive, not a missing scope.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+        Justification = 'The remote script block declares its inputs in param() and receives them via -ArgumentList; the rule does not account for that pattern.')]
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]
@@ -36,18 +48,28 @@ function Invoke-DscExecutable {
         [string]$Executable = 'dsc',
 
         [AllowNull()]
-        [object]$Session = $null
+        [object]$Session = $null,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$StandardInput = $null
     )
 
+    # A [string] parameter can never hold $null, so "no standard input" is tracked by whether
+    # the caller bound it at all; the executable's stdin is left untouched in that case.
+    $standardInputText = if ($PSBoundParameters.ContainsKey('StandardInput')) { $StandardInput } else { $null }
+
     if ($null -ne $Session) {
+        # A $null standard input simply gives the executable an empty stdin, which is harmless
+        # for dsc (the only caller) and keeps the remote block to one statement.
         $remoteResult = Invoke-Command -Session $Session -ScriptBlock {
-            param($RemoteExecutable, $RemoteArguments)
-            $remoteOutput = & $RemoteExecutable @RemoteArguments 2>&1
+            param($RemoteExecutable, $RemoteArguments, $RemoteStandardInput)
+            $remoteOutput = $RemoteStandardInput | & $RemoteExecutable @RemoteArguments 2>&1
             return @{
                 ExitCode = $LASTEXITCODE
                 Output   = ($remoteOutput | Out-String)
             }
-        } -ArgumentList $Executable, $Arguments
+        } -ArgumentList $Executable, $Arguments, $standardInputText
 
         return @{
             ExitCode = $remoteResult.ExitCode
@@ -55,7 +77,12 @@ function Invoke-DscExecutable {
         }
     }
 
-    $output = & $Executable @Arguments 2>&1
+    if ($null -ne $standardInputText) {
+        $output = $standardInputText | & $Executable @Arguments 2>&1
+    }
+    else {
+        $output = & $Executable @Arguments 2>&1
+    }
     return @{
         ExitCode = $LASTEXITCODE
         Output   = ($output | Out-String)

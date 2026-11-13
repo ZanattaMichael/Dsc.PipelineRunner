@@ -443,7 +443,16 @@ function Start-DscRunner {
                         $tCred = $task.target.credential
                         $tCredAction = if (-not [string]::IsNullOrWhiteSpace([string]$tCred.action)) { [string]$tCred.action } else { 'Environment' }
                         $targetCredential = Invoke-Action -Hook Credential -Name $tCredAction -Context $tCred
-                        $credentialCacheKey = "$tCredAction|$($tCred.Name)|$($tCred.UserNameVariable)"
+                        # Key the session cache on every non-secret credential setting (user name,
+                        # vault, variable names...), not just Name/UserNameVariable: two resources
+                        # on one host with different Static or SecretManagement identities must not
+                        # share a session, or the second would run as the first's identity. The
+                        # Password itself is left out so a plaintext Static value never becomes part
+                        # of an in-memory key.
+                        $credentialKeyParts = foreach ($credentialKey in @($tCred.Keys | Sort-Object)) {
+                            if ([string]$credentialKey -ne 'Password') { '{0}={1}' -f $credentialKey, $tCred[$credentialKey] }
+                        }
+                        $credentialCacheKey = "$tCredAction|$($credentialKeyParts -join ';')"
                     }
 
                     # configurationName selects the remote endpoint a WinRM PSSession lands on.

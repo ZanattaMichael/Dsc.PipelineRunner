@@ -40,7 +40,8 @@ Start-DscRunner consumes this one resource at a time: it sorts by `dependsOn`, e
 `preCondition`, resolves `properties` (parameter tokens first, then `variables` and calculated
 properties), and calls the selected engine per resource.
 The `DscV3` engine turns each resource into `dsc resource test|set|get --resource <type>
---input <json>`.
+--file -`, with the resource's `properties` serialised as JSON on `dsc`'s standard input (not as
+an `--input` argument, which would expose a resolved credential in the process table).
 
 A **DSC v3 configuration document** — what `dsc config get|test|set` consumes — is a different,
 schema-governed shape. It carries a top-level `$schema` and resources limited to `name`, `type`

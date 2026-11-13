@@ -427,8 +427,8 @@ credential.
 | Path | Plaintext exposure |
 | --- | --- |
 | `DscV2`, local or WinRM | None. `[pscredential]` marshals as `MSFT_Credential` over the encrypted transport. |
-| `DscV3`, local | Resolved to plaintext in the `--input` JSON handed to the `dsc` process. Never written to disk. |
-| `DscV3`, remote | The same JSON, sent over the already-encrypted `Invoke-Command -Session` channel. |
+| `DscV3`, local | Resolved to plaintext in the instance JSON piped to the `dsc` process on standard input (`--file -`). Never written to disk and never placed on the command line, where the process table would expose it. |
+| `DscV3`, remote | The same JSON, sent over the already-encrypted `Invoke-Command -Session` channel and piped to `dsc` on the far side. |
 
 Logs are redacted on two grounds: any property that started life as a `[pscredential]` or
 `[securestring]` is force-redacted regardless of its name, and a name-based heuristic catches

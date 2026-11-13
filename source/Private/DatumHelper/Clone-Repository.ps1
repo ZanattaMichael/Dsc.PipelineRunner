@@ -62,6 +62,13 @@ function Clone-Repository
 
     Assert-SecureGitUrl -Url $DatumURLConfig
 
+    # A revision is handed to `git checkout` as a positional argument. One that begins with '-'
+    # would be parsed as a git option instead (for example '--orphan' or '-b'), turning a
+    # pipeline parameter into argument injection, so refuse it before any git call is made.
+    if ((-not [string]::IsNullOrWhiteSpace($Revision)) -and ($Revision.Trim().StartsWith('-'))) {
+        throw "[Clone-Repository] Revision '$Revision' is not a valid branch, tag or commit: a revision may not begin with '-'."
+    }
+
     if ([string]::IsNullOrWhiteSpace($DestinationPath)) {
         $DestinationPath = New-TemporaryDirectory
     }
@@ -77,7 +84,10 @@ function Clone-Repository
     # Pin to the requested revision, if any. This lives here (rather than in each Source
     # action) so every caller gets the same pinning and verification behaviour.
     if (-not [string]::IsNullOrWhiteSpace($Revision)) {
-        $checkoutOutput = git -C $DestinationPath checkout --quiet $Revision
+        # The trailing '--' tells git the revision is a ref, never a pathspec or an option. It is
+        # quoted because a bare -- is PowerShell's own end-of-parameters token, which the wrapper
+        # function would consume instead of forwarding to git.
+        $checkoutOutput = git -C $DestinationPath checkout --quiet $Revision '--'
         if ($LASTEXITCODE -ne 0) {
             throw "[Clone-Repository] Could not check out revision '$Revision' from '$DatumURLConfig'. $checkoutOutput"
         }
