@@ -37,6 +37,7 @@ Describe "Composite resources through a real Datum compile and a real runner pas
         . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
         . (Get-FunctionPath 'Expand-HashTable.ps1').FullName
         . (Get-FunctionPath 'Expand-StringInArray.ps1').FullName
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
         . (Get-FunctionPath 'Expand-Parameters.ps1').FullName
         . (Get-FunctionPath 'Expand-ParameterInArray.ps1').FullName
         . (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
