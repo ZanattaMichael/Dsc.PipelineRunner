@@ -79,15 +79,35 @@ jobs:
               Install-Module -Name $m -Force -Scope CurrentUser -AllowClobber
             }
           }
-          # Always run against the newest AzureDevOpsDscNative on the gallery (prereleases included):
-          # install it when the runner does not already have that version. The suites import the
-          # highest installed version, so an older copy left on the runner cannot be selected.
+          # AzureDevOpsDscNative runs from the runner account's CurrentUser scope only. The runner
+          # machines are shared with other agents, which install their own copies machine-wide; the
+          # suites must not pick those up. Install the gallery's newest release (prereleases
+          # included) into CurrentUser when that scope does not already hold it - other scopes are
+          # deliberately not consulted - and leave copies elsewhere alone, since they belong to
+          # other agents.
+          $userModuleRoot = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Modules'
           $latest = Find-Module -Name AzureDevOpsDscNative -AllowPrerelease -ErrorAction Stop
           $latestVersion = [version]($latest.Version -replace '-.*$', '')
-          if (-not (Get-Module -ListAvailable -Name AzureDevOpsDscNative | Where-Object { $_.Version -eq $latestVersion })) {
-            Write-Host "Installing AzureDevOpsDscNative $($latest.Version) ..."
+          $userCopy = Join-Path $userModuleRoot "AzureDevOpsDscNative\$latestVersion\AzureDevOpsDscNative.psd1"
+          if (-not (Test-Path -LiteralPath $userCopy)) {
+            Write-Host "Installing AzureDevOpsDscNative $($latest.Version) into $userModuleRoot ..."
             Install-Module -Name AzureDevOpsDscNative -RequiredVersion $latest.Version -AllowPrerelease `
               -Force -Scope CurrentUser -AllowClobber
+          }
+          if (-not (Test-Path -LiteralPath $userCopy)) {
+            throw "AzureDevOpsDscNative $latestVersion is not in the CurrentUser scope ($userModuleRoot) after installing it."
+          }
+          # Invoke-DscResource, Get-DscResource and dsc's PowerShell adapter resolve the module by
+          # name across every scope and prefer the highest version (the CurrentUser path wins a tie,
+          # being first on PSModulePath). A NEWER copy outside CurrentUser would therefore be used
+          # instead of ours, so stop rather than run against another agent's module.
+          $shadowing = Get-Module -ListAvailable -Name AzureDevOpsDscNative | Where-Object {
+            -not $_.ModuleBase.StartsWith($userModuleRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
+            $_.Version -gt $latestVersion
+          }
+          if ($shadowing) {
+            throw ("AzureDevOpsDscNative {0} at {1} is newer than the CurrentUser copy ({2}) and would be resolved instead of it." -f `
+              $shadowing[0].Version, $shadowing[0].ModuleBase, $latestVersion)
           }
 
       - name: Report environment
