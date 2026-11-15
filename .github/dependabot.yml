@@ -1,0 +1,25 @@
+# Keeps the pinned supply-chain inputs current. Workflow actions and the container base image are
+# pinned by commit SHA / digest, which stops a moved tag from changing what runs but also means
+# nothing updates them by itself; these entries open the update pull requests, so each change is
+# reviewed (and CI-tested) instead of arriving silently.
+#
+# Dependabot has no PowerShell Gallery ecosystem. The runner's module dependencies and the dsc
+# release are tracked by hand: see scripts/Update-DscChecksums.ps1 and RequiredModules.psd1.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /containers/dsc-agent
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "docker"

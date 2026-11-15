@@ -10,12 +10,15 @@
 # published, or by mounting a locally built copy onto the module path) and call
 # Invoke-DscRunner. See containers/dsc-agent/README.md.
 
-ARG POWERSHELL_TAG=7.4-ubuntu-22.04
-FROM mcr.microsoft.com/powershell:${POWERSHELL_TAG}
+# The base image is pinned by digest, so a build gets exactly the image that was reviewed and a
+# moved or replaced tag cannot change what runs. The tag is kept for readers (and for
+# Dependabot, which updates tag and digest together). To move to another image, change both.
+FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04@sha256:386c3ab9f02f8d0b04e5f8f66f3e0648c69ad89ce19fd0856990ea715b1261be
 
-# DSC v3 release to install. 'latest' resolves the newest stable release at build time;
-# pin to a tag (e.g. v3.0.0) for reproducible images.
-ARG DSC_VERSION=latest
+# DSC v3 release to install. Left empty, the install script uses the defaultVersion recorded in
+# scripts/dsc-checksums.json, which is the version whose archive hashes were reviewed. Pass a
+# tag (--build-arg DSC_VERSION=v3.3.0) to choose another; the download is verified either way.
+ARG DSC_VERSION=
 
 # tar is used by the bootstrap script to unpack the DSC archive.
 RUN apt-get update \
@@ -23,9 +26,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the DSC v3 engine into a stable location and expose it on PATH.
-COPY scripts/Install-DscV3.ps1 /opt/dsc-pipelinerunner/scripts/Install-DscV3.ps1
+COPY scripts/Install-DscV3.ps1 scripts/dsc-checksums.json /opt/dsc-pipelinerunner/scripts/
 RUN pwsh -NoLogo -NoProfile -File /opt/dsc-pipelinerunner/scripts/Install-DscV3.ps1 \
-        -Version "${DSC_VERSION}" -InstallDirectory /usr/local/dsc -Verbose
+        ${DSC_VERSION:+-Version "$DSC_VERSION"} -InstallDirectory /usr/local/dsc -Verbose
 ENV PATH="/usr/local/dsc:${PATH}"
 
 # Install the runner's required PowerShell modules for all users.
@@ -39,6 +42,14 @@ COPY scripts/Test-DscV3Smoke.ps1 /opt/dsc-pipelinerunner/scripts/Test-DscV3Smoke
 
 # Sanity-check the executable is present and runnable at build time.
 RUN dsc --version
+
+# Run as an unprivileged user. Everything above that needs root (packages, the dsc install, the
+# AllUsers modules) is done by now, and the executables stay world-readable and executable, so
+# nothing the agent does at run time needs more than this user has.
+RUN useradd --create-home --uid 10001 --shell /usr/bin/pwsh runner \
+    && mkdir -p /workspace \
+    && chown runner:runner /workspace
+USER runner
 
 WORKDIR /workspace
 CMD ["pwsh"]

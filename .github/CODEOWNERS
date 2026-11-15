@@ -1,0 +1,14 @@
+# Changes to these paths decide what the runner executes, what it trusts and how it is released,
+# so they are reviewed by a code owner. This only has an effect when branch protection has
+# "Require review from Code Owners" turned on for main.
+*                      @ZanattaMichael
+
+/.github/              @ZanattaMichael
+/Actions/              @ZanattaMichael
+/Pipeline\ Rules/      @ZanattaMichael
+/scripts/              @ZanattaMichael
+/containers/           @ZanattaMichael
+/SECURITY.md           @ZanattaMichael
+/docs/security-response-process.md @ZanattaMichael
+/source/Private/Runner/ @ZanattaMichael
+/source/Private/DatumHelper/ @ZanattaMichael

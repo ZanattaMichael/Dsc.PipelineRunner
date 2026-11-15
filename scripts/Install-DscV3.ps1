@@ -13,8 +13,23 @@ The asset is chosen by matching architecture/OS keywords rather than a hard-code
 name, so minor changes to the release naming do not break the bootstrap.
 
 .PARAMETER Version
-The release to install. 'latest' (default) resolves the newest non-prerelease release
-from the GitHub API. Otherwise pass a tag such as 'v3.0.0' (a leading 'v' is optional).
+The release to install. When omitted, the 'defaultVersion' recorded in the checksum lock file
+(scripts/dsc-checksums.json) is used, so an unattended install is reproducible; if there is no
+lock file it falls back to 'latest'. 'latest' resolves the newest non-prerelease release from
+the GitHub API. Otherwise pass a tag such as 'v3.0.0' (a leading 'v' is optional).
+
+.PARAMETER Sha256
+The expected SHA-256 of the archive. Overrides both the lock file and GitHub's published
+digest. Use it to install a release that is not in the lock file with a hash you obtained and
+checked yourself.
+
+.PARAMETER ChecksumFile
+The lock file of known-good SHA-256 hashes. Defaults to dsc-checksums.json next to this script.
+Update it with scripts/Update-DscChecksums.ps1.
+
+.PARAMETER AllowUnverified
+Install even when no SHA-256 is available to check the download against. Off by default: the
+download is a program that will be executed, so an archive that cannot be verified is refused.
 
 .PARAMETER InstallDirectory
 Directory to extract the executable into. Created if it does not exist. Defaults to
@@ -41,16 +56,37 @@ $dsc = ./scripts/Install-DscV3.ps1   # latest stable, into the default location
 [CmdletBinding()]
 [OutputType([string])]
 param(
-    [string]$Version = 'latest',
+    [string]$Version,
 
     [string]$InstallDirectory,
 
     [switch]$IncludePrerelease,
 
-    [string]$GitHubToken = $env:GITHUB_TOKEN
+    [string]$GitHubToken = $env:GITHUB_TOKEN,
+
+    [ValidatePattern('\A[0-9a-fA-F]{64}\z', ErrorMessage = '-Sha256 must be 64 hexadecimal characters.')]
+    [string]$Sha256,
+
+    [string]$ChecksumFile = (Join-Path $PSScriptRoot 'dsc-checksums.json'),
+
+    [switch]$AllowUnverified
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ------------------------------------------------------------------------------------
+# The checksum lock file: known-good SHA-256 hashes per release and asset, plus the version
+# an unattended install should use. Read before anything is downloaded.
+# ------------------------------------------------------------------------------------
+$lock = $null
+if (Test-Path -LiteralPath $ChecksumFile) {
+    $lock = Get-Content -LiteralPath $ChecksumFile -Raw | ConvertFrom-Json
+}
+
+if (-not $PSBoundParameters.ContainsKey('Version') -or [string]::IsNullOrWhiteSpace($Version)) {
+    $Version = if ($null -ne $lock -and -not [string]::IsNullOrWhiteSpace([string]$lock.defaultVersion)) { [string]$lock.defaultVersion } else { 'latest' }
+    Write-Verbose "[Install-DscV3] No -Version given; using '$Version'."
+}
 
 # ------------------------------------------------------------------------------------
 # Platform detection. $IsWindows/$IsLinux/$IsMacOS exist on PowerShell 6+; on Windows
@@ -136,6 +172,56 @@ $downloadPath = Join-Path ([System.IO.Path]::GetTempPath()) $asset.name
 
 Write-Verbose "[Install-DscV3] Downloading $($asset.browser_download_url)."
 Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloadPath -Headers @{ 'User-Agent' = $headers['User-Agent'] }
+
+# ------------------------------------------------------------------------------------
+# Verify the download BEFORE it is extracted or executed. The expected hash comes, in order of
+# trust, from: an explicit -Sha256; the reviewed lock file; GitHub's own published digest for
+# the asset (which guards against a corrupted or swapped download, but is not an independent
+# pin, so it warns). With none of those the archive is refused unless -AllowUnverified.
+# ------------------------------------------------------------------------------------
+$actualHash = (Get-FileHash -LiteralPath $downloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+$expectedHash = $null
+$hashSource = $null
+$pinnedRelease = $null
+if ($null -ne $lock -and $null -ne $lock.releases) {
+    $pinnedProperty = $lock.releases.PSObject.Properties[[string]$release.tag_name]
+    if ($null -ne $pinnedProperty) { $pinnedRelease = $pinnedProperty.Value }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($Sha256)) {
+    $expectedHash = $Sha256
+    $hashSource = '-Sha256'
+}
+elseif ($null -ne $pinnedRelease) {
+    $pinnedAsset = $pinnedRelease.PSObject.Properties[[string]$asset.name]
+    if ($null -eq $pinnedAsset) {
+        Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+        throw "[Install-DscV3] Release '$($release.tag_name)' is pinned in '$ChecksumFile' but the asset '$($asset.name)' is not listed. Refusing to install an asset that was never reviewed; run scripts/Update-DscChecksums.ps1."
+    }
+    $expectedHash = [string]$pinnedAsset.Value
+    $hashSource = (Split-Path -Leaf $ChecksumFile)
+}
+elseif ($null -ne $asset.PSObject.Properties['digest'] -and "$($asset.digest)" -match '\Asha256:([0-9a-fA-F]{64})\z') {
+    $expectedHash = $Matches[1]
+    $hashSource = "GitHub's published digest"
+    Write-Warning "[Install-DscV3] Release '$($release.tag_name)' is not pinned in '$(Split-Path -Leaf $ChecksumFile)'; verifying against GitHub's published digest only. Pin it with scripts/Update-DscChecksums.ps1."
+}
+
+if ([string]::IsNullOrWhiteSpace($expectedHash)) {
+    if (-not $AllowUnverified) {
+        Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+        throw "[Install-DscV3] No SHA-256 is available to verify '$($asset.name)' ($($release.tag_name)) against, so it was not installed. Add it to '$(Split-Path -Leaf $ChecksumFile)', pass -Sha256, or (not recommended) pass -AllowUnverified."
+    }
+    Write-Warning "[Install-DscV3] Installing '$($asset.name)' WITHOUT verification (-AllowUnverified). sha256=$actualHash"
+}
+elseif ($actualHash -ne $expectedHash.ToLowerInvariant()) {
+    Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+    throw "[Install-DscV3] SHA-256 mismatch for '$($asset.name)' ($($release.tag_name)): expected $($expectedHash.ToLowerInvariant()) from $hashSource, got $actualHash. The download was discarded and nothing was installed."
+}
+else {
+    Write-Host "[Install-DscV3] Verified $($asset.name): sha256=$actualHash (source: $hashSource)"
+}
 
 if ($isZip) {
     Expand-Archive -Path $downloadPath -DestinationPath $InstallDirectory -Force

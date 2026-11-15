@@ -1,0 +1,42 @@
+# Manually computes the SHA-256 of every DSC v3 archive in a release, cross-checking each one
+# against the digest GitHub publishes, and prints the resulting scripts/dsc-checksums.json.
+#
+# It does not commit anything: a maintainer reviews the output and updates the lock file in a
+# pull request, so the pin is a reviewed change rather than something a workflow can do alone.
+name: Update DSC checksums
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'DSC release tag to pin (for example v3.3.0). Blank uses the lock file default.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  checksums:
+    name: Compute DSC archive checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Compute checksums
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $arguments = @{ OutputPath = './dsc-checksums.generated.json'; Verbose = $true }
+          if (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_VERSION)) { $arguments.Version = $env:REQUESTED_VERSION }
+          ./scripts/Update-DscChecksums.ps1 @arguments
+
+      - name: Upload the generated lock file
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dsc-checksums
+          path: dsc-checksums.generated.json
+          if-no-files-found: error

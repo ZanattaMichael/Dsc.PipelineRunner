@@ -17,15 +17,19 @@ on top.
 Build from the repository root (the build context must include `scripts/`):
 
 ```bash
-# Latest stable dsc.
+# The dsc release recorded in scripts/dsc-checksums.json (the one whose hashes were reviewed).
 docker build -f containers/dsc-agent/Dockerfile -t dsc-pipelinerunner-agent .
 
-# Pin the dsc release and/or the PowerShell base tag.
+# Choose another dsc release. The download is still verified: against the lock file if the
+# release is pinned there, otherwise against the digest GitHub publishes for the asset.
 docker build -f containers/dsc-agent/Dockerfile \
-  --build-arg DSC_VERSION=v3.0.0 \
-  --build-arg POWERSHELL_TAG=7.4-ubuntu-22.04 \
-  -t dsc-pipelinerunner-agent:3.0.0 .
+  --build-arg DSC_VERSION=v3.3.0 \
+  -t dsc-pipelinerunner-agent:3.3.0 .
 ```
+
+The base image is pinned by digest on the `FROM` line (Dependabot keeps it current). To use a
+different PowerShell image, edit that line. The container runs as the unprivileged user
+`runner`, so mount anything it must write to a path that user can write.
 
 ## Use
 

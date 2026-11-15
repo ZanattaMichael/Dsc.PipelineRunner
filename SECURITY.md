@@ -103,15 +103,32 @@ by a security-tagged test (see [Regression tests](#regression-tests-for-these-gu
 | **Malformed or hostile input** | A malformed resource or a scalar `target` is a recorded failure for that resource, never a crash or a silent local run; structural mistakes fail closed; `variables` cannot overwrite runner state or steer child processes; node file names, composite fan-out and SSH host names are bounded. |
 | **Local files** | Clone and cache directories are created owner-only; cleanup only ever removes directories the runner registered; action names cannot resolve outside `Actions/<Hook>/`. |
 | **Remote targets and credentials** | Credentials come from a Credential action (`Environment`, `SecretManagement`, `Static` for development only), sessions are cached per identity, and the plaintext never reaches a target's command line. |
+| **Downloads and build inputs** | The `dsc` archive is verified by SHA-256 *before* it is extracted: against `scripts/dsc-checksums.json` (reviewed pins), else GitHub's published digest, and it is refused if neither exists. Every third-party Action is pinned to a commit SHA, the container base image to a digest, and the image runs as a non-root user. Dependabot proposes updates to those pins as reviewed pull requests. |
 | **CI and release** | Workflows declare minimal token permissions, avoid `pull_request_target`, guard self-hosted jobs against fork pull requests, keep untrusted event data out of `run:` steps, and pin actions. PSScriptAnalyzer results are published to code scanning. |
 | **Staying honest** | Each guarantee has a regression test under `Tests/PipelineRunner/Security/`, and a test checks that this document lists them. |
 
 **Known limits** (so that the summary above is not read as more than it is): the configuration
 is trusted code and is not sandboxed; `preExecutionScript` / `postExecutionScript` are
-unconstrained once enabled; the module is not code-signed and its dependencies are not pinned
-(tracked in issues #38 and #36); constrained-language compilation is not implemented (#46);
+unconstrained once enabled; the module is not Authenticode-signed (releases carry a build
+provenance attestation instead, see below; #38) and its PowerShell Gallery dependencies are not
+yet version-pinned (#36); constrained-language compilation is not implemented (#46);
 the runner sets no input-size or alias-expansion limit on YAML parsing; and `Get()` output stays in
 module memory until the next run starts.
+
+### Verifying a release
+
+Each release's `.nupkg` is published with a **build provenance attestation**: a statement, signed
+with the release workflow's own identity and recorded in a public transparency log, of which
+workflow run built the file from which commit. It needs no certificate and costs nothing. Check a
+download with the GitHub CLI:
+
+```bash
+gh attestation verify Dsc.PipelineRunner.<version>.nupkg --repo ZanattaMichael/Dsc.PipelineRunner
+```
+
+The package's SHA-256 is also written to the release run's summary. This proves where a package
+came from; it is **not** an Authenticode signature, so PowerShell's `AllSigned` execution policy
+does not use it.
 
 ## Trust model
 
@@ -275,6 +292,12 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   required sections, points reporters at a private channel, links the maintainers' response
   process, and lists every security test file, so a guarantee cannot exist without being
   documented.
+- `Tests/PipelineRunner/Security/SupplyChain.Security.tests.ps1` — `Install-DscV3.ps1` checks the
+  archive's SHA-256 before extracting it (a pinned mismatch, an unlisted asset, a GitHub-digest
+  mismatch and "nothing to verify against" are all refused and install nothing; the override is
+  explicit), the lock file is well formed and pins its default release, every action is pinned to
+  a commit SHA, the container base is pinned by digest and runs non-root, Dependabot covers both,
+  and the release records a provenance attestation.
 - `Tests/PipelineRunner/Security/Workflows.Security.tests.ps1` — every workflow declares token
   permissions, none uses `pull_request_target`, every self-hosted job reachable from
   `pull_request` is guarded against fork PRs, no `run:` step interpolates attacker-controlled
