@@ -1,4 +1,13 @@
 {
   "defaultVersion": "v3.3.0",
-  "releases": {}
+  "releases": {
+    "v3.3.0": {
+      "DSC-3.3.0-aarch64-apple-darwin.tar.gz": "6859afc02eb070bd55a3270f987c2ba62bb1b0cec70dc2592e17f1a96393939e",
+      "DSC-3.3.0-aarch64-linux.tar.gz": "5863f9221488e0e25bf07482d9fa7e708e392290642310f3dc0e477e305aab6a",
+      "DSC-3.3.0-aarch64-pc-windows-msvc.zip": "4e4297429489893309d8b8061c3c1628c173debd6ea1812343d738d8135a997e",
+      "DSC-3.3.0-x86_64-apple-darwin.tar.gz": "bd131abb378ad56c47ae7badb27846c40119ed05781092d2b9a4e686473921fe",
+      "DSC-3.3.0-x86_64-linux.tar.gz": "cf17d1a130b65332ec65380ee9368133101d13d8f40c1a501038920b1e9cd748",
+      "DSC-3.3.0-x86_64-pc-windows-msvc.zip": "3f8b27f648661903d066cc19d5a6e7a8c13bd07eb738d4d765ce7239619b8b5f"
+    }
+  }
 }

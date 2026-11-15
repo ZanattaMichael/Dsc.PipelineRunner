@@ -13,7 +13,9 @@
 # The base image is pinned by digest, so a build gets exactly the image that was reviewed and a
 # moved or replaced tag cannot change what runs. The tag is kept for readers (and for
 # Dependabot, which updates tag and digest together). To move to another image, change both.
-FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04@sha256:386c3ab9f02f8d0b04e5f8f66f3e0648c69ad89ce19fd0856990ea715b1261be
+# The digest is what the registry serves for that tag, resolved on a GitHub runner by the
+# 'Update DSC checksums' workflow, not copied from anywhere else.
+FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04@sha256:62300a213a9293916333df2b014cd3a8f22fb0b0b65f2bb446aaf436bcf8c868
 
 # DSC v3 release to install. Left empty, the install script uses the defaultVersion recorded in
 # scripts/dsc-checksums.json, which is the version whose archive hashes were reviewed. Pass a

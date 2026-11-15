@@ -13,6 +13,7 @@ on:
     paths:
       - 'scripts/Update-DscChecksums.ps1'
       - '.github/workflows/Update-DscChecksums.yml'
+      - 'scripts/dsc-checksums.json'
   workflow_dispatch:
     inputs:
       version:
@@ -45,6 +46,30 @@ jobs:
       # the one the registry really serves. Resolve it here, on a GitHub runner, rather than
       # copying one from anywhere else. The multi-architecture index digest is what a Dockerfile
       # FROM line should carry, so the same pin works on x86_64 and arm64.
+      # The checked-in lock file must say exactly what a runner computes now. This is what makes
+      # the pins trustworthy rather than merely present: a mistyped, stale or tampered hash is
+      # caught here instead of by a user on the one platform CI does not install on.
+      - name: Check the checked-in lock file against the computed hashes
+        shell: pwsh
+        run: |
+          $generated = Get-Content -LiteralPath ./dsc-checksums.generated.json -Raw | ConvertFrom-Json
+          $committed = Get-Content -LiteralPath ./scripts/dsc-checksums.json -Raw | ConvertFrom-Json
+          $problems = [System.Collections.Generic.List[string]]::new()
+          foreach ($release in $generated.releases.PSObject.Properties) {
+              $recorded = $committed.releases.PSObject.Properties[$release.Name]
+              if ($null -eq $recorded) { $problems.Add("release $($release.Name) is not in scripts/dsc-checksums.json"); continue }
+              foreach ($asset in $release.Value.PSObject.Properties) {
+                  $have = $recorded.Value.PSObject.Properties[$asset.Name]
+                  if ($null -eq $have) { $problems.Add("$($release.Name)/$($asset.Name) is missing from scripts/dsc-checksums.json") }
+                  elseif ($have.Value -ne $asset.Value) { $problems.Add("$($release.Name)/$($asset.Name): committed $($have.Value) but computed $($asset.Value)") }
+              }
+              foreach ($asset in $recorded.Value.PSObject.Properties) {
+                  if ($null -eq $release.Value.PSObject.Properties[$asset.Name]) { $problems.Add("$($release.Name)/$($asset.Name) is in scripts/dsc-checksums.json but is not a release asset") }
+              }
+          }
+          if ($problems.Count -gt 0) { $problems | ForEach-Object { Write-Error $_ -ErrorAction Continue }; exit 1 }
+          Write-Host "scripts/dsc-checksums.json matches the computed hashes."
+
       - name: Resolve the container base image digest
         shell: bash
         run: |
