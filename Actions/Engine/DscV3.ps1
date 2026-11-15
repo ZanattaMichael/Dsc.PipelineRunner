@@ -60,7 +60,7 @@ if ($null -eq $property) { $property = @{} }
 # Test-SensitivePropertyName redaction below, so the plaintext never reaches the log.
 function ConvertTo-DscV3CredentialSafeProperty {
     param(
-        [hashtable]$InputHashTable,
+        [System.Collections.IDictionary]$InputHashTable,
         [System.Collections.Generic.HashSet[string]]$ForceRedactKeys,
         [System.Collections.Generic.List[string]]$SecretValues
     )
@@ -83,11 +83,40 @@ function ConvertTo-DscV3CredentialSafeProperty {
             $null = $ForceRedactKeys.Add($key)
             if (-not [string]::IsNullOrEmpty($plainValue)) { $SecretValues.Add($plainValue) }
         }
-        elseif ($value -is [hashtable]) {
+        elseif ($value -is [System.Collections.IDictionary]) {
             $resolved[$key] = ConvertTo-DscV3CredentialSafeProperty -InputHashTable $value -ForceRedactKeys $ForceRedactKeys -SecretValues $SecretValues
+        }
+        elseif ($value -is [System.Collections.IList] -and $value -isnot [string]) {
+            # A list of mappings (for example users: [{login, password}]) must be walked like a
+            # nested mapping, otherwise the secrets inside it are never collected for scrubbing
+            # or redaction. A list with no mapping in it is passed through untouched.
+            $hasMapping = $false
+            foreach ($item in $value) { if ($item -is [System.Collections.IDictionary]) { $hasMapping = $true; break } }
+            if ($hasMapping) {
+                $resolved[$key] = @(foreach ($item in $value) {
+                    if ($item -is [System.Collections.IDictionary]) {
+                        ConvertTo-DscV3CredentialSafeProperty -InputHashTable $item -ForceRedactKeys $ForceRedactKeys -SecretValues $SecretValues
+                    }
+                    else { $item }
+                })
+            }
+            else {
+                $resolved[$key] = $value
+                if (Test-SensitivePropertyName -Name $key) {
+                    foreach ($item in $value) {
+                        if ($item -is [string] -and $item.Length -ge 4) { $SecretValues.Add($item) }
+                    }
+                }
+            }
         }
         else {
             $resolved[$key] = $value
+            # A plain-string secret (not a [securestring]) still has to be scrubbed from dsc's
+            # echoed error text. The 4-character floor keeps short enumerations such as
+            # keyType: 'RSA' from turning the scrub into noise.
+            if ($value -is [string] -and $value.Length -ge 4 -and (Test-SensitivePropertyName -Name $key)) {
+                $SecretValues.Add($value)
+            }
         }
     }
     return $resolved
@@ -115,7 +144,9 @@ function Protect-DscV3Output {
     param([AllowNull()][AllowEmptyString()][string]$Text, [System.Collections.Generic.List[string]]$Secrets)
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
     $scrubbed = $Text
-    foreach ($secret in $Secrets) {
+    # Longest first, so a secret that contains another secret is replaced whole rather than
+    # leaving the tail of it behind.
+    foreach ($secret in ($Secrets | Sort-Object -Property Length -Descending)) {
         $scrubbed = $scrubbed.Replace($secret, '[REDACTED]')
         # dsc echoes input as JSON, so a secret containing '"' or '\' comes back escaped.
         $jsonEscaped = ([string](ConvertTo-Json -InputObject $secret -Compress)).Trim('"')
@@ -132,7 +163,7 @@ function Protect-DscV3Output {
 # ground-truth $forceRedactKeys collected above, rather than logging $inputJson directly,
 # which used to leak every property value verbatim.
 function ConvertTo-RedactedPropertyTable {
-    param([hashtable]$InputHashTable, [System.Collections.Generic.HashSet[string]]$ForceRedactKeys)
+    param([System.Collections.IDictionary]$InputHashTable, [System.Collections.Generic.HashSet[string]]$ForceRedactKeys)
 
     $redacted = @{}
     foreach ($key in $InputHashTable.Keys) {
@@ -140,8 +171,19 @@ function ConvertTo-RedactedPropertyTable {
         if ($ForceRedactKeys.Contains($key)) {
             $redacted[$key] = '[REDACTED]'
         }
-        elseif ($value -is [hashtable]) {
+        elseif ($value -is [System.Collections.IDictionary]) {
             $redacted[$key] = ConvertTo-RedactedPropertyTable -InputHashTable $value -ForceRedactKeys $ForceRedactKeys
+        }
+        elseif ($value -is [System.Collections.IList] -and $value -isnot [string] -and -not (Test-SensitivePropertyName -Name $key)) {
+            # Walk lists of mappings so a secret nested in a list is redacted like one nested in
+            # a mapping. (A list under a sensitive name falls to the branch below and is
+            # redacted whole.)
+            $redacted[$key] = @(foreach ($item in $value) {
+                if ($item -is [System.Collections.IDictionary]) {
+                    ConvertTo-RedactedPropertyTable -InputHashTable $item -ForceRedactKeys $ForceRedactKeys
+                }
+                else { $item }
+            })
         }
         elseif (Test-SensitivePropertyName -Name $key) {
             $redacted[$key] = '[REDACTED]'
