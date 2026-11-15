@@ -303,6 +303,14 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   `pull_request` is guarded against fork PRs, no `run:` step interpolates attacker-controlled
   event data, and every action is pinned to a version or SHA.
 
+- `Tests/PipelineRunner/Security/ReleaseTagging.Security.tests.ps1` — the release tag is computed by
+  `scripts/Get-NextReleaseTag.ps1`, which only produces `vX.Y.Z` or `vX.Y.Z-<letters><digits>`, never
+  goes to a version at or below the latest stable release, rejects malformed versions and
+  Gallery-invalid labels, and refuses a preview counter that would sort out of order; the "Create
+  release tag" workflow is manual-only, runs from `main` only, requires every check on `main` to be
+  passing, reads its inputs through `env:`, asks for no more than `contents`/`actions` write and
+  `checks` read, and stores no personal access token.
+
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and

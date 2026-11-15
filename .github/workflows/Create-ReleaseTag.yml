@@ -1,0 +1,150 @@
+name: Create release tag
+
+# Cuts the tag that deploys a release. Run it by hand (Actions > Create release tag > Run
+# workflow) from main. It works out the next version from the tags that already exist, checks
+# that main is green, creates an annotated tag on main's head, and starts the Release workflow
+# on that tag. Release.yml then validates the tag, runs the full test gate and publishes.
+#
+#   release_type  preview  ->  vX.Y.Z-previewNNNN   (the publish proceeds even if a gate fails)
+#                 release  ->  vX.Y.Z               (every gate must pass)
+#   bump          which part of the latest stable version to increase (ignored if version is set)
+#   version       optional explicit X.Y.Z instead of a bump
+#   dry_run       work out and show the tag, create nothing
+#
+# Why this workflow starts Release.yml itself: a tag pushed with the built-in GITHUB_TOKEN does
+# not trigger other workflows, so the tag's own `push` trigger never fires. Dispatching the
+# release on the tag ref is the one cross-workflow start GITHUB_TOKEN is allowed to make, and it
+# means no personal access token has to be stored in this repository. (If a tag is instead
+# pushed by hand, Release.yml's `push` trigger fires as before.)
+#
+# Inputs reach the shell only through environment variables, never interpolated into a script.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'preview (vX.Y.Z-previewNNNN) or release (vX.Y.Z)'
+        type: choice
+        options: [ preview, release ]
+        default: preview
+      bump:
+        description: 'Part of the latest stable version to increase (ignored when version is set)'
+        type: choice
+        options: [ patch, minor, major ]
+        default: patch
+      version:
+        description: 'Optional explicit version X.Y.Z (no leading v). Overrides bump.'
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: 'Only show the tag that would be created'
+        type: boolean
+        default: false
+
+# Least privilege: contents to push the tag, actions to start the Release workflow on it, checks
+# to read main's CI results.
+permissions:
+  contents: write
+  actions: write
+  checks: read
+
+# Two people cannot cut a tag at once and race for the same number.
+concurrency:
+  group: create-release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Create release tag
+    runs-on: ubuntu-latest
+    # Releases are cut from main only; a run started from another branch does nothing.
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Work out the next tag
+        id: next
+        shell: pwsh
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch --tags --force --quiet
+          $arguments = @{ Tag = @(git tag --list); Bump = $env:BUMP }
+          if ($env:RELEASE_TYPE -eq 'preview') { $arguments['Prerelease'] = $true }
+          elseif ($env:RELEASE_TYPE -ne 'release') { throw "Unknown release type '$($env:RELEASE_TYPE)'." }
+          if (-not [string]::IsNullOrWhiteSpace($env:VERSION)) { $arguments['Version'] = $env:VERSION.Trim() }
+
+          $tag = & ./scripts/Get-NextReleaseTag.ps1 @arguments
+          # The script validates what it returns; check the final shape again before the value
+          # is used anywhere else.
+          if ($tag -notmatch '\Av\d+\.\d+\.\d+(-[A-Za-z]+\d+)?\z') { throw "Computed tag '$tag' is not a valid release tag." }
+
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "### Next release tag: ``$tag``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      # Do not tag a commit whose checks are failing or still running. Release.yml runs the gate
+      # again on the tag, but a tag cannot be taken back once the release publishes.
+      - name: Require main to be green
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          # This workflow's own job is a check run on the same commit and is still running, so it
+          # is left out of the count.
+          runs=$(gh api "repos/${REPOSITORY}/commits/${sha}/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name != "Create release tag")]')
+          total=$(jq 'length' <<<"$runs")
+          failing='select(.status != "completed" or (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral"))'
+          bad=$(jq "[.[] | ${failing}] | length" <<<"$runs")
+          echo "Checks on ${sha}: ${total} total, ${bad} not passing."
+          if [ "$total" -eq 0 ]; then
+            echo "::error::No check runs were found for ${sha}. Wait for CI on main to finish, then run this again."
+            exit 1
+          fi
+          if [ "$bad" -ne 0 ]; then
+            jq -r ".[] | ${failing} | \"  \(.name): \(.status) \(.conclusion)\"" <<<"$runs"
+            echo "::error::Main has checks that are failing or still running. Fix or wait, then run this again."
+            exit 1
+          fi
+
+      - name: Create and push the tag
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release ${TAG} (${RELEASE_TYPE}) created by the Create release tag workflow"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Start the Release workflow on the tag
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          gh workflow run Release.yml --ref "refs/tags/${TAG}"
+          {
+            echo "Created \`${TAG}\` on \`$(git rev-parse --short HEAD)\` and started the Release workflow on it."
+            echo "Follow it under Actions > Release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        shell: bash
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          echo "Dry run, would have created \`${TAG}\`. Nothing was changed." >> "$GITHUB_STEP_SUMMARY"
