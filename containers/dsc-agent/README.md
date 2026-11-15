@@ -27,6 +27,18 @@ docker build -f containers/dsc-agent/Dockerfile \
   -t dsc-pipelinerunner-agent:3.3.0 .
 ```
 
+The build asks the GitHub API for the dsc release asset, and anonymous calls from a shared host
+can be rate limited (`API rate limit exceeded`). To authenticate, pass a token as a BuildKit
+secret. It is mounted for the install step only and never lands in a layer or the image history
+(do not use `--build-arg` for it, which would). No scopes are needed; a read-only token is enough.
+The secret is optional.
+
+```bash
+export GITHUB_TOKEN=<token>
+docker build --secret id=github_token,env=GITHUB_TOKEN \
+  -f containers/dsc-agent/Dockerfile -t dsc-pipelinerunner-agent .
+```
+
 The base image is pinned by digest on the `FROM` line (Dependabot keeps it current). To use a
 different PowerShell image, edit that line. The container runs as the unprivileged user
 `runner`, so mount anything it must write to a path that user can write.
