@@ -97,6 +97,31 @@ Function Build-DatumConfiguration {
     # Load the DatumConfigurationScriptBlock function from the DatumConfigurationScriptBlock.ps1 file
     $scriptBlock = (Get-Command DatumConfigurationScriptBlock).ScriptBlock
 
+    # Resolve the manifest of the module this function is running from, so the runspace below
+    # can import that exact build. The runspace starts empty and would otherwise import
+    # 'Dsc.PipelineRunner' by name, resolving against PSModulePath — which is not necessarily
+    # the copy the caller imported (a side-by-side install, or a dev build imported by path).
+    # The resulting version skew surfaces as a confusing validation failure from
+    # Test-DatumConfiguration naming configuration keys the caller's Datum.yml has no reason
+    # to contain. $MyInvocation.MyCommand.Module is $null when this function is dot-sourced
+    # rather than imported (as the unit tests do), in which case we fall back to by-name import.
+    $runnerModulePath = $null
+    $runnerModule = $MyInvocation.MyCommand.Module
+
+    if ($runnerModule -and $runnerModule.Path) {
+        $runnerModulePath = $runnerModule.Path
+
+        # Prefer the manifest so the runspace gets the same version and exported surface.
+        if ([System.IO.Path]::GetExtension($runnerModulePath) -ne '.psd1') {
+            $manifestPath = [System.IO.Path]::ChangeExtension($runnerModulePath, '.psd1')
+            if ([System.IO.File]::Exists($manifestPath)) {
+                $runnerModulePath = $manifestPath
+            }
+        }
+
+        Write-Verbose "Pinning the compile runspace to the Dsc.PipelineRunner module at: $runnerModulePath"
+    }
+
     #
     # Run the following powershell in a seperate thread
 
@@ -109,7 +134,7 @@ Function Build-DatumConfiguration {
     # Create a PowerShell instance and attach the script block and runspace
     $powerShellInstance = [powershell]::Create()
     $powerShellInstance.Runspace = $runspace
-    $null = $powerShellInstance.AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath)
+    $null = $powerShellInstance.AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath).AddArgument($runnerModulePath)
 
     try {
         # Run the PowerShell script asynchronously and wait for completion

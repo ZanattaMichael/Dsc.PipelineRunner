@@ -327,6 +327,26 @@ recorded FAIL; error text in reports is single-line with secrets replaced by `[R
   `(result)`, `(nodeName)`, `(configurationFile)`), which parses both on its own and as an
   operand.
 
+- **The Datum compile runspace could load a different module build than the caller.**
+  `Build-DatumConfiguration` runs the compile step in a fresh runspace, which inherits
+  nothing from the caller's session and imported `Dsc.PipelineRunner` *by name* - resolving
+  against `PSModulePath` and picking whichever installed copy sorted highest. A session that
+  had imported a specific build (a dev build imported by path, or one of several side-by-side
+  installs) therefore validated and compiled its configuration with a different version. The
+  clearest symptom was `Test-DatumConfiguration` rejecting a valid `Datum.yml` and naming a
+  configuration key the caller had never heard of - for example the pre-rename
+  `LCMConfigSettings` - surfaced through `Build-DatumConfiguration` as
+  `Exception calling "EndInvoke" with "1" argument(s)`. `Build-DatumConfiguration` now
+  resolves the manifest of the module it is itself running from and passes it to the
+  runspace, which imports that exact file. When the function is dot-sourced rather than
+  imported as a module, the by-name import remains as a fallback.
+- **`Test-DatumConfiguration` gave no way to act on a missing settings block.** The
+  "does not contain the ... property" error named a key but not the file to add it to, and
+  not the module that ran the check - which is the piece of information a version mismatch
+  turns on. It now names the file, lists the entries the block needs, reports the version and
+  path of the `Dsc.PipelineRunner` that ran the validation, and says an older module is being
+  loaded when the block is already present in `Datum.yml`.
+
 Every issue in the repository carrying the `bug` label.
 
 - **#9 — Git clone was passing a boolean instead of the repository URL.**

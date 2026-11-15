@@ -77,6 +77,14 @@ Describe "Test-DatumConfiguration Function Tests" -Tag Unit, Runner, Configurati
             { Test-DatumConfiguration -Datum $datumConfig } | Should -Throw -ErrorId "*PipelineRunnerSettings*"
             Assert-MockCalled Write-Warning -Exactly 0
         }
+
+        It "should name the key to add and the module build that ran the check" {
+            $thrown = $null
+            try { Test-DatumConfiguration -Datum @{} } catch { $thrown = $_.Exception.Message }
+
+            $thrown | Should -Match "Add a 'PipelineRunnerSettings' block"
+            $thrown | Should -Match 'Dsc\.PipelineRunner'
+        }
     }
 
     Context "When Versions are Invalid" {
