@@ -45,18 +45,12 @@ Function Resolve-DscDatumProject {
 
     Write-Information "Processing node: $($NodeName.Name)" -Tags 'Dsc.PipelineRunner'
 
-    # Retrieve the NodeGroups for the current node and store them in an array
-
     Write-Verbose "Retrieved NodeGroups for node: $($NodeName.Name)"
 
-    # Create a hashtable to hold configuration data, including all nodes and the Datum structure itself
-    $ConfigurationData = @{
-        AllNodes = $AllNodes
-        Datum    = $Datum
-    }
     Write-Verbose "Configuration data hashtable created for node: $($NodeName.Name)"
 
-    # Access the AllNodes and Baseline properties from the configuration data
+    # The node as the Datum handlers see it: its project, plus every AllNodes entry other than
+    # the three configuration sections.
     $Node = @{ 
         Project = $NodeName.Name
         ProjectPresence = $ProjectType.name
@@ -65,7 +59,6 @@ Function Resolve-DscDatumProject {
     $AllNodes.Keys | Where-Object {$_ -notin ('parameters','variables','resources')} | ForEach-Object {
         $Node."$($_)" = $AllNodes[$_]
     }
-    $Baseline = $ConfigurationData.Datum.Baselines
 
     Write-Verbose "Accessed AllNodes and Baseline properties for node: $($NodeName.Name)"
 
@@ -110,18 +103,6 @@ Function Resolve-DscDatumProject {
     # Set the variables in the configuration
     $configuration.variables = $hashTable
 
-    <#
-    $configuration.resources | ForEach-Object {
-        $Resource = $_
-        $Resource.properties = $Resource.properties | ForEach-Object {
-            if ($_.Value | Test-InvokeCommandFilter) {
-                $_.Value | Invoke-ProtectedDatumAction
-            } else {
-                $_.Value
-            }
-        }
-    }
-    #>
     # Convert the configuration to YAML format and save it to the output file
     $configuration | ConvertTo-Yaml | Out-File -LiteralPath ([System.IO.Path]::Combine($OutputPath, "$nodeFileName.yml"))
     Write-Verbose "Configuration for node: $($NodeName.Name) has been converted to YAML and saved to file"

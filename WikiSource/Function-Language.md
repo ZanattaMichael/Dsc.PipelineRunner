@@ -134,6 +134,25 @@ Composed into a larger string:
       DestinationPath: $(variables('AppRoot'))\logs\$(variables('Environment')).log
 ```
 
+### Variable names
+
+Every variable is also available to the run as `$Name` and as `$env:Name` while the file runs
+(dots in a name become underscores). To keep a configuration from changing how the runner
+itself behaves, some names are refused:
+
+- **Reserved names fail the run before anything is applied**, naming the key: the runner's own
+  state (`parameters`, `variables`, `references`, `StopTaskProcessing`, ...), every
+  `*Preference` variable, and PowerShell's automatic variables (`Host`, `Error`, `input`, ...).
+  Rename the variable.
+- **Names that steer a child process are not exported to the environment** (a warning names the
+  variable): `PATH`, `PSModulePath`, `GIT_*`, `LD_*`, `DYLD_*`, `DSC_*`, proxy and TLS settings,
+  `SYSTEM_ACCESSTOKEN`. The variable is still available as `variables('Name')`.
+- **An environment variable that already exists is never overwritten** by a configuration
+  variable of the same name.
+- **A key that is not a valid variable name** (for example `my-key`) stays available through
+  `variables('my-key')`, but gets no `$Name` or `$env:` variable.
+- Exported variables are removed from the environment when the file finishes.
+
 In a condition:
 
 ```yaml
