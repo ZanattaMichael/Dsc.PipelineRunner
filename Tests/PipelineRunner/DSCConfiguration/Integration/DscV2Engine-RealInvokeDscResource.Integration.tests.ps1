@@ -39,6 +39,7 @@ Describe "DSC v2 environment lifecycle through a real Invoke-DscResource" -Tag I
         . (Get-FunctionPath 'Invoke-EngineAction.ps1').FullName
 
         . (Get-FunctionPath 'Start-DscRunner.ps1').FullName
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
         . (Get-FunctionPath 'GetDefaultValues.ps1').FullName
         . (Get-FunctionPath 'SetVariables.ps1').FullName
         . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName

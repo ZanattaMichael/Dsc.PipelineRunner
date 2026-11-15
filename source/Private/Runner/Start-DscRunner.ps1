@@ -153,6 +153,64 @@ function Start-DscRunner {
     $runError    = $null
     $runStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
+    # Secrets resolved for the resource currently being evaluated: credential passwords and any
+    # plain-string value under a sensitive property name. Engines and remote targets can echo
+    # their input back in an error, and an error message ends up in the log, the CSV and the
+    # JSON report, so every message passes through $safeText below before it is surfaced.
+    $secretValues = [System.Collections.Generic.List[string]]::new()
+
+    $collectSecrets = {
+        param($Table)
+        foreach ($entryKey in @($Table.Keys)) {
+            $entryValue = $Table[$entryKey]
+            if ($entryValue -is [System.Management.Automation.PSCredential]) {
+                $plain = $entryValue.GetNetworkCredential().Password
+                if ($plain.Length -ge 4) { $secretValues.Add($plain) }
+            }
+            elseif ($entryValue -is [securestring]) {
+                $plain = [System.Net.NetworkCredential]::new('', $entryValue).Password
+                if ($plain.Length -ge 4) { $secretValues.Add($plain) }
+            }
+            elseif ($entryValue -is [System.Collections.IDictionary]) {
+                & $collectSecrets $entryValue
+            }
+            elseif ($entryValue -is [System.Collections.IEnumerable] -and $entryValue -isnot [string]) {
+                $sensitiveList = Test-SensitivePropertyName -Name ([string]$entryKey)
+                foreach ($item in $entryValue) {
+                    if ($item -is [System.Collections.IDictionary]) { & $collectSecrets $item }
+                    elseif ($sensitiveList -and $item -is [string] -and $item.Length -ge 4) { $secretValues.Add($item) }
+                }
+            }
+            elseif ($entryValue -is [string] -and $entryValue.Length -ge 4 -and (Test-SensitivePropertyName -Name ([string]$entryKey))) {
+                $secretValues.Add($entryValue)
+            }
+        }
+    }
+
+    # Makes text safe to log and to record: known secrets are replaced (longest first, so a
+    # secret that contains another is replaced whole), control characters are escaped so one
+    # message cannot become several log lines, and the CI log-command prefixes (##vso[ and
+    # ##[ for Azure Pipelines, :: for GitHub Actions) are defused, since a resource name or a
+    # remote target's output is not trusted to be inert.
+    $safeText = {
+        param([AllowNull()][string]$Text)
+        if ([string]::IsNullOrEmpty($Text)) { return $Text }
+        $clean = $Text
+        if ($secretValues.Count -gt 0) {
+            foreach ($secret in ($secretValues | Sort-Object -Property Length -Descending)) {
+                $clean = $clean.Replace($secret, '[REDACTED]')
+                $jsonEscaped = ([string](ConvertTo-Json -InputObject $secret -Compress)).Trim('"')
+                if ($jsonEscaped -ne $secret) { $clean = $clean.Replace($jsonEscaped, '[REDACTED]') }
+            }
+        }
+        $clean = [regex]::Replace($clean, '[\x00-\x1F\x7F\u0085\u2028\u2029]', {
+            param($m)
+            switch ([int][char]$m.Value) { 10 { '\n' } 13 { '\r' } 9 { '\t' } default { '\x{0:X2}' -f [int][char]$m.Value } }
+        })
+        $clean = $clean -replace '##(?=vso\[|\[)', '#\#'
+        return ($clean -replace '^::', '\::')
+    }
+
     # Records a single resource outcome, replacing any earlier record for the same tuple so a
     # resource re-observed within a file does not double-count.
     $recordResult = {
@@ -175,7 +233,7 @@ function Start-DscRunner {
             ConfigurationFile = $FilePath
             Status            = $Status
             DurationMs        = $DurationMs
-            ErrorMessage      = $ErrorMessage
+            ErrorMessage      = (& $safeText $ErrorMessage)
             Target            = $recordedTarget
             ComputerName      = $recordedComputerName
             RebootRequired    = $recordedReboot
@@ -221,6 +279,18 @@ function Start-DscRunner {
 
     if ($pipelineKeyCount -eq 0) {
         throw "[Start-DscRunner] The configuration file '$FilePath' parsed to an empty document; expected at least a 'resources' section."
+    }
+
+    # Structural problems are reported by name, before any resource is touched, rather than as
+    # a binder error from deep inside a helper.
+    if ($null -eq $pipeline.resources) {
+        throw "[Start-DscRunner] The configuration file '$FilePath' has no 'resources' section (or it is empty); expected a list of resources."
+    }
+    foreach ($mappingSection in 'variables', 'parameters') {
+        $sectionValue = $pipeline.$mappingSection
+        if ($null -ne $sectionValue -and $sectionValue -isnot [System.Collections.IDictionary]) {
+            throw "[Start-DscRunner] The '$mappingSection' section of '$FilePath' must be a mapping of names to values, not a $($sectionValue.GetType().Name)."
+        }
     }
 
     # Clear any existing data in these hashtables before populating them
@@ -304,7 +374,29 @@ function Start-DscRunner {
             # Increment the task counter
             $TaskCounter++
 
+            # A resource that is not a mapping with a 'Module/Resource' type and a scalar name
+            # cannot be identified, ordered or reported. Record it as a failure and carry on,
+            # rather than letting it abort the file mid-run (after earlier resources may already
+            # have been applied) or run as something other than what was written.
+            $taskIsMalformed = ($null -eq $task) -or ($task -is [string]) -or ($task -is [ValueType]) -or
+                ($task.type -isnot [string]) -or ($task.type -notmatch '^[^/\s]+/[^/\s]+') -or
+                ($null -eq $task.name) -or ($task.name -is [System.Collections.IDictionary]) -or
+                (($task.name -is [System.Collections.IEnumerable]) -and ($task.name -isnot [string])) -or
+                [string]::IsNullOrWhiteSpace([string]$task.name)
+            if ($taskIsMalformed) {
+                $secretValues.Clear()
+                $malformedMessage = "Resource #$TaskCounter is malformed: 'type' must be a 'Module/Resource' string and 'name' a non-empty scalar."
+                & $recordResult ([string]$task.type) "<malformed resource #$TaskCounter>" 'FAIL' 0 $malformedMessage
+                Write-Error "[Start-DscRunner] $malformedMessage" -ErrorAction Continue
+                Write-Information ("[{0}/{1}] FAIL resource #{0} (malformed)" -f $TaskCounter, $totalTasks) -Tags $infoTag
+                continue
+            }
+
+            $secretValues.Clear()
             $resourceKey = "$($task.type)/$($task.name)"
+            # $resourceKey stays raw: it is the identity used by notify/using(). $logKey is the
+            # same text made safe to print.
+            $logKey = & $safeText $resourceKey
             $resourceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
             # Reset per-resource state so a value from a previous iteration is never
@@ -317,14 +409,14 @@ function Start-DscRunner {
             # who is calling it once properties are expanded below.
             $script:currentResourceKey = $resourceKey
 
-            Write-Verbose "Processing resource: [$resourceKey]"
+            Write-Verbose "Processing resource: [$logKey]"
 
             # If the StopTaskProcessing variable is set to true, stop processing the tasks
             if ($Script:StopTaskProcessing) {
                 Write-Verbose "Skipping resource due to 'Stop-TaskProcessing' being called:"
                 $runStatus = 'StoppedByRequest'
                 & $recordResult $task.type $task.name 'SKIP' 0 "Resource skipped due to 'Stop-TaskProcessing' cmdlet."
-                Write-Information ("[{0}/{1}] SKIP {2} (stopped by request)" -f $TaskCounter, $totalTasks, $resourceKey) -Tags $infoTag
+                Write-Information ("[{0}/{1}] SKIP {2} (stopped by request)" -f $TaskCounter, $totalTasks, $logKey) -Tags $infoTag
                 continue
             }
 
@@ -342,7 +434,7 @@ function Start-DscRunner {
                 $preConditionExpression = $task.preCondition
             }
             elseif ($null -ne $task.Condition) {
-                Write-Warning "[Start-DscRunner] Resource [$resourceKey] uses the deprecated 'condition' key; rename it to 'preCondition'."
+                Write-Warning "[Start-DscRunner] Resource [$logKey] uses the deprecated 'condition' key; rename it to 'preCondition'."
                 $preConditionExpression = $task.Condition
             }
 
@@ -367,17 +459,17 @@ function Start-DscRunner {
                     $conditionResult = & $sbCondition
                 }
                 catch {
-                    Write-Error "[Start-DscRunner] Could not evaluate the preCondition of resource [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
-                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $_.Exception.Message
-                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $resourceKey, $resourceStopwatch.ElapsedMilliseconds, $_.Exception.Message) -Tags $infoTag
+                    Write-Error "[Start-DscRunner] Could not evaluate the preCondition of resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds (& $safeText $_.Exception.Message)
+                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $_.Exception.Message)) -Tags $infoTag
                     continue
                 }
 
                 if ($conditionResult -eq $false) {
 
-                    Write-Verbose "Skipping resource due to preCondition: [$resourceKey]"
+                    Write-Verbose "Skipping resource due to preCondition: [$logKey]"
                     & $recordResult $task.type $task.name 'SKIP' $resourceStopwatch.ElapsedMilliseconds "Resource skipped due to preCondition {$preConditionExpression}."
-                    Write-Information ("[{0}/{1}] SKIP {2} (preCondition)" -f $TaskCounter, $totalTasks, $resourceKey) -Tags $infoTag
+                    Write-Information ("[{0}/{1}] SKIP {2} (preCondition)" -f $TaskCounter, $totalTasks, $logKey) -Tags $infoTag
                     continue
 
                 }
@@ -416,13 +508,17 @@ function Start-DscRunner {
                     $resolvedResourceCredential = Invoke-Action -Hook Credential -Name $credentialActionName -Context $credentialContext
                     $targetPropertyName = if (-not [string]::IsNullOrWhiteSpace([string]$credentialContext.propertyName)) { [string]$credentialContext.propertyName } else { 'Credential' }
                     $Property[$targetPropertyName] = $resolvedResourceCredential
-                    Write-Verbose "Resolved resourceCredential via Credential action '$credentialActionName' into property '$targetPropertyName' for resource: [$resourceKey]"
+                    Write-Verbose "Resolved resourceCredential via Credential action '$credentialActionName' into property '$targetPropertyName' for resource: [$logKey]"
                 }
+
+                # Everything secret about this resource is now known; from here on, any message
+                # that mentions it is scrubbed by $safeText.
+                & $collectSecrets $Property
             }
             catch {
-                Write-Error "[Start-DscRunner] Could not resolve the properties of resource [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
-                & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $_.Exception.Message
-                Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $resourceKey, $resourceStopwatch.ElapsedMilliseconds, $_.Exception.Message) -Tags $infoTag
+                Write-Error "[Start-DscRunner] Could not resolve the properties of resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+                & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds (& $safeText $_.Exception.Message)
+                Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $_.Exception.Message)) -Tags $infoTag
                 continue
             }
 
@@ -431,6 +527,17 @@ function Start-DscRunner {
             # objects are cached per (action, computer, credential) so resources sharing a target
             # reuse one connection; 'Local' never invokes the Target hook at all, so an
             # unmodified configuration's local-only execution path is untouched.
+            # 'target' must be a mapping (action / computerName / credential). A scalar such as
+            # `target: WinRM` has no .action, which would silently fall back to Local and apply a
+            # resource meant for a remote host to the machine running the pipeline.
+            if ($null -ne $task.target -and ($task.target -is [string] -or $task.target -is [ValueType] -or $task.target -is [System.Collections.IList])) {
+                $targetShapeMessage = "The 'target' of resource [$logKey] must be a mapping (action, computerName, credential), not a $($task.target.GetType().Name)."
+                Write-Error "[Start-DscRunner] $targetShapeMessage" -ErrorAction Continue
+                & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $targetShapeMessage
+                Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $targetShapeMessage)) -Tags $infoTag
+                continue
+            }
+
             $targetAction = if ($task.target -and -not [string]::IsNullOrWhiteSpace([string]$task.target.action)) { [string]$task.target.action } else { $defaultTargetAction }
 
             if ($targetAction -ne 'Local') {
@@ -441,6 +548,7 @@ function Start-DscRunner {
                         $tCred = $task.target.credential
                         $tCredAction = if (-not [string]::IsNullOrWhiteSpace([string]$tCred.action)) { [string]$tCred.action } else { 'Environment' }
                         $targetCredential = Invoke-Action -Hook Credential -Name $tCredAction -Context $tCred
+                        if ($targetCredential -is [System.Management.Automation.PSCredential]) { & $collectSecrets @{ TargetCredential = $targetCredential } }
                         # Key the session cache on every non-secret credential setting (user name,
                         # vault, variable names...), not just Name/UserNameVariable: two resources
                         # on one host with different Static or SecretManagement identities must not
@@ -471,9 +579,9 @@ function Start-DscRunner {
                     $session = $sessionCache[$sessionCacheKey]
                 }
                 catch {
-                    Write-Error "[Start-DscRunner] Could not establish the '$targetAction' target for resource [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
-                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $_.Exception.Message
-                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $resourceKey, $resourceStopwatch.ElapsedMilliseconds, $_.Exception.Message) -Tags $infoTag
+                    Write-Error "[Start-DscRunner] Could not establish the '$targetAction' target for resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds (& $safeText $_.Exception.Message)
+                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $_.Exception.Message)) -Tags $infoTag
                     continue
                 }
             }
@@ -497,12 +605,12 @@ function Start-DscRunner {
             # error, record it as a failed resource, and move on to the next task.
             try {
                 $result = Invoke-EngineAction -Method 'Test' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
-                Write-Verbose "Executed 'Test' method for DSC resource: [$resourceKey]"
+                Write-Verbose "Executed 'Test' method for DSC resource: [$logKey]"
             }
             catch {
-                Write-Error "[Start-DscRunner] 'Test' method failed for resource [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
-                & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $_.Exception.Message
-                Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $resourceKey, $resourceStopwatch.ElapsedMilliseconds, $_.Exception.Message) -Tags $infoTag
+                Write-Error "[Start-DscRunner] 'Test' method failed for resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+                & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds (& $safeText $_.Exception.Message)
+                Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $_.Exception.Message)) -Tags $infoTag
                 # Skip Set/Get for this resource and continue with the remaining tasks
                 continue
             }
@@ -515,19 +623,19 @@ function Start-DscRunner {
             $neededChange = -not $result.InDesiredState
             $forcedByNotify = ($Mode -eq "Set") -and $script:pendingNotifyRefresh.Contains($resourceKey)
             if ($forcedByNotify -and -not $neededChange) {
-                Write-Verbose "Resource forced to re-run Set() by a notify from a changed resource: [$resourceKey]"
+                Write-Verbose "Resource forced to re-run Set() by a notify from a changed resource: [$logKey]"
             }
 
             # If not in the desired state and Mode is 'Set', execute the 'Set' method to apply changes
             if ($result.InDesiredState -and -not $forcedByNotify) {
-                Write-Verbose "Resource is in the desired state: [$resourceKey]"
+                Write-Verbose "Resource is in the desired state: [$logKey]"
                 $resourceStatus = 'OK'
             }
             elseif ($Mode -eq "Set") {
 
                 try {
                     $result = Invoke-EngineAction -Method 'Set' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
-                    Write-Verbose "Executed 'Set' method to make changes: [$resourceKey]"
+                    Write-Verbose "Executed 'Set' method to make changes: [$logKey]"
                     $resourceStatus = 'OK'
 
                     # #57 §3: reboot handling. A remote target restarts itself and waits for
@@ -538,7 +646,7 @@ function Start-DscRunner {
                     # and stops the rest of the file unless the policy explicitly says to ignore it.
                     if ($result.RebootRequired) {
                         if ($session -and $session.IsRemote) {
-                            Write-Information "Reboot required on remote target [$($session.ComputerName)] after resource [$resourceKey]; restarting and waiting..." -Tags $infoTag
+                            Write-Information "Reboot required on remote target [$($session.ComputerName)] after resource [$logKey]; restarting and waiting..." -Tags $infoTag
                             $restartParams = @{ ComputerName = $session.ComputerName; Wait = $true; Force = $true; ErrorAction = 'Stop' }
                             if ($task.target.credential -and $session.PSSession -and $session.PSSession.Credential) {
                                 $restartParams.Credential = $session.PSSession.Credential
@@ -547,11 +655,11 @@ function Start-DscRunner {
                             Write-Verbose "Remote target [$($session.ComputerName)] is back; continuing."
                         }
                         elseif ($rebootPolicy -eq 'Ignore') {
-                            Write-Information "Resource [$resourceKey] requires a reboot; PipelineRunnerSettings.Reboot is 'Ignore', continuing without restarting." -Tags $infoTag
+                            Write-Information "Resource [$logKey] requires a reboot; PipelineRunnerSettings.Reboot is 'Ignore', continuing without restarting." -Tags $infoTag
                         }
                         else {
                             $resourceStatus = 'FAIL'
-                            $resourceError = "Resource [$resourceKey] requires a reboot to complete, and the local host cannot safely restart itself mid-run. Set PipelineRunnerSettings.Reboot: Ignore to continue without restarting, or target this resource at a remote computer (#57 §4) to have the runner restart it and wait automatically."
+                            $resourceError = "Resource [$logKey] requires a reboot to complete, and the local host cannot safely restart itself mid-run. Set PipelineRunnerSettings.Reboot: Ignore to continue without restarting, or target this resource at a remote computer (#57 §4) to have the runner restart it and wait automatically."
                             Write-Error "[Start-DscRunner] $resourceError" -ErrorAction Continue
                             $script:StopTaskProcessing = $true
                         }
@@ -561,14 +669,14 @@ function Start-DscRunner {
                     # -ErrorAction Continue keeps this non-terminating even when a caller
                     # runs under $ErrorActionPreference='Stop' (e.g. an advanced-function
                     # wrapper), so one failed 'Set' does not abort the whole run.
-                    Write-Error "[Start-DscRunner] Failed to apply changes with 'Set' method: [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
+                    Write-Error "[Start-DscRunner] Failed to apply changes with 'Set' method: [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
                     $resourceStatus = 'FAIL'
-                    $resourceError = $_.Exception.Message
+                    $resourceError = (& $safeText $_.Exception.Message)
                 }
             }
             else {
                 # Drift detected in Test mode: the resource is not in the desired state.
-                Write-Verbose "Change needed, but mode is not set to 'Set': [$resourceKey]"
+                Write-Verbose "Change needed, but mode is not set to 'Set': [$logKey]"
                 $resourceStatus = 'FAIL'
                 $resourceError = $result.Message
             }
@@ -578,7 +686,7 @@ function Start-DscRunner {
             # propagates a forced refresh onward to whatever this resource itself notifies.
             if ($neededChange -and $resourceStatus -eq 'OK' -and $script:notifyDeclarations.Contains($resourceKey)) {
                 foreach ($notifyTarget in $script:notifyDeclarations[$resourceKey]) {
-                    Write-Verbose "Resource [$resourceKey] changed; forcing re-run of notified resource [$notifyTarget]"
+                    Write-Verbose "Resource [$logKey] changed; forcing re-run of notified resource [$notifyTarget]"
                     $script:pendingNotifyRefresh[$notifyTarget] = $true
                 }
             }
@@ -599,9 +707,9 @@ function Start-DscRunner {
                     $postConditionResult = & $sbPostCondition
                 }
                 catch {
-                    Write-Error "[Start-DscRunner] Could not evaluate the postCondition of resource [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
+                    Write-Error "[Start-DscRunner] Could not evaluate the postCondition of resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
                     $resourceStatus = 'FAIL'
-                    $resourceError = $_.Exception.Message
+                    $resourceError = (& $safeText $_.Exception.Message)
                     $postConditionResult = $null
                 }
                 finally {
@@ -609,7 +717,7 @@ function Start-DscRunner {
                 }
 
                 if ($postConditionResult -eq $false) {
-                    Write-Verbose "Resource failed postCondition: [$resourceKey]"
+                    Write-Verbose "Resource failed postCondition: [$logKey]"
                     $resourceStatus = 'FAIL'
                     $resourceError = "Resource failed postCondition {$($task.postCondition)}."
                 }
@@ -636,16 +744,18 @@ function Start-DscRunner {
                 # Store the engine's raw current-state output so downstream reference
                 # expansion sees exactly the same shape it did before the engine seam.
                 $output_var = $getResult.Raw
-                Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$resourceKey]"
+                Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$logKey]"
             }
             catch {
-                Write-Error "[Start-DscRunner] 'Get' method failed for resource [$resourceKey]: $($_.Exception.Message)" -ErrorAction Continue
+                Write-Error "[Start-DscRunner] 'Get' method failed for resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
                 $output_var = $null
             }
 
             # Store the output of the 'Get' operation in a reference table for later use
-            $references.Add($task.name, $output_var)
-            Write-Verbose "Stored output of 'Get' operation in references table for resource: [$resourceKey]"
+            # Indexer, not Add(): two resources may share a name across different types, and a
+            # duplicate key must not abort the rest of the file.
+            $references[$task.name] = $output_var
+            Write-Verbose "Stored output of 'Get' operation in references table for resource: [$logKey]"
 
             # notify/using(): store the same output keyed by the full "Type/Name" identity, so
             # using() can read it from a resource this one notifies.
@@ -654,7 +764,7 @@ function Start-DscRunner {
             # Record the single, deduplicated outcome for this resource and log one line.
             $resourceStopwatch.Stop()
             & $recordResult $task.type $task.name $resourceStatus $resourceStopwatch.ElapsedMilliseconds $resourceError
-            Write-Information ("[{0}/{1}] {2} {3} ({4}ms)" -f $TaskCounter, $totalTasks, $resourceStatus, $resourceKey, $resourceStopwatch.ElapsedMilliseconds) -Tags $infoTag
+            Write-Information ("[{0}/{1}] {2} {3} ({4}ms)" -f $TaskCounter, $totalTasks, $resourceStatus, $logKey, $resourceStopwatch.ElapsedMilliseconds) -Tags $infoTag
 
         }
     }
@@ -662,8 +772,8 @@ function Start-DscRunner {
         # An unexpected exception aborted the loop. Record the run status so the report,
         # written from the finally block below, reflects the partial results.
         $runStatus = 'AbortedByException'
-        $runError = $_.Exception.Message
-        Write-Error "[Start-DscRunner] Run aborted by an unexpected error: $($_.Exception.Message)" -ErrorAction Continue
+        $runError = (& $safeText $_.Exception.Message)
+        Write-Error "[Start-DscRunner] Run aborted by an unexpected error: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
     }
     finally {
 
@@ -672,6 +782,13 @@ function Start-DscRunner {
         # This file is finished, so nodeName() / configurationFile() must stop answering for it.
         $script:currentNodeName          = $null
         $script:currentConfigurationFile = $null
+
+        # Variables exported to the process environment for this file's resources must not
+        # outlive it: they would be inherited by every later child process, and by the next file.
+        foreach ($exportedName in @($script:RunnerExportedEnv)) {
+            Remove-Item -Path "env:$exportedName" -ErrorAction SilentlyContinue
+        }
+        if ($script:RunnerExportedEnv) { $script:RunnerExportedEnv.Clear() }
 
         # #57 §4: close every session this run opened, regardless of how the run ended.
         foreach ($cachedSession in $sessionCache.Values) {
@@ -709,20 +826,43 @@ function Start-DscRunner {
             $csvPath  = [System.IO.Path]::Combine($ReportPath, ("{0}.csv" -f $nodeName))
             $jsonPath = [System.IO.Path]::Combine($ReportPath, ("{0}.report.json" -f $nodeName))
 
-            $results | Export-Csv -Path $csvPath -NoTypeInformation
+            # The report is written from this finally block, so a failure to write it must never
+            # replace or lose the run result (a throw from here would discard the returned
+            # object and skip every remaining node, after resources may already have been
+            # applied). Report the problem and carry on.
+            try {
+                # CSV cells that begin with = + - @ (or a tab / carriage return) are executed as
+                # formulas by spreadsheet applications, and a resource name or an error message
+                # relayed from a remote target is not trusted. Neutralise them in the CSV only;
+                # the JSON report and the returned objects keep the original text. -LiteralPath
+                # because a node file name such as 'node[1].yml' is otherwise read as a wildcard.
+                $csvRows = foreach ($record in $results) {
+                    $row = [ordered]@{}
+                    foreach ($column in $record.PSObject.Properties) {
+                        $cell = $column.Value
+                        if ($cell -is [string] -and $cell -match '^[=+\-@\t\r]') { $cell = "'" + $cell }
+                        $row[$column.Name] = $cell
+                    }
+                    [pscustomobject]$row
+                }
+                $csvRows | Export-Csv -LiteralPath $csvPath -NoTypeInformation
 
-            $reportDocument = [pscustomobject]@{
-                ConfigurationFile = $FilePath
-                Status            = $runStatus
-                TotalResources    = $results.Count
-                PassCount         = $passCount
-                FailCount         = $failCount
-                SkipCount         = $skipCount
-                DurationSeconds   = [math]::Round($runStopwatch.Elapsed.TotalSeconds, 3)
-                ErrorMessage      = $runError
-                Results           = $results
+                $reportDocument = [pscustomobject]@{
+                    ConfigurationFile = $FilePath
+                    Status            = $runStatus
+                    TotalResources    = $results.Count
+                    PassCount         = $passCount
+                    FailCount         = $failCount
+                    SkipCount         = $skipCount
+                    DurationSeconds   = [math]::Round($runStopwatch.Elapsed.TotalSeconds, 3)
+                    ErrorMessage      = $runError
+                    Results           = $results
+                }
+                $reportDocument | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath
             }
-            $reportDocument | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath
+            catch {
+                Write-Error "[Start-DscRunner] Could not write the report for '$FilePath' to '$ReportPath': $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+            }
         }
 
         # Print the summary block.
@@ -733,7 +873,7 @@ function Start-DscRunner {
         Write-Information "Results Summary:" -Tags $infoTag
 
         foreach ($record in $results) {
-            Write-Information ("[{0}] {1}/{2} - Result: [{3}]" -f $record.NodeName, $record.ResourceType, $record.InstanceName, $record.Status) -Tags $infoTag
+            Write-Information ("[{0}] {1}/{2} - Result: [{3}]" -f (& $safeText $record.NodeName), (& $safeText $record.ResourceType), (& $safeText $record.InstanceName), $record.Status) -Tags $infoTag
         }
 
         Write-Information "Total Tasks Executed: $($results.Count)" -Tags $infoTag
@@ -746,7 +886,7 @@ function Start-DscRunner {
         if ($failedResources.Count -gt 0) {
             Write-Information "Failed Resources:" -Tags $infoTag
             foreach ($failed in $failedResources) {
-                Write-Information ("  {0}/{1} [{2}] - {3}" -f $failed.ResourceType, $failed.InstanceName, $failed.ConfigurationFile, $failed.ErrorMessage) -Tags $infoTag
+                Write-Information ("  {0}/{1} [{2}] - {3}" -f (& $safeText $failed.ResourceType), (& $safeText $failed.InstanceName), (& $safeText $failed.ConfigurationFile), $failed.ErrorMessage) -Tags $infoTag
             }
         }
 

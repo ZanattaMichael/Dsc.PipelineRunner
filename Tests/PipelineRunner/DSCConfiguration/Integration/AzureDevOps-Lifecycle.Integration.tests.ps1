@@ -61,6 +61,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         . (Get-FunctionPath 'Invoke-DscExecutable.ps1').FullName
 
         . (Get-FunctionPath 'Start-DscRunner.ps1').FullName
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
         . (Get-FunctionPath 'GetDefaultValues.ps1').FullName
         . (Get-FunctionPath 'SetVariables.ps1').FullName
         . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
