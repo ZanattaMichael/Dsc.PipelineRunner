@@ -31,6 +31,18 @@ Function Resolve-DscDatumProject {
         [Parameter(Mandatory=$true)]
         [Object]$AllNodes
     )
+    # The node name becomes a file name under the output directory. It comes from the file name
+    # of a node definition in the configuration repository, which on Linux may legally contain a
+    # backslash, so '..\..\outside' would write the compiled file outside the cache directory.
+    # Refuse anything that is not a plain file name before doing any work.
+    $nodeFileName = [string]$NodeName.Name
+    if ([string]::IsNullOrWhiteSpace($nodeFileName) -or
+        $nodeFileName -notmatch '^[^/\\:*?"<>|\x00-\x1F]+$' -or
+        $nodeFileName.StartsWith('.') -or $nodeFileName -match '\.\.' -or
+        $nodeFileName -ne $nodeFileName.Trim()) {
+        throw "[Resolve-DscDatumProject] The node name '$($nodeFileName -replace '[\x00-\x1F]', '?')' is not a valid file name (path separators, wildcard characters, '..' and a leading '.' are not allowed)."
+    }
+
     Write-Information "Processing node: $($NodeName.Name)" -Tags 'Dsc.PipelineRunner'
 
     # Retrieve the NodeGroups for the current node and store them in an array
@@ -111,7 +123,7 @@ Function Resolve-DscDatumProject {
     }
     #>
     # Convert the configuration to YAML format and save it to the output file
-    $configuration | ConvertTo-Yaml | Out-File "$OutputPath\$($NodeName.Name).yml"
+    $configuration | ConvertTo-Yaml | Out-File -LiteralPath ([System.IO.Path]::Combine($OutputPath, "$nodeFileName.yml"))
     Write-Verbose "Configuration for node: $($NodeName.Name) has been converted to YAML and saved to file"
     
 

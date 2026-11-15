@@ -54,6 +54,13 @@ param(
 # only the first offending resource was ever reported.
 $allErrors = [System.Collections.Generic.List[string]]::new()
 
+# Get-DscResource is by far the most expensive call in this rule, and a configuration usually has
+# many resources of a handful of types. Look each module/resource pair up once per invocation. The
+# cache is local to this run of the rule (one configuration file), so it can never serve another
+# node's or another run's answer, and a lookup that finds nothing is not cached, so the
+# not-found diagnostic is produced exactly as before.
+$dscResourceLookup = @{}
+
 Write-Host "[Test-ResourcesForIncorrectProperties] Testing Resources for Incorrect Properties:" -ForegroundColor Green
 
 # Iterate Through each of the Resources
@@ -92,8 +99,15 @@ ForEach ($task in $PipelineResources)
     $module = $task.type.Split("/")[0]
     $resourceType = $task.type.Split("/")[1]
 
-    # Perform a lookup of the resource:
-    $resource = Get-DscResource -Name $resourceType -Module $module
+    # Perform a lookup of the resource (once per distinct module/resource pair):
+    $lookupKey = "$module/$resourceType"
+    if ($dscResourceLookup.ContainsKey($lookupKey)) {
+        $resource = $dscResourceLookup[$lookupKey]
+    }
+    else {
+        $resource = Get-DscResource -Name $resourceType -Module $module
+        if ($null -ne $resource) { $dscResourceLookup[$lookupKey] = $resource }
+    }
 
     # If the resource is not found, report an error and skip its property checks
     if ($null -eq $resource) {
@@ -111,18 +125,11 @@ ForEach ($task in $PipelineResources)
         if ($Property -notin $resource.Properties.Name) {
             $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] does not exist in resource [$resourceType] in module [$module]")
         }
-        # Ensure that the property is the correct type to the resource.
-        $resourceProperty       = $resource.Properties | Where-Object { $_.Name -eq $property }
-        $resourcePropertyType   = $resourceProperty.PropertyType -replace "(\[)|(\])",""
+        # Find the schema entry for this property. A plain loop: a Where-Object pipeline per
+        # configured property is measurably slower on a resource with a large schema.
+        $resourceProperty = foreach ($candidate in $resource.Properties) { if ($candidate.Name -eq $property) { $candidate } }
 
         $configurationPropertyValue  = $properties[$property]
-
-        <#
-        # If the property is not the correct type, report an error
-        if ($configurationPropertyValue.GetType().Name -ne $resourcePropertyType) {
-            $allErrors.Add("[Dsc.PipelineRunner] Property [$($property)] is not the correct type in resource [$resourceType] in module [$module]")
-        }
-        #>
 
         # If the ResourceProperty is mandatory, ensure that the propertyValue is not null
         if ($resourceProperty.IsMandatory -and $null -eq $configurationPropertyValue) {

@@ -48,6 +48,13 @@ if ([string]$Context.Engine -eq 'DscV2') {
     throw "[Actions/Target/SSH] SSH remoting requires the DscV3 engine (there is no CIM-over-SSH transport for DscV2/Invoke-DscResource); the resolved engine was 'DscV2'."
 }
 
+# The host name is handed to ssh, which reads a leading '-' as an option (-oProxyCommand=...).
+# A host name starts with a letter, digit, underscore or '[' (an IPv6 literal); user@host and
+# host:port forms are allowed after that.
+if ([string]$Context.ComputerName -notmatch '^[A-Za-z0-9_\[][A-Za-z0-9._:@\[\]%+-]*$') {
+    throw "[Actions/Target/SSH] 'ComputerName' is not a valid host name: it must start with a letter, digit, underscore or '[' and may not contain spaces or shell characters."
+}
+
 $sessionParams = @{ HostName = [string]$Context.ComputerName; SSHTransport = $true }
 if ($Context.UserName)    { $sessionParams.UserName = [string]$Context.UserName }
 if ($Context.KeyFilePath) { $sessionParams.KeyFilePath = [string]$Context.KeyFilePath }

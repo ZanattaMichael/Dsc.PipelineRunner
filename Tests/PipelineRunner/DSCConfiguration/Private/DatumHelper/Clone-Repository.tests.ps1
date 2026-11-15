@@ -55,6 +55,22 @@ Describe 'Clone-Repository Function Tests' {
             $cloneCall | Should -Not -Contain 'True'
         }
 
+        It 'Should fetch only the latest commit when no revision is pinned' {
+            Clone-Repository -DatumURLConfig 'https://example.com/repo.git'
+
+            $cloneCall = @($script:gitCalls | Where-Object { $_[0] -eq 'clone' })[0]
+            $depthAt = [array]::IndexOf($cloneCall, '--depth')
+            $depthAt | Should -BeGreaterThan 0
+            $cloneCall[$depthAt + 1] | Should -Be '1'
+        }
+
+        It 'Should keep full history when a revision is pinned, so the revision can be checked out' {
+            Clone-Repository -DatumURLConfig 'https://example.com/repo.git' -Revision 'v1.2.3'
+
+            $cloneCall = @($script:gitCalls | Where-Object { $_[0] -eq 'clone' })[0]
+            $cloneCall | Should -Not -Contain '--depth'
+        }
+
         It 'Should clone into an explicit -DestinationPath when supplied' {
             $destination = Join-Path $TestDrive 'explicit-destination'
 

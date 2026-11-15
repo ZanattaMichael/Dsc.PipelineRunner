@@ -76,9 +76,25 @@ function Clone-Repository
     # Clone the repository into the destination directory. Pass the URL *string* - an
     # earlier revision passed the boolean result of a URL validity check, so git received
     # the literal 'True' as its remote (#9). --single-branch keeps the fetch minimal.
-    $cloneOutput = git clone --single-branch $DatumURLConfig $DestinationPath
+    #
+    # Credentials embedded in the URL are never printed: $safeUrl is used in every message, and
+    # the raw user-info is replaced in git's own output (git can echo the URL it was given).
+    # The quoted '--' ends option parsing, so a URL can never be read as a git option.
+    $safeUrl = Hide-GitUrlCredential -Url $DatumURLConfig
+    $urlUserInfo = if ($DatumURLConfig -match '^[A-Za-z][A-Za-z0-9+.-]*://([^/@\s]+)@') { $Matches[1] } else { $null }
+    $hideInOutput = { param($Text) $t = ($Text -join ' '); if ($urlUserInfo) { $t = $t.Replace($urlUserInfo, '***') }; $t }
+
+    #
+    # The clone is a throwaway working copy (it is registered for deletion when the run ends and
+    # only its files are read), so when no revision is pinned there is no reason to download
+    # history: --depth 1 fetches just the tip commit. A pinned tag, branch or SHA may be older
+    # than the tip, so a pinned clone keeps full history and is checked out below.
+    $cloneArguments = @('clone', '--single-branch')
+    if ([string]::IsNullOrWhiteSpace($Revision)) { $cloneArguments += @('--depth', '1') }
+
+    $cloneOutput = git @cloneArguments '--' $DatumURLConfig $DestinationPath
     if ($LASTEXITCODE -ne 0) {
-        throw "[Clone-Repository] git clone of '$DatumURLConfig' failed with exit code $LASTEXITCODE. $cloneOutput"
+        throw "[Clone-Repository] git clone of '$safeUrl' failed with exit code $LASTEXITCODE. $(& $hideInOutput $cloneOutput)"
     }
 
     # Pin to the requested revision, if any. This lives here (rather than in each Source
@@ -89,7 +105,7 @@ function Clone-Repository
         # function would consume instead of forwarding to git.
         $checkoutOutput = git -C $DestinationPath checkout --quiet $Revision '--'
         if ($LASTEXITCODE -ne 0) {
-            throw "[Clone-Repository] Could not check out revision '$Revision' from '$DatumURLConfig'. $checkoutOutput"
+            throw "[Clone-Repository] Could not check out revision '$Revision' from '$safeUrl'. $(& $hideInOutput $checkoutOutput)"
         }
     }
 
@@ -98,11 +114,11 @@ function Clone-Repository
     # A full SHA is an exact pin: verify the clone actually landed on it.
     if ((-not [string]::IsNullOrWhiteSpace($Revision)) -and ($Revision -match '^[0-9a-fA-F]{40}$')) {
         if ($headSha -ne $Revision) {
-            throw "[Clone-Repository] Revision verification failed for '$DatumURLConfig': expected HEAD '$Revision' but the clone is at '$headSha'."
+            throw "[Clone-Repository] Revision verification failed for '$safeUrl': expected HEAD '$Revision' but the clone is at '$headSha'."
         }
     }
 
-    Write-Information -MessageData "[Clone-Repository] Cloned '$DatumURLConfig' at commit '$headSha' into '$DestinationPath'." -Tags 'Dsc.PipelineRunner'
+    Write-Information -MessageData "[Clone-Repository] Cloned '$safeUrl' at commit '$headSha' into '$DestinationPath'." -Tags 'Dsc.PipelineRunner'
 
     return $DestinationPath
 }
