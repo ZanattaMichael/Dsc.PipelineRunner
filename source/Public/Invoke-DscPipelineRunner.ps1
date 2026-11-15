@@ -124,7 +124,10 @@ function Invoke-DscPipelineRunner {
         # and, more recently, longer (84-character) ones, and the exact format is not a
         # documented contract. Reject only obviously malformed input.
         [Parameter(Mandatory, ParameterSetName='PAT')]
-        [ValidatePattern('^[A-Za-z0-9]{20,120}$')]
+        # \A..\z, not ^..$: '$' also matches before a trailing newline, which would let a token with a
+        # stray newline through. ErrorMessage replaces the default binder text, which quotes the
+        # rejected argument - and so would print a malformed token into the pipeline log.
+        [ValidatePattern('\A[A-Za-z0-9]{20,120}\z', ErrorMessage = 'The value supplied for -PATToken is not in the expected format (20 to 120 letters and digits).')]
         [String]$PATToken,
 
         # Optional directory to write the run report into.
@@ -175,7 +178,7 @@ function Invoke-DscPipelineRunner {
         $isAbsoluteUri = [System.Uri]::TryCreate($ConfigurationSourcePath, [System.UriKind]::Absolute, [ref]$uri) -and
                          $uri.Scheme -in @('http', 'https', 'ssh', 'git', 'ftp')
 
-        if ($isAbsoluteUri -or $ConfigurationSourcePath -match '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+:(?!//).+$') {
+        if ($isAbsoluteUri -or $ConfigurationSourcePath -match '^[A-Za-z0-9_][A-Za-z0-9._%+-]*@[A-Za-z0-9][A-Za-z0-9.-]*:(?!//).+$') {
 
             # $JITToken is read from this scope by the module's `git` wrapper (dynamic scoping)
             # to build the HTTP Authorization header. Normalise it to a SecureString first, and
@@ -196,7 +199,7 @@ function Invoke-DscPipelineRunner {
         }
         # Else. Throw an error for bad data.
         else {
-            throw "[Invoke-DscPipelineRunner] Invalid ConfigurationSourcePath: $ConfigurationSourcePath"
+            throw "[Invoke-DscPipelineRunner] Invalid ConfigurationSourcePath: $(Hide-GitUrlCredential -Url $ConfigurationSourcePath)"
         }
 
         #

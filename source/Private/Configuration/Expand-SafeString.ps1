@@ -33,6 +33,9 @@ The raw string from the configuration.
 function ConvertTo-ValidatableExpression {
     param([string] $Text)
 
+    # A static member call needs the '::' token, so text without one has nothing to rewrite.
+    if ($Text.IndexOf('::') -lt 0) { return $Text }
+
     $pure = 'IsNullOrEmpty', 'IsNullOrWhiteSpace'
     while ($true) {
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$null, [ref]$null)

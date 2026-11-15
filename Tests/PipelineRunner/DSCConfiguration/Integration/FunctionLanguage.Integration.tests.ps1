@@ -32,6 +32,7 @@ Describe "the extended function language through a real runner pass" -Tag Integr
         . (Get-FunctionPath 'Invoke-EngineAction.ps1').FullName
 
         . (Get-FunctionPath 'Start-DscRunner.ps1').FullName
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
         . (Get-FunctionPath 'GetDefaultValues.ps1').FullName
         . (Get-FunctionPath 'SetVariables.ps1').FullName
         . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
@@ -47,8 +48,6 @@ Describe "the extended function language through a real runner pass" -Tag Integr
         . (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
         . (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
 
-        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
-        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
 
         # Dot-sourcing each accessor defines its alias in this scope, which is what the script
         # block built from a condition resolves. The two internal helpers are what the variadic

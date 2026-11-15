@@ -9,6 +9,8 @@ Describe "Execution engine contract" -Tag Unit, Engine {
         . (Get-FunctionPath 'DscMethodResult.ps1').FullName
         . (Get-FunctionPath 'ConvertTo-DscMethodResult.ps1').FullName
         . (Get-FunctionPath 'Invoke-DscExecutable.ps1').FullName
+        # The DscV3 engine redacts and scrubs secrets using Test-SensitivePropertyName.
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
 
         $script:DscV2Path = (Get-FunctionPath 'DscV2.ps1').FullName
         $script:DscV3Path = (Get-FunctionPath 'DscV3.ps1').FullName

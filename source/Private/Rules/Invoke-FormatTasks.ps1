@@ -16,7 +16,6 @@ Function Invoke-FormatTasks {
 
     if (-not (Test-Path -Path $TasksDirectoryPath)) {
         Throw "[Format-Tasks] No Tasks to Process in Directory: $TasksDirectoryPath"
-        return $Tasks
     }
 
     $ScriptFiles = Get-ChildItem -Path $TasksDirectoryPath -Filter "*.ps1"

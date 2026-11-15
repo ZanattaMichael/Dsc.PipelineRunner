@@ -9,6 +9,7 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Invoke-Action.ps1')
             (Get-FunctionPath 'Build-DatumConfiguration.ps1')
             (Get-FunctionPath 'Start-DscRunner.ps1')
+            (Get-FunctionPath 'Protect-SensitiveValue.ps1')
             (Get-FunctionPath 'Merge-DscRunnerResult.ps1')
             (Get-FunctionPath 'New-TemporaryDirectory.ps1')
             (Get-FunctionPath 'Register-RunnerTemporaryDirectory.ps1')

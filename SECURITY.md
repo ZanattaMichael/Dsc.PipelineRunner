@@ -170,6 +170,29 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   `pull_request` is guarded against fork PRs, no `run:` step interpolates attacker-controlled
   event data, and every action is pinned to a version or SHA.
 
+- `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
+  under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
+  and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and
+  ordinary values are not over-redacted.
+- `Tests/PipelineRunner/Security/RunnerInputHardening.Security.tests.ps1` — a resource name or
+  an engine error cannot inject CI log commands or extra log lines, CSV cells cannot carry
+  formulas, a `node[1].yml` file still produces both reports (even under
+  `ErrorActionPreference=Stop`), a report failure does not lose the run result, an engine-echoed
+  secret never reaches the log, CSV or JSON report, a malformed resource or scalar `target` is a
+  recorded failure, and structural mistakes fail closed by name.
+- `Tests/PipelineRunner/Security/VariableInjection.Security.tests.ps1` — configuration
+  `variables` cannot take a reserved runner or PowerShell name, cannot overwrite an existing
+  environment variable or export one that steers a child process, and a rejected configuration
+  writes nothing.
+- `Tests/PipelineRunner/Security/GitUrlCredential.Security.tests.ps1` — credentials embedded in
+  a git URL never appear in log lines or exceptions (including git's echoed output) while git
+  still receives the real URL, and option-shaped scp-style URLs are rejected.
+- `Tests/PipelineRunner/Security/TokenHandling.Security.tests.ps1` — a rejected `-PATToken` is
+  never echoed, and a token with a trailing newline is rejected.
+- `Tests/PipelineRunner/Security/InputLimits.Security.tests.ps1` — a compiled node file name
+  cannot leave the output directory, composite expansion stops at `-MaxResources`, and an SSH
+  host name cannot be read as an option.
+
 Run them on their own with `Invoke-Pester -Path ./Tests/PipelineRunner -TagFilter Security`;
 they also run as part of the default unit gate (`./tests.ps1`).
 

@@ -31,20 +31,26 @@ Function Resolve-DscDatumProject {
         [Parameter(Mandatory=$true)]
         [Object]$AllNodes
     )
-    Write-Information "Processing node: $($NodeName.Name)" -Tags 'Dsc.PipelineRunner'
+    # The node name becomes a file name under the output directory. It comes from the file name
+    # of a node definition in the configuration repository, which on Linux may legally contain a
+    # backslash, so '..\..\outside' would write the compiled file outside the cache directory.
+    # Refuse anything that is not a plain file name before doing any work.
+    $nodeFileName = [string]$NodeName.Name
+    if ([string]::IsNullOrWhiteSpace($nodeFileName) -or
+        $nodeFileName -notmatch '^[^/\\:*?"<>|\x00-\x1F]+$' -or
+        $nodeFileName.StartsWith('.') -or $nodeFileName -match '\.\.' -or
+        $nodeFileName -ne $nodeFileName.Trim()) {
+        throw "[Resolve-DscDatumProject] The node name '$($nodeFileName -replace '[\x00-\x1F]', '?')' is not a valid file name (path separators, wildcard characters, '..' and a leading '.' are not allowed)."
+    }
 
-    # Retrieve the NodeGroups for the current node and store them in an array
+    Write-Information "Processing node: $($NodeName.Name)" -Tags 'Dsc.PipelineRunner'
 
     Write-Verbose "Retrieved NodeGroups for node: $($NodeName.Name)"
 
-    # Create a hashtable to hold configuration data, including all nodes and the Datum structure itself
-    $ConfigurationData = @{
-        AllNodes = $AllNodes
-        Datum    = $Datum
-    }
     Write-Verbose "Configuration data hashtable created for node: $($NodeName.Name)"
 
-    # Access the AllNodes and Baseline properties from the configuration data
+    # The node as the Datum handlers see it: its project, plus every AllNodes entry other than
+    # the three configuration sections.
     $Node = @{ 
         Project = $NodeName.Name
         ProjectPresence = $ProjectType.name
@@ -53,7 +59,6 @@ Function Resolve-DscDatumProject {
     $AllNodes.Keys | Where-Object {$_ -notin ('parameters','variables','resources')} | ForEach-Object {
         $Node."$($_)" = $AllNodes[$_]
     }
-    $Baseline = $ConfigurationData.Datum.Baselines
 
     Write-Verbose "Accessed AllNodes and Baseline properties for node: $($NodeName.Name)"
 
@@ -98,20 +103,8 @@ Function Resolve-DscDatumProject {
     # Set the variables in the configuration
     $configuration.variables = $hashTable
 
-    <#
-    $configuration.resources | ForEach-Object {
-        $Resource = $_
-        $Resource.properties = $Resource.properties | ForEach-Object {
-            if ($_.Value | Test-InvokeCommandFilter) {
-                $_.Value | Invoke-ProtectedDatumAction
-            } else {
-                $_.Value
-            }
-        }
-    }
-    #>
     # Convert the configuration to YAML format and save it to the output file
-    $configuration | ConvertTo-Yaml | Out-File "$OutputPath\$($NodeName.Name).yml"
+    $configuration | ConvertTo-Yaml | Out-File -LiteralPath ([System.IO.Path]::Combine($OutputPath, "$nodeFileName.yml"))
     Write-Verbose "Configuration for node: $($NodeName.Name) has been converted to YAML and saved to file"
     
 

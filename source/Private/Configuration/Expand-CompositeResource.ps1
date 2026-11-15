@@ -82,6 +82,10 @@ The composite definitions, as returned by Get-CompositeDefinition: name -> defin
 .PARAMETER MaxDepth
 The deepest composite nesting allowed. Defaults to 10.
 
+.PARAMETER MaxResources
+The most resources the expansion may emit. Defaults to 10000. Nesting depth alone does not bound
+the output size, so exceeding this is an error rather than an attempt to build it.
+
 .OUTPUTS
 The expanded resources, in order: each instance is replaced in place by its members, in the
 order the definition lists them. When no resource is a composite instance the input objects
@@ -105,7 +109,15 @@ function Expand-CompositeResource {
 
         [Parameter()]
         [ValidateRange(1, 100)]
-        [int] $MaxDepth = 10
+        [int] $MaxDepth = 10,
+
+        # Upper bound on the number of resources the expansion may emit. Nesting depth alone does
+        # not bound the size: ten composites that each list ten members of the next stay within
+        # the depth limit yet describe 10^10 resources, which would exhaust memory long before it
+        # finished. The expansion stops with a clear error instead.
+        [Parameter()]
+        [ValidateRange(1, 1000000)]
+        [int] $MaxResources = 10000
     )
 
     $logPrefix      = '[Expand-CompositeResource]'
@@ -114,6 +126,7 @@ function Expand-CompositeResource {
     # simply an empty one.
     $compositeDefinitions = if ($null -ne $Definitions) { $Definitions } else { @{} }
     $depthLimit = $MaxDepth
+    $resourceLimit = $MaxResources
     $compositeTypeRegex = '^Composite/'
     $tokenRegex     = '<composite=([^<>]*)>'
     $wholeTokenRegex = '^<composite=([^<>]*)>$'
@@ -523,6 +536,9 @@ function Expand-CompositeResource {
             }
             else {
                 $Output.Add($resource)
+                if ($Output.Count -gt $resourceLimit) {
+                    throw "$logPrefix Composite expansion produced more than $resourceLimit resources (while expanding [$instanceKey]); refusing to continue. Reduce the nesting or raise -MaxResources."
+                }
                 $leafKeys.Add("$(Get-ResourceType -Resource $resource)/$($entry.ExpandedName)")
                 [void]$expandedKeys.Add("$(Get-ResourceType -Resource $resource)/$($entry.ExpandedName)")
             }

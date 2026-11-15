@@ -83,7 +83,7 @@ function Test-DatumConfiguration {
     # Check if the Datum Configuration Version is two or more minor versions behind the current PSDesiredStateConfiguration version.
     # If it is, write a warning.
     if ($currentVersion -ge ($maxSupportedVersion - 0.2)) {
-        Write-Warning "[Test-DatumConfiguration] The Datum Configuration Version $($runnerConfig.DatumConfigurationVersion) is two or more minor versions behind the current PSDesiredStateConfiguration version $($runnerConfig.CurrentPSDesiredStateConfigurationVersion). Consider updating to a more recent version."
+        Write-Warning "[Test-DatumConfiguration] The Datum Configuration Version $($runnerConfig.DatumConfigurationVersion) is two or more minor versions behind the current PSDesiredStateConfiguration version $($CurrentPSDesiredStateConfigurationVersion). Consider updating to a more recent version."
     }
 
     #

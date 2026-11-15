@@ -42,8 +42,6 @@ function invoke-empty {
 
     if ($Value -is [string]) { return [string]::IsNullOrEmpty($Value) }
 
-    if ($Value -is [System.Collections.IDictionary]) { return ($Value.Count -eq 0) }
-
     if ($Value -is [System.Collections.ICollection]) { return ($Value.Count -eq 0) }
 
     if ($Value -is [System.Collections.IEnumerable]) {

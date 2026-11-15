@@ -43,18 +43,13 @@ Function Expand-Parameters {
             # Recursively expand the hashtable
             $inputValue = Expand-Parameters -InputHashTable $InputHashTable[$key]
         }
-        elseif ($InputHashTable[$key].GetType().Name -eq 'List`1') {
-            # Expand the parameters in the list, reading from this hashtable rather than the
-            # caller's $task - the caller-scope read meant a nested hashtable was expanded
-            # against the wrong values, or against nothing at all outside the runner.
-            $inputValue = Expand-ParameterInArray $InputHashTable[$key]
-        }
-        elseif ($InputHashTable[$key] -is [array]) {
-            # Expand every element. The Count -ne 1 guard that used to sit here sent a
-            # one-entry list to the scalar branch below, where -match stringified its
-            # element: a lone hashtable never had its tokens expanded, and a lone token
-            # collapsed the list to a scalar. Every array is now expanded element-wise and
-            # keeps its shape.
+        elseif (($InputHashTable[$key].GetType().Name -eq 'List`1') -or ($InputHashTable[$key] -is [array])) {
+            # Expand the parameters in the list/array, reading from this hashtable rather than
+            # the caller's $task (a caller-scope read expanded a nested hashtable against the
+            # wrong values, or none at all outside the runner). Every list is expanded
+            # element-wise and keeps its shape: a one-entry list must not fall through to the
+            # scalar branch below, where -match stringifies its element (a lone hashtable never
+            # had its tokens expanded, and a lone token collapsed the list to a scalar).
             $inputValue = Expand-ParameterInArray $InputHashTable[$key]
         }
         elseif ($InputHashTable[$key] -match '^\<params\=(?<name>.+)\>$') {

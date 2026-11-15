@@ -78,68 +78,6 @@ Function Get-FunctionPath {
 
 }
 
-Function Find-Functions {
-    param(
-        [String]$TestFilePath
-    )
-
-    $files = @()
-
-    #
-    # Using the File path of the test file, work out the function that is being tested
-    $FunctionName = (Get-Item -LiteralPath $TestFilePath).BaseName -replace '\.tests$', ''
-    $files += "$($FunctionName).ps1"
-
-
-    #
-    # Load the function into the AST and look for the mock commands.
-
-    # Parse the PowerShell script file
-    $AST = [System.Management.Automation.Language.Parser]::ParseFile($TestFilePath, [ref]$null, [ref]$null)
-
-    # Find all the Mock commands
-    $MockCommands = $AST.FindAll({
-        $args[0] -is [System.Management.Automation.Language.CommandAst] -and
-        $args[0].CommandElements[0].Value -eq 'Mock'
-    }, $true)
-
-    # Iterate over the Mock commands and find the CommandName parameter
-    foreach ($mockCommand in $MockCommands) {
-
-        # Iterate over the CommandElements
-        foreach ($element in $mockCommand.CommandElements) {
-
-            # Check if the element is a CommandParameterAst and the parameter name is CommandName
-            if ($element -is [System.Management.Automation.Language.CommandParameterAst] -and $element.ParameterName -eq 'CommandName') {
-                $null = $element.Parent.Extent.Text -match '(-CommandName\s+(?<Function>[^\s]+))|(^Mock (?<Function>[^\s]+$))'
-                $files += "$($matches.Function).ps1"
-            }
-        }
-    }
-
-    # Ignore the following list of functions
-    $files = $files | Where-Object { $_ -notin @('Write-Error.ps1', 'Write-Output.ps1', 'Write-Verbose.ps1', 'Write-Warning.ps1') }
-    # Return the unique list of functions
-    $files = $files | Select-Object -Unique
-
-    $files
-
-}
-
-Function Get-ClassFilePath {
-    param(
-        [string]$FileName
-    )
-
-    $Class = $Global:TestPaths | Where-Object { ($_.Name -eq $FileName) -or ($_.Name -eq "$FileName.ps1") }
-    return $Class.FullName
-
-}
-
-Function Import-Enums {
-    return ($Global:TestPaths | Where-Object { $_.Directory.Name -eq 'Enum' })
-}
-
 <#
 .SYNOPSIS
 Returns why the live WinRM integration suite cannot run here, or $null when it can.
@@ -282,4 +220,4 @@ function Get-SshRemotingSkipReason {
     return $null
 }
 
-Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, Find-Functions, Get-ClassFilePath, Import-Enums, New-MockDirectoryPath, New-MockFilePath, Get-WinRMSkipReason, Get-LiveVaultSkipReason, Get-SshRemotingSkipReason
+Export-ModuleMember -Function Split-RecurivePath, Get-FunctionPath, New-MockDirectoryPath, New-MockFilePath, Get-WinRMSkipReason, Get-LiveVaultSkipReason, Get-SshRemotingSkipReason

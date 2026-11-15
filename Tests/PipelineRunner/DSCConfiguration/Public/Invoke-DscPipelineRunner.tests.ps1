@@ -7,6 +7,7 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
 
         @(
             (Get-FunctionPath 'Start-DscRunner.ps1')
+            (Get-FunctionPath 'Protect-SensitiveValue.ps1')
             (Get-FunctionPath 'Merge-DscRunnerResult.ps1')
             (Get-FunctionPath 'Build-DatumConfiguration.ps1')
             (Get-FunctionPath 'Assert-SecureGitUrl.ps1')

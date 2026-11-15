@@ -91,6 +91,7 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         . (Get-FunctionPath 'Invoke-EngineAction.ps1').FullName
 
         . (Get-FunctionPath 'Start-DscRunner.ps1').FullName
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
         . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
         . (Get-FunctionPath 'GetDefaultValues.ps1').FullName
         . (Get-FunctionPath 'SetVariables.ps1').FullName
@@ -107,8 +108,6 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         . (Get-FunctionPath 'Expand-Parameters.ps1').FullName
         . (Get-FunctionPath 'Expand-ParameterInArray.ps1').FullName
         . (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
-        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
-        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
 
         # The preCondition/postCondition allow-list Assert-SafeConditionExpression validates
         # against (parameters/variables/reference/equals/not/result/stopProcessing) is only

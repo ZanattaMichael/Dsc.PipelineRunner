@@ -4,6 +4,8 @@ Describe "Start-DscRunner Function Tests" -Tag Unit {
 
         # Load the functions to test
         $preParseFilePath = (Get-FunctionPath 'Start-DscRunner.ps1').FullName
+        # Start-DscRunner redacts secrets from messages using Test-SensitivePropertyName.
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
         $getDefaultValuesPath = (Get-FunctionPath 'GetDefaultValues.ps1').FullName
         $SetVariablesPath = (Get-FunctionPath 'SetVariables.ps1').FullName
         $InvokeCustomTaskPath = (Get-FunctionPath 'Invoke-CustomTask.ps1').FullName

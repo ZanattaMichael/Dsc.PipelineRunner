@@ -67,6 +67,53 @@ All notable changes to this project will be documented in this file.
   `[string]::IsNullOrEmpty` / `[string]::IsNullOrWhiteSpace` (used by the example configurations)
   keep working.
 
+- **Plain-string and list-nested secrets are scrubbed from engine errors.** The `dsc` engine only
+  collected `[PSCredential]`/`[SecureString]` values for scrubbing, so a plain-string
+  `adminPassword`, or a password inside a list of mappings (`users: [{login, password}]`), came
+  back in dsc's echoed error text and reached the log, the CSV and the JSON report (and the
+  verbose breadcrumb, for lists). Plain-string values under sensitive names are now collected,
+  lists of mappings are walked in both the scrub and the redaction, and secrets are replaced
+  longest-first. `Start-DscRunner` additionally scrubs every logged and recorded message of
+  each resource's own secrets, so the guarantee no longer depends on one engine.
+- **Resource names and engine/remote text can no longer inject CI log commands.** Control
+  characters are escaped so one message cannot become several log lines, and `##vso[`, `##[`
+  and a leading `::` are defused. Messages recorded in the report are single-line as a result.
+- **Report files.** CSV cells that begin with `=`, `+`, `-`, `@` are prefixed so a spreadsheet
+  does not execute them (the JSON report keeps the original text). Reports are written with
+  `-LiteralPath`, so a node file such as `node[1].yml` no longer loses its report, and a failure
+  to write a report is reported without discarding the run result.
+- **Malformed input is a recorded failure, not an aborted file.** A resource with a missing or
+  non-string `type`, a type that is not `Module/Resource`, or a missing/aggregate `name`, and a
+  scalar `target` (which previously fell back to `Local` and applied a resource meant for a
+  remote host to the pipeline agent) are each a FAIL for that resource only. Two resources
+  sharing a `name` no longer crash the file. A missing `resources` section and a non-mapping
+  `variables`/`parameters` fail closed with a message that names the problem.
+- **`variables` can no longer overwrite runner state or the agent's environment.**
+  Reserved names (`StopTaskProcessing`, `parameters`, `references`, any `*Preference`,
+  automatic variables, ...) throw before anything is written. Environment export never
+  overwrites an existing variable, never exports a name that steers a child process (`GIT_*`,
+  `LD_*`, `PATH`, `SYSTEM_ACCESSTOKEN`, proxy and TLS settings, ...), and exported variables
+  are removed when the file finishes. A key that is not a valid variable name (for example
+  `my-key`) stays available through `variables()` but gets no script or environment variable.
+- **git URLs.** Credentials embedded in a URL (`https://user:token@host`) are masked in every
+  message and in git's own echoed output; the URL given to git is unchanged. Option-shaped
+  scp-style URLs (`-u@host:path`, `git@-x:y`) and URLs beginning with `-` are rejected, and
+  `git clone` ends option parsing with `--`.
+- **`-PATToken`** validation no longer quotes the rejected token in its error, and a token with
+  a trailing newline is rejected (`\A..\z` instead of `^..$`).
+- **Compiled node file names** must be plain file names (no separators, drive or wildcard
+  characters, `..` or leading `.`), so a node definition cannot write outside the cache
+  directory.
+- **Composite expansion is bounded.** `Expand-CompositeResource` gains `-MaxResources` (default
+  10000); nesting depth alone did not bound the output (ten composites listing ten members of
+  the next describe 10^10 resources).
+- **SSH targets** reject host names that `ssh` could read as an option.
+
+**Behaviour changes:** a `variables` key that is a reserved name now throws; configuration
+variables are no longer left in the process environment after a file finishes and no longer
+overwrite one that already exists; a resource whose `type` is not `Module/Resource` is a
+recorded FAIL; error text in reports is single-line with secrets replaced by `[REDACTED]`.
+
 ### Performance
 
 - Plain property strings (no `$` or backtick) skip `ExpandString` entirely.
@@ -74,6 +121,22 @@ All notable changes to this project will be documented in this file.
   growing an array with `+=` (flattening behaviour is unchanged).
 - `Start-DscRunner` reads the configuration with `Get-Content -Raw`, tallies pass/fail/skip in a
   single pass instead of four `Where-Object` pipelines, and splits the resource type once.
+
+- `Test-ResourcesForIncorrectProperties` calls `Get-DscResource` once per distinct
+  module/resource pair per file instead of once per resource (a lookup that finds nothing is
+  not cached), and finds schema entries with a loop instead of a `Where-Object` pipeline per
+  property.
+- `Clone-Repository` fetches only the tip commit (`--depth 1`) when no revision is pinned: the
+  clone is a throwaway working copy, so history was downloaded and then deleted. A pinned
+  revision keeps full history.
+- Property strings with nothing to rewrite skip an extra parse in `Expand-SafeString`.
+
+### Removed
+
+- Three never-called test helpers, an orphaned permanently skipped test file, unreachable
+  `return`s after `throw`, a no-op `ProgressPreference` save/restore, a repeated session reset,
+  duplicate dot-sources, dead locals and a commented-out block in `Resolve-DscDatumProject`, and
+  two redundant branches (`empty()` and `Expand-Parameters`).
 
 ### Added
 
@@ -218,6 +281,9 @@ All notable changes to this project will be documented in this file.
   session*) and the `sshd_config` line to add.
 
 ### Fixed
+
+- `Test-DatumConfiguration` printed an empty PSDesiredStateConfiguration version in its
+  version-skew warning.
 
 - **Every release gate was cancelled before a runner was assigned.** The seven suites
   `.github/workflows/Release.yml` reuses via `workflow_call` each declared

@@ -48,7 +48,7 @@ if ([string]::IsNullOrWhiteSpace($url)) {
 # clone (public remote / local path).
 $JITToken = Get-PipelineAuthToken -Token $Context.Token
 
-Write-Verbose "[Actions/Source/Git] Cloning '$url'."
+Write-Verbose "[Actions/Source/Git] Cloning '$(Hide-GitUrlCredential -Url $url)'."
 
 # Revision pinning (and full-SHA verification) lives in Clone-Repository so every caller -
 # this action and the back-compat Invoke-DscPipelineRunner entry point alike - gets the
