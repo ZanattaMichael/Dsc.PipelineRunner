@@ -3,9 +3,16 @@
 #
 # It does not commit anything: a maintainer reviews the output and updates the lock file in a
 # pull request, so the pin is a reviewed change rather than something a workflow can do alone.
+# The generated file is uploaded as an artifact and printed in the job log.
 name: Update DSC checksums
 
 on:
+  # Also runs on a pull request that changes the pinning script or this workflow, so a change to
+  # either is exercised by CI (it only reads upstream release assets and has no secrets).
+  pull_request:
+    paths:
+      - 'scripts/Update-DscChecksums.ps1'
+      - '.github/workflows/Update-DscChecksums.yml'
   workflow_dispatch:
     inputs:
       version:
