@@ -252,6 +252,15 @@ recorded FAIL; error text in reports is single-line with secrets replaced by `[R
 
 ### Documentation
 
+- **Security policy and response process.** `SECURITY.md` now carries a full vulnerability
+  policy: supported versions, how to report privately, what to include, response targets
+  (acknowledge within 5 business days, confirm and rate within 10, updates at least every 14
+  days, fixes by severity), severity definitions for this project, scope, coordinated disclosure
+  and safe harbor, plus a summary of how the module ensures security and its known limits. The
+  maintainers' step-by-step runbook is `docs/security-response-process.md`. A new
+  `Security/SecurityPolicy` test keeps the policy's sections in place and requires every
+  security test suite to be listed in it.
+
 - **The identity the pipeline runs as is now documented as a requirement, not an assumption.**
   With no `target.credential`, every remote session — and every per-user secret store — is opened
   as the account the runner process runs as. On a self-hosted agent that is the agent service

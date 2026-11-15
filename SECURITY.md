@@ -1,11 +1,117 @@
 # Security Policy
 
+## Supported versions
+
+Security fixes are made on `main` and released as a new patch version. Only the **latest
+release** is supported: if you are on an older release, upgrade before reporting, or say so in
+the report and we will check whether the issue still reproduces on the latest.
+
+| Version | Supported for security fixes |
+|---|---|
+| Latest release (currently `1.1.x`) and `main` | Yes |
+| Anything older | No - upgrade to the latest release |
+
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately to the repository owner via a
+**Please report suspected vulnerabilities privately.** Use a
 [GitHub security advisory](https://github.com/ZanattaMichael/Dsc.PipelineRunner/security/advisories/new)
-rather than opening a public issue. Include the affected version, a description of the
-issue, and a reproduction if you have one.
+("Report a vulnerability" on the repository's Security tab). Please do **not** open a public
+issue, pull request or discussion, and do not post a proof of concept anywhere public, until a
+fix is released.
+
+A useful report contains:
+
+- the affected version (`(Get-Module Dsc.PipelineRunner).Version`) and engine
+  (`DscV2` / `DscV3`), and whether it also reproduces on `main`;
+- what an attacker can do, and what they need first (access to the configuration repository, a
+  pull request, a managed node, the pipeline logs...);
+- the smallest configuration or command that reproduces it;
+- the output you saw, **with any real secret replaced by a dummy value**. Never send a live
+  credential; if one has already been exposed, rotate it now, then report.
+
+## What to expect
+
+This is a small, maintainer-run project, so these are **targets**, not guarantees. We will tell
+you if we cannot meet one.
+
+| Step | Target |
+|---|---|
+| Acknowledge the report | within 5 business days |
+| Confirm it, or explain why not, and give an initial severity | within 10 business days |
+| Status update while the issue is open | at least every 14 days |
+| Fix released (from confirmation) | Critical 14 days, High 30 days, Medium 60 days, Low in the next release |
+| Public disclosure | when the fix is released; at the latest 90 days after the report, unless we agree a different date with you |
+
+Fixes are released as a normal tagged release (the tag-driven Release workflow), published
+together with a GitHub security advisory that credits the reporter (unless you prefer to stay
+anonymous) and, where it applies, a CVE. The CHANGELOG records the fix under **Security**. How we
+handle a report internally is described in
+[docs/security-response-process.md](docs/security-response-process.md).
+
+## Severity
+
+We rate a report by what it lets an attacker do **beyond what the trust model below already
+grants**, using these guidelines.
+
+| Severity | Examples in this project |
+|---|---|
+| **Critical** | Code execution on the build agent or a managed node by someone who is *not* the author of the trusted configuration repository; a credential sent to a party that should not receive it by default. |
+| **High** | A secret reaching a log, report, command line or error message; a bypass of `AllowExecutionScripts`, the condition allow-list or the property-expansion allow-list; a compiled file written outside the cache directory; a workflow flaw that exposes secrets or a self-hosted runner to a fork pull request. |
+| **Medium** | Needs unusual configuration or privileges; disclosure of non-secret internal data; log or report injection; unbounded resource use triggered by input the runner treats as untrusted. |
+| **Low** | Hardening and defence-in-depth gaps; a security document that no longer matches the behaviour. |
+
+## Scope
+
+**In scope:** the module (`source/`), the Actions (`Actions/`), the Pipeline Rules
+(`Pipeline Rules/`), the helper scripts (`scripts/`), the container definition, the GitHub
+workflows, and the release process.
+
+**Out of scope:**
+
+- **By-design behaviour documented in the [trust model](#trust-model).** The configuration
+  repository is executed as trusted code, so "a malicious configuration can run PowerShell" is
+  not a vulnerability. A way for a configuration to get *past a control we document* - for
+  example running a `preExecutionScript` without `AllowExecutionScripts`, or running a command
+  from a `preCondition` - **is** in scope.
+- Weaknesses in third-party components (Datum, `powershell-yaml`, DSC resources, `dsc.exe`,
+  PowerShell itself). Please report those upstream. If our *use* of one makes it exploitable,
+  tell us as well.
+- Attacks that need prior control of the build agent, the managed node or the configuration
+  repository's write access.
+- Social engineering, and denial of service by a trusted configuration.
+
+## Disclosure and safe harbor
+
+We follow **coordinated disclosure**: you report privately, we fix, and we publish together. If
+you act in good faith - you stay within the scope above, avoid privacy violations and service
+disruption, use dummy data, and give us a reasonable time to fix before disclosing - we will not
+pursue or support any action against you for the research.
+
+## How the module ensures security
+
+A summary of the controls; the sections below describe each in detail, and every one is pinned
+by a security-tagged test (see [Regression tests](#regression-tests-for-these-guarantees)).
+
+| Concern | How it is addressed |
+|---|---|
+| **Trust boundary** | The configuration repository is the one trusted input, and this is documented rather than hidden. `preExecutionScript` / `postExecutionScript` are off unless `PipelineRunnerSettings.AllowExecutionScripts` is explicitly enabled. |
+| **Code in configuration values** | `preCondition` / `postCondition` are parsed and checked against an allow-list of side-effect-free accessors before they run. Every `$(...)` in a property value is checked against the same allow-list before it is expanded. Neither can call commands, assign, call methods, redirect, or `exit`. |
+| **Fetching configuration** | Only `https`, `ssh` and `git@host:path` remotes; plaintext schemes and option-shaped URLs are rejected before git runs; a pinned revision is checked out with a `--` terminator and a full SHA is verified. |
+| **Secrets on the command line** | Tokens are `[SecureString]`, and git authentication is passed through scoped environment configuration, never argv. The `dsc` instance JSON is sent on standard input, never `--input`. |
+| **Secrets in output** | Known secrets (credentials, sensitive-named values, list-nested values) are scrubbed from every logged and recorded message; credentials embedded in git URLs and a rejected `-PATToken` are never echoed; secret-named properties are redacted in verbose output. |
+| **Untrusted text** | Resource names and engine/remote output cannot inject CI log commands or extra log lines; CSV cells cannot carry spreadsheet formulas; files are written with `-LiteralPath`. |
+| **Malformed or hostile input** | A malformed resource or a scalar `target` is a recorded failure for that resource, never a crash or a silent local run; structural mistakes fail closed; `variables` cannot overwrite runner state or steer child processes; node file names, composite fan-out and SSH host names are bounded. |
+| **Local files** | Clone and cache directories are created owner-only; cleanup only ever removes directories the runner registered; action names cannot resolve outside `Actions/<Hook>/`. |
+| **Remote targets and credentials** | Credentials come from a Credential action (`Environment`, `SecretManagement`, `Static` for development only), sessions are cached per identity, and the plaintext never reaches a target's command line. |
+| **CI and release** | Workflows declare minimal token permissions, avoid `pull_request_target`, guard self-hosted jobs against fork pull requests, keep untrusted event data out of `run:` steps, and pin actions. PSScriptAnalyzer results are published to code scanning. |
+| **Staying honest** | Each guarantee has a regression test under `Tests/PipelineRunner/Security/`, and a test checks that this document lists them. |
+
+**Known limits** (so that the summary above is not read as more than it is): the configuration
+is trusted code and is not sandboxed; `preExecutionScript` / `postExecutionScript` are
+unconstrained once enabled; the module is not code-signed and its dependencies are not pinned
+(tracked in issues #38 and #36); constrained-language compilation is not implemented (#46);
+the runner sets no input-size or alias-expansion limit on YAML parsing; and `Get()` output stays in
+module memory until the next run starts.
 
 ## Trust model
 
@@ -165,6 +271,10 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   the checkout always terminates its ref with `--`, a pinned SHA mismatch fails the run, an
   action name can never resolve outside `Actions/<Hook>/`, and cleanup never deletes a
   caller-owned directory.
+- `Tests/PipelineRunner/Security/SecurityPolicy.Security.tests.ps1` — this policy keeps its
+  required sections, points reporters at a private channel, links the maintainers' response
+  process, and lists every security test file, so a guarantee cannot exist without being
+  documented.
 - `Tests/PipelineRunner/Security/Workflows.Security.tests.ps1` — every workflow declares token
   permissions, none uses `pull_request_target`, every self-hosted job reachable from
   `pull_request` is guarded against fork PRs, no `run:` step interpolates attacker-controlled
