@@ -21,12 +21,29 @@ picks the archive matching the agent's OS and CPU architecture, installs it, and
 GitHub Actions — appends `dsc` to the job `PATH` automatically.
 
 ```powershell
-# Latest stable dsc, default install location, added to PATH for the rest of the job.
+# The dsc release recorded in scripts/dsc-checksums.json, default install location, added to
+# PATH for the rest of the job.
 ./scripts/Install-DscV3.ps1 -Verbose
 
-# Or pin a specific release into a chosen directory.
-./scripts/Install-DscV3.ps1 -Version v3.0.0 -InstallDirectory /usr/local/dsc
+# Or choose a specific release and directory.
+./scripts/Install-DscV3.ps1 -Version v3.3.0 -InstallDirectory /usr/local/dsc
+
+# The newest stable release (verified against GitHub's published digest, with a warning).
+./scripts/Install-DscV3.ps1 -Version latest
 ```
+
+### The download is verified
+
+`dsc` is a program that is about to be executed, so the script checks the archive's SHA-256
+**before** extracting it. In order of trust, the expected hash comes from `-Sha256`, then from
+`scripts/dsc-checksums.json` (hashes a maintainer reviewed), then from the digest GitHub
+publishes for the asset (a warning says the release is not pinned). If none is available the
+script refuses to install; `-AllowUnverified` overrides that and is not recommended. A mismatch
+discards the download and installs nothing.
+
+To pin a release, run `./scripts/Update-DscChecksums.ps1 -Version v3.3.0 -SetDefault` (or the
+manual *Update DSC checksums* workflow, which prints the result) and review the change to
+`scripts/dsc-checksums.json` like any other dependency update.
 
 Verify:
 

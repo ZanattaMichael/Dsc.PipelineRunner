@@ -1,0 +1,89 @@
+# Manually computes the SHA-256 of every DSC v3 archive in a release, cross-checking each one
+# against the digest GitHub publishes, and prints the resulting scripts/dsc-checksums.json.
+#
+# It does not commit anything: a maintainer reviews the output and updates the lock file in a
+# pull request, so the pin is a reviewed change rather than something a workflow can do alone.
+# The generated file is uploaded as an artifact and printed in the job log.
+name: Update DSC checksums
+
+on:
+  # Also runs on a pull request that changes the pinning script or this workflow, so a change to
+  # either is exercised by CI (it only reads upstream release assets and has no secrets).
+  pull_request:
+    paths:
+      - 'scripts/Update-DscChecksums.ps1'
+      - '.github/workflows/Update-DscChecksums.yml'
+      - 'scripts/dsc-checksums.json'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'DSC release tag to pin (for example v3.3.0). Blank uses the lock file default.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  checksums:
+    name: Compute DSC archive checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Compute checksums
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $arguments = @{ OutputPath = './dsc-checksums.generated.json'; Verbose = $true }
+          if (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_VERSION)) { $arguments.Version = $env:REQUESTED_VERSION }
+          ./scripts/Update-DscChecksums.ps1 @arguments
+
+      # The container base image is pinned by digest, and a digest is only worth pinning if it is
+      # the one the registry really serves. Resolve it here, on a GitHub runner, rather than
+      # copying one from anywhere else. The multi-architecture index digest is what a Dockerfile
+      # FROM line should carry, so the same pin works on x86_64 and arm64.
+      # The checked-in lock file must say exactly what a runner computes now. This is what makes
+      # the pins trustworthy rather than merely present: a mistyped, stale or tampered hash is
+      # caught here instead of by a user on the one platform CI does not install on.
+      - name: Check the checked-in lock file against the computed hashes
+        shell: pwsh
+        run: |
+          $generated = Get-Content -LiteralPath ./dsc-checksums.generated.json -Raw | ConvertFrom-Json
+          $committed = Get-Content -LiteralPath ./scripts/dsc-checksums.json -Raw | ConvertFrom-Json
+          $problems = [System.Collections.Generic.List[string]]::new()
+          foreach ($release in $generated.releases.PSObject.Properties) {
+              $recorded = $committed.releases.PSObject.Properties[$release.Name]
+              if ($null -eq $recorded) { $problems.Add("release $($release.Name) is not in scripts/dsc-checksums.json"); continue }
+              foreach ($asset in $release.Value.PSObject.Properties) {
+                  $have = $recorded.Value.PSObject.Properties[$asset.Name]
+                  if ($null -eq $have) { $problems.Add("$($release.Name)/$($asset.Name) is missing from scripts/dsc-checksums.json") }
+                  elseif ($have.Value -ne $asset.Value) { $problems.Add("$($release.Name)/$($asset.Name): committed $($have.Value) but computed $($asset.Value)") }
+              }
+              foreach ($asset in $recorded.Value.PSObject.Properties) {
+                  if ($null -eq $release.Value.PSObject.Properties[$asset.Name]) { $problems.Add("$($release.Name)/$($asset.Name) is in scripts/dsc-checksums.json but is not a release asset") }
+              }
+          }
+          if ($problems.Count -gt 0) { $problems | ForEach-Object { Write-Error $_ -ErrorAction Continue }; exit 1 }
+          Write-Host "scripts/dsc-checksums.json matches the computed hashes."
+
+      - name: Resolve the container base image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='mcr.microsoft.com/powershell:7.4-ubuntu-22.04'
+          docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | tee base-image-manifest.json
+          digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+          echo "BASE_IMAGE_PIN: ${image}@${digest}"
+
+      - name: Upload the generated lock file
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dsc-checksums
+          path: |
+            dsc-checksums.generated.json
+            base-image-manifest.json
+          if-no-files-found: error

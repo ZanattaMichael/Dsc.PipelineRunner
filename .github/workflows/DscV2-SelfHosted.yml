@@ -43,7 +43,7 @@ jobs:
     runs-on: [self-hosted]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Pester v5 (for the integration suite) and PSDesiredStateConfiguration (for
       # Invoke-DscResource on PowerShell 7). Installed only when missing so a warm runner is

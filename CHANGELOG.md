@@ -114,6 +114,23 @@ variables are no longer left in the process environment after a file finishes an
 overwrite one that already exists; a resource whose `type` is not `Module/Resource` is a
 recorded FAIL; error text in reports is single-line with secrets replaced by `[REDACTED]`.
 
+- **Supply chain: downloads are verified and build inputs are pinned.** `Install-DscV3.ps1`
+  now checks the SHA-256 of the `dsc` archive *before* extracting it: against
+  `scripts/dsc-checksums.json` when the release is pinned there, otherwise against the digest
+  GitHub publishes for the asset (with a warning that the release is not pinned), and it refuses
+  to install when it has nothing to check against unless `-AllowUnverified` is passed. A
+  `-Sha256` parameter overrides both. With no `-Version` it installs the lock file's
+  `defaultVersion` instead of whatever is newest. `scripts/Update-DscChecksums.ps1` (and the
+  manual *Update DSC checksums* workflow) records the hashes for a release. Every third-party
+  GitHub Action is pinned to a commit SHA, the container base image to a digest, and the image
+  runs as an unprivileged user; Dependabot proposes updates to the actions and the image. A
+  `CODEOWNERS` file marks the security-sensitive paths. **Behaviour change:** the container's
+  `POWERSHELL_TAG` build argument is gone (edit the `FROM` line), and `DSC_VERSION` defaults to
+  the lock file's version rather than `latest`.
+- **Release provenance without a certificate.** The release workflow now records a signed build
+  provenance attestation for the `.nupkg` (verify with `gh attestation verify`) and writes the
+  package SHA-256 to the run summary. This is not Authenticode signing; see SECURITY.md.
+
 ### Performance
 
 - Plain property strings (no `$` or backtick) skip `ExpandString` entirely.
