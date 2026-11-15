@@ -41,9 +41,24 @@ jobs:
           if (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_VERSION)) { $arguments.Version = $env:REQUESTED_VERSION }
           ./scripts/Update-DscChecksums.ps1 @arguments
 
+      # The container base image is pinned by digest, and a digest is only worth pinning if it is
+      # the one the registry really serves. Resolve it here, on a GitHub runner, rather than
+      # copying one from anywhere else. The multi-architecture index digest is what a Dockerfile
+      # FROM line should carry, so the same pin works on x86_64 and arm64.
+      - name: Resolve the container base image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='mcr.microsoft.com/powershell:7.4-ubuntu-22.04'
+          docker buildx imagetools inspect "$image" --format '{{json .Manifest}}' | tee base-image-manifest.json
+          digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+          echo "BASE_IMAGE_PIN: ${image}@${digest}"
+
       - name: Upload the generated lock file
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dsc-checksums
-          path: dsc-checksums.generated.json
+          path: |
+            dsc-checksums.generated.json
+            base-image-manifest.json
           if-no-files-found: error
