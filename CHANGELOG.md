@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A workflow that creates the release tag.** *Actions > Create release tag* works out the next
+  version from the existing tags (`scripts/Get-NextReleaseTag.ps1`: a patch, minor or major bump of
+  the latest stable release, or an explicit version; `vX.Y.Z-previewNNNN` for a preview), refuses to
+  run unless every check on `main` is passing, creates an annotated tag and starts the Release
+  workflow on it. It has a dry-run option, runs from `main` only, and needs no stored token
+  (a tag pushed with the built-in token does not trigger other workflows, so it starts Release
+  on the tag directly).
+
 ### Fixed
 
 - **The hosted-agent image build no longer fails on GitHub API rate limits.** `Install-DscV3.ps1`

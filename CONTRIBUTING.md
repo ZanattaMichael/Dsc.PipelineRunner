@@ -72,6 +72,14 @@ well — otherwise the hosted gate stays green and the self-hosted jobs fail wit
 
 ## Releasing
 
+To cut a release, run **Actions → Create release tag → Run workflow** from `main`
+(`.github/workflows/Create-ReleaseTag.yml`). Choose `preview` or `release`, and a `bump`
+(patch, minor or major) or an explicit `version`; tick `dry_run` first to see the tag it would
+create. It works out the next tag from the existing ones
+(`scripts/Get-NextReleaseTag.ps1`), refuses to continue unless every check on `main` is passing,
+creates an annotated tag and starts the Release workflow on it. The same script runs locally:
+`./scripts/Get-NextReleaseTag.ps1 -Tag (git tag --list) -Bump patch -Prerelease`.
+
 Releases are tag-driven (`.github/workflows/Release.yml`). Pushing a `vX.Y.Z` tag — or
 `vX.Y.Z-preview0001` for a prerelease — validates that the tag is well-formed and points at
 a commit contained in `main`, runs the full CI suite as a release gate by reusing the
