@@ -220,7 +220,8 @@ elseif ($actualHash -ne $expectedHash.ToLowerInvariant()) {
     throw "[Install-DscV3] SHA-256 mismatch for '$($asset.name)' ($($release.tag_name)): expected $($expectedHash.ToLowerInvariant()) from $hashSource, got $actualHash. The download was discarded and nothing was installed."
 }
 else {
-    Write-Host "[Install-DscV3] Verified $($asset.name): sha256=$actualHash (source: $hashSource)"
+    # Information stream, shown explicitly so a CI log still records which hash was checked.
+    Write-Information "[Install-DscV3] Verified $($asset.name): sha256=$actualHash (source: $hashSource)" -InformationAction Continue
 }
 
 if ($isZip) {
@@ -263,5 +264,5 @@ if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_PATH)) {
     Add-Content -Path $env:GITHUB_PATH -Value $binDir
 }
 
-Write-Host "[Install-DscV3] Installed DSC $($release.tag_name) to: $($executable.FullName)"
+Write-Information "[Install-DscV3] Installed DSC $($release.tag_name) to: $($executable.FullName)" -InformationAction Continue
 return $executable.FullName

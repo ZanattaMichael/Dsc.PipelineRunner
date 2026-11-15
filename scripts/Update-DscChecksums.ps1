@@ -108,5 +108,6 @@ $json = $lock | ConvertTo-Json -Depth 5
 $destination = if ([string]::IsNullOrWhiteSpace($OutputPath)) { $ChecksumFile } else { $OutputPath }
 Set-Content -LiteralPath $destination -Value $json -Encoding UTF8
 
-Write-Host "[Update-DscChecksums] Recorded $($hashes.Count) archive hash(es) for $tag in $destination"
-Write-Host $json
+# Information stream, shown explicitly: the workflow log is where a maintainer reads the result.
+Write-Information "[Update-DscChecksums] Recorded $($hashes.Count) archive hash(es) for $tag in $destination" -InformationAction Continue
+Write-Information $json -InformationAction Continue

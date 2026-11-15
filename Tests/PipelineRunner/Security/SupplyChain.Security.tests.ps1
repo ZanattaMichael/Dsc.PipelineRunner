@@ -48,6 +48,7 @@ Describe "Security: downloads, actions and images are pinned and verified" -Tag 
         $script:otherHash = ('0' * 64)
 
         Mock -CommandName Write-Host
+        Mock -CommandName Write-Information
         Mock -CommandName Write-Verbose
 
         # Builds the fake GitHub release the installer resolves.
