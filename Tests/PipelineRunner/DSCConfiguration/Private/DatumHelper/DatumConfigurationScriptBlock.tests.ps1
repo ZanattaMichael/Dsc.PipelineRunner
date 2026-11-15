@@ -45,6 +45,21 @@ Describe 'DatumConfigurationScriptBlock Function Tests' {
                 ($Name -eq 'datum.invokecommand')
             }
         }
+
+        It "Should import Dsc.PipelineRunner from the path supplied by the caller" {
+
+            # The runspace inherits nothing from the caller, so an import by name can resolve a
+            # different (stale) installed copy than the one the caller is running. When
+            # Build-DatumConfiguration passes its own module path, that exact file must be imported.
+            $modulePath = Join-Path $TestDrive 'Dsc.PipelineRunner.psd1'
+
+            DatumConfigurationScriptBlock -OutputPath (New-MockDirectoryPath) -ConfigurationPath (New-MockDirectoryPath) -PipelineRunnerModulePath $modulePath -isTest
+
+            Assert-MockCalled -CommandName Import-Module -Exactly 1 -Scope It -ParameterFilter {
+                ($null -ne ($Name | Where-Object { $_ -like '*Dsc.PipelineRunner.psd1' })) -and
+                (-not ($Name -contains 'Dsc.PipelineRunner'))
+            }
+        }
     }
 
     Context "Directory Change Verification" {
