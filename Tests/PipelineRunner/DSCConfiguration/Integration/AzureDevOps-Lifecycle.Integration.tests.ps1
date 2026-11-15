@@ -76,7 +76,6 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         . (Get-FunctionPath 'Expand-Parameters.ps1').FullName
         . (Get-FunctionPath 'Expand-ParameterInArray.ps1').FullName
         . (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
-        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
         . (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
 
         # Dot-sourced so Pester has real commands to Mock; the mocks below replace their bodies.

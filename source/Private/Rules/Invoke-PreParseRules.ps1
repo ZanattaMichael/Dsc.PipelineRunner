@@ -18,7 +18,6 @@ function Invoke-PreParseRules {
 
     if (-not (Test-Path -Path $PreParseDirectoryPath)) {
         Throw "[Invoke-PreParseRules] No Tasks to Process in Directory: $PreParseDirectoryPath"
-        return $Tasks
     }
 
     Write-Verbose "[Invoke-PreParseRules] Processing PreParse Rules in Directory: $PreParseDirectoryPath"

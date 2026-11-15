@@ -77,7 +77,6 @@ function Start-DscRunner {
     # for the duration of the run, and keep DSC's native progress UI out of the log. Both are
     # local to this scope, so the caller's preferences are left untouched on return.
     $InformationPreference = 'Continue'
-    $previousProgressPreference = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
 
     $infoTag = 'Dsc.PipelineRunner'
@@ -433,7 +432,6 @@ function Start-DscRunner {
             # reuse one connection; 'Local' never invokes the Target hook at all, so an
             # unmodified configuration's local-only execution path is untouched.
             $targetAction = if ($task.target -and -not [string]::IsNullOrWhiteSpace([string]$task.target.action)) { [string]$task.target.action } else { $defaultTargetAction }
-            $session = $null
 
             if ($targetAction -ne 'Local') {
                 try {
@@ -670,7 +668,6 @@ function Start-DscRunner {
     finally {
 
         $runStopwatch.Stop()
-        $ProgressPreference = $previousProgressPreference
 
         # This file is finished, so nodeName() / configurationFile() must stop answering for it.
         $script:currentNodeName          = $null

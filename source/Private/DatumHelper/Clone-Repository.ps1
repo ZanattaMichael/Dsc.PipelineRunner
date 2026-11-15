@@ -93,12 +93,11 @@ function Clone-Repository
         }
     }
 
-    $headSha = (git -C $DestinationPath rev-parse HEAD) -join ''
-    $headSha = "$headSha".Trim()
+    $headSha = ((git -C $DestinationPath rev-parse HEAD) -join '').Trim()
 
     # A full SHA is an exact pin: verify the clone actually landed on it.
     if ((-not [string]::IsNullOrWhiteSpace($Revision)) -and ($Revision -match '^[0-9a-fA-F]{40}$')) {
-        if ($headSha -ne $Revision.ToLowerInvariant() -and $headSha -ne $Revision) {
+        if ($headSha -ne $Revision) {
             throw "[Clone-Repository] Revision verification failed for '$DatumURLConfig': expected HEAD '$Revision' but the clone is at '$headSha'."
         }
     }

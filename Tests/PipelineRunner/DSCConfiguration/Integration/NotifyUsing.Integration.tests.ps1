@@ -46,7 +46,6 @@ Describe "notify/using() gated reads through a real runner pass" -Tag Integratio
         . (Get-FunctionPath 'Expand-Parameters.ps1').FullName
         . (Get-FunctionPath 'Expand-ParameterInArray.ps1').FullName
         . (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
-        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
         . (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
 
         # The accessor under test. Dot-sourcing it defines the 'using' alias in this scope, which

@@ -49,8 +49,6 @@ Describe "preCondition/postCondition through a real runner pass" -Tag Integratio
         # The validator and the normalizer are the two halves of the condition gate, and the
         # accessors below are what an allow-listed condition may call. Dot-sourcing each defines
         # its alias in this scope, which is what the script block built from a condition resolves.
-        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
-        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
         . (Get-FunctionPath 'variables.ps1').FullName
         . (Get-FunctionPath 'parameters.ps1').FullName
         . (Get-FunctionPath 'reference.ps1').FullName
