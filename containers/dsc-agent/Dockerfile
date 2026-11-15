@@ -29,7 +29,18 @@ RUN apt-get update \
 
 # Install the DSC v3 engine into a stable location and expose it on PATH.
 COPY scripts/Install-DscV3.ps1 scripts/dsc-checksums.json /opt/dsc-pipelinerunner/scripts/
-RUN pwsh -NoLogo -NoProfile -File /opt/dsc-pipelinerunner/scripts/Install-DscV3.ps1 \
+#
+# The installer asks the GitHub API which release asset to download, and anonymous API calls from
+# a shared build host are rate limited (a build can fail with "API rate limit exceeded"). To
+# authenticate, pass a token as a BuildKit secret:
+#     docker build --secret id=github_token,env=GITHUB_TOKEN ...
+# The secret is mounted for this one RUN step only and read into the installer's environment, so
+# it is never written to a layer, the image history or the build cache. It is optional: without
+# it the build runs unauthenticated, exactly as before. The token needs no scopes (a read-only
+# GITHUB_TOKEN is enough) because only public release metadata is read.
+RUN --mount=type=secret,id=github_token \
+    if [ -s /run/secrets/github_token ]; then GITHUB_TOKEN="$(cat /run/secrets/github_token)"; export GITHUB_TOKEN; fi; \
+    pwsh -NoLogo -NoProfile -File /opt/dsc-pipelinerunner/scripts/Install-DscV3.ps1 \
         ${DSC_VERSION:+-Version "$DSC_VERSION"} -InstallDirectory /usr/local/dsc -Verbose
 ENV PATH="/usr/local/dsc:${PATH}"
 

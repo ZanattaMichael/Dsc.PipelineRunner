@@ -71,8 +71,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The installer queries the GitHub API for the release asset. Anonymous calls from a shared
+      # runner IP are rate limited, so the workflow's read-only token is handed to the build as a
+      # BuildKit secret (mounted for that one step; never stored in the image or its history).
       - name: Build the hosted-agent image
-        run: docker build -f containers/dsc-agent/Dockerfile -t dsc-pipelinerunner-agent:ci .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker build --secret id=github_token,env=GITHUB_TOKEN -f containers/dsc-agent/Dockerfile -t dsc-pipelinerunner-agent:ci .
 
       - name: Verify dsc runs inside the image
         run: docker run --rm dsc-pipelinerunner-agent:ci dsc --version

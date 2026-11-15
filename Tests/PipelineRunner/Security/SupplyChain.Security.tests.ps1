@@ -267,6 +267,11 @@ Describe "Security: downloads, actions and images are pinned and verified" -Tag 
             $script:dockerfile | Should -Not -Match '(?m)^ARG\s+DSC_VERSION=latest'
         }
 
+        It "takes a GitHub token only as a BuildKit secret, never as a build argument or ENV" {
+            $script:dockerfile | Should -Match '--mount=type=secret,id=github_token'
+            $script:dockerfile | Should -Not -Match '(?mi)^\s*(ARG|ENV)\s+\w*(TOKEN|SECRET|PASSWORD)'
+        }
+
         It "copies the lock file next to the installer, so the build verifies against it" {
             $script:dockerfile | Should -Match 'dsc-checksums\.json'
         }

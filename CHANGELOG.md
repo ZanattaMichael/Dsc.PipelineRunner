@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The hosted-agent image build no longer fails on GitHub API rate limits.** `Install-DscV3.ps1`
+  queries the GitHub API during `docker build`, and anonymous calls from a shared build host are
+  rate limited. The build now accepts an optional token as a BuildKit secret
+  (`--secret id=github_token,env=GITHUB_TOKEN`), mounted for the install step only so it never
+  reaches a layer or the image history, and the CI image build passes the workflow's read-only
+  token. Without a secret the build behaves as before.
+
 ### Security
 
 - **DSC v3 resource credentials no longer appear on the `dsc` command line.** The engine
