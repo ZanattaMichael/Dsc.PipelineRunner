@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+
+- **README reordered and shortened (871 to about 590 lines), with a "How it works" animation.**
+  Getting Started now comes first instead of last, followed by writing a configuration, how a run
+  executes, Actions, commands and security, with a table of contents and a documentation index.
+  Nothing was removed: the full per-key resource reference moved to `docs/resource-features.md`
+  (the README keeps a summary table), and the Azure DevOps self-hosted agent and pipeline steps
+  moved to `docs/azure-devops-self-hosted-agent.md`. `assets/how-it-works.gif` walks through the
+  merge, the checks, the test-then-set lifecycle, what a resource can define, `notify`, Actions,
+  the guard rails and the report.
+
 ### Changed
 
 - **A logo, and the PowerShell Gallery icon is no longer the Azure DevOps logo.** The module had
