@@ -10,8 +10,9 @@ All notable changes to this project will be documented in this file.
   inherited `icon.png` from the Azure DevOps DSC project, so the Gallery page showed Microsoft's
   Azure DevOps mark on a runner that has no hard Azure DevOps dependency. `icon.png` (the file
   the manifest's `IconUri` points at) is now the project logo: configuration layers merging into one
-  pipeline that ends in a checked node, the desired state. The SVG source is `assets/logo.svg`
-  (with a 512px PNG), and the README shows it.
+  pipeline that ends in a check mark, the desired state, on a blue-gradient tile in the same style as
+  the AzureDevOpsDscNative icons. The SVG source is `assets/logo.svg` (with a 512px PNG), there is a
+  dark-tile variant in `assets/logo-dark.svg`, and the README shows the logo.
 
 ### Added
 

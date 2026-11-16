@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="t d">
+  <title id="t">Dsc.PipelineRunner</title>
+  <desc id="d">Three configuration layers merge into one pipeline that ends in a check mark: the desired state.</desc>
+  <defs>
+    <linearGradient id="flow" gradientUnits="userSpaceOnUse" x1="44" y1="0" x2="214" y2="0">
+      <stop offset="0" stop-color="#3194d7"/>
+      <stop offset="1" stop-color="#5eead4"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#0f172a"/>
+  <g fill="none" stroke="url(#flow)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M44 94 C 82 94, 88 128, 120 128"/>
+    <path d="M44 128 L 120 128"/>
+    <path d="M44 162 C 82 162, 88 128, 120 128"/>
+    <path d="M120 128 L 142 128"/>
+  </g>
+  <g fill="#3194d7">
+    <circle cx="44" cy="94" r="8"/>
+    <circle cx="44" cy="128" r="8"/>
+    <circle cx="44" cy="162" r="8"/>
+  </g>
+  <path d="M140 128 L 166 154 L 214 100" fill="none" stroke="#5eead4" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

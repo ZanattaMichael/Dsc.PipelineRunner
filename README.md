@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Dsc.PipelineRunner logo: configuration layers merge into one pipeline that ends in a checked node" width="160" height="160">
+  <img src="assets/logo.svg" alt="Dsc.PipelineRunner logo: configuration layers merge into one pipeline that ends in a check mark" width="160" height="160">
 </p>
 
 # Dsc.PipelineRunner
