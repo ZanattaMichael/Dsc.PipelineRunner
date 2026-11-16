@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
   merge, the checks, the test-then-set lifecycle, what a resource can define, `notify`, Actions,
   the guard rails and the report.
 
+## [1.2.1] - 2026-11-16
+
 ### Changed
 
 - **A logo, and the PowerShell Gallery icon is no longer the Azure DevOps logo.** The module had
