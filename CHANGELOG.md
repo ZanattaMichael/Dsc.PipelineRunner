@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-16
+
 ### Changed
 
 - **A logo, and the PowerShell Gallery icon is no longer the Azure DevOps logo.** The module had
