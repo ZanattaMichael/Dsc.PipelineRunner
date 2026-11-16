@@ -23,6 +23,7 @@ wrong configuration.
 #>
 function Resolve-PipelineParameter {
     [CmdletBinding()]
+    [OutputType([System.Object[]], [System.Object])]
     param (
         [Parameter(Mandatory = $true)]
         [AllowEmptyString()]
