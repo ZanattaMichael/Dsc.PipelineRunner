@@ -431,7 +431,8 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             # dsc.exe against the live org and the runner surfaces a legible, structured result.
             #
             # The tolerance is deliberately narrow. A failed resource is accepted only when it is
-            #   * drift (the resource answered and is not in the desired state), or
+            #   * drift (the resource answered and is not in the desired state, including when the
+            #     configuration's postCondition on InDesiredState is what reports it), or
             #   * the known adapter limitation: AzDoGitPermission rejecting its Permissions value.
             # Anything else -- above all a fault in the engine itself, such as dsc output the runner
             # could not parse -- fails this test. Without that, an engine bug hides behind the
@@ -449,7 +450,10 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             $unexpectedFailures = @(
                 foreach ($failed in $result.FailedResources) {
                     $message = [string]$failed.ErrorMessage
-                    $isDrift = [string]::IsNullOrWhiteSpace($message) -or $message -like 'Differing properties:*'
+                    # Drift is reported either by the engine ("Differing properties: ...") or by the
+                    # configuration's own postCondition on the Test result.
+                    $isDrift = [string]::IsNullOrWhiteSpace($message) -or $message -like 'Differing properties:*' -or
+                        $message -like 'Resource failed postCondition {result().InDesiredState*'
                     $isKnownLimitation = ([string]$failed.ResourceType -like '*AzDoGitPermission') -and
                         ($message -like "*'dsc resource *' failed for*") -and
                         ($message -like '*Permissions*') -and
