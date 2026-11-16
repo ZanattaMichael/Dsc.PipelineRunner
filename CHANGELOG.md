@@ -12,7 +12,10 @@ All notable changes to this project will be documented in this file.
   the manifest's `IconUri` points at) is now the project logo: configuration layers merging into one
   pipeline that ends in a check mark, the desired state, on a blue-gradient tile in the same style as
   the AzureDevOpsDscNative icons. The SVG source is `assets/logo.svg` (with a 512px PNG), there is a
-  dark-tile variant in `assets/logo-dark.svg`, and the README shows the logo.
+  dark-tile variant in `assets/logo-dark.svg`. The README header is now a lockup in the same style (the
+  logo, the name with `Runner` in the accent blue, and a tagline), with light and dark versions in
+  `assets/header-light.svg` and `assets/header-dark.svg` that GitHub picks between by theme; the
+  lettering is outlines, so it does not depend on an installed font.
 
 ### Added
 
