@@ -45,9 +45,11 @@ RUN --mount=type=secret,id=github_token \
 ENV PATH="/usr/local/dsc:${PATH}"
 
 # Install the runner's required PowerShell modules for all users, at the exact versions pinned in
-# scripts/module-versions.json (a failed download is retried).
-RUN pwsh -NoLogo -NoProfile -File /opt/dsc-pipelinerunner/scripts/Install-PinnedModule.ps1 \
-        -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Scope AllUsers
+# scripts/module-versions.json (a failed download is retried). This uses -Command, not -File:
+# -File hands every token over as a literal string, so a comma-separated module list is not bound
+# as a list ("A positional parameter cannot be found that accepts argument ...").
+RUN pwsh -NoLogo -NoProfile -Command "& '/opt/dsc-pipelinerunner/scripts/Install-PinnedModule.ps1' \
+        -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Scope AllUsers"
 
 # Keep the smoke test available for image validation / debugging.
 COPY scripts/Test-DscV3Smoke.ps1 /opt/dsc-pipelinerunner/scripts/Test-DscV3Smoke.ps1

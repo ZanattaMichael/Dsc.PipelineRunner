@@ -212,6 +212,12 @@ Describe "Security: Gallery modules are installed at pinned versions" -Tag Unit,
             @($script:offences) | Should -BeNullOrEmpty -Because 'a bare Install-Module takes whatever is newest'
         }
 
+        It "starts the installer in the image with -Command, because -File cannot bind a module list" {
+            $dockerfile = Get-Content -LiteralPath (Join-Path $script:root 'containers/dsc-agent/Dockerfile') -Raw
+            $dockerfile | Should -Not -Match '-File\s+\S*Install-PinnedModule\.ps1' -Because 'pwsh -File passes each token as a literal string, so "-Name A, B" fails to bind'
+            $dockerfile | Should -Match "-Command\s+`"&\s+'[^']*Install-PinnedModule\.ps1'"
+        }
+
         It "gives the container image the helper and the lock file" {
             $dockerfile = Get-Content -LiteralPath (Join-Path $script:root 'containers/dsc-agent/Dockerfile') -Raw
             $dockerfile | Should -Match 'Install-PinnedModule\.ps1'
