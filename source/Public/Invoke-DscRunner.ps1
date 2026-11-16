@@ -72,6 +72,12 @@ Optional resource version hint used to bias 'Auto' engine selection by major ver
 .PARAMETER EngineAction
 Inline engine scriptblock. Takes precedence over -Engine.
 
+.PARAMETER ReportAction
+Inline reporter scriptblock. After each compiled file it receives a context hashtable whose
+Document key holds that file's report document (schema version, counts, and one entry per
+resource), in addition to any reporters named in PipelineRunnerSettings.Report.Reporters. A
+reporter that throws is reported as an error and does not change the run's result.
+
 .PARAMETER KeepTemporaryDirectory
 Leave any temporary directory the runner created (a clone, or a fallback cache directory)
 on disk after the run instead of deleting it. Useful when debugging a compile failure.
@@ -116,6 +122,8 @@ function Invoke-DscRunner {
         [string]$Engine = 'DscV2',
         [string]$EngineVersion,
         [scriptblock]$EngineAction,
+
+        [scriptblock]$ReportAction,
 
         [switch]$FailOnError,
 
@@ -213,6 +221,7 @@ function Invoke-DscRunner {
         if ($ReportPath)    { $params.ReportPath    = $ReportPath }
         if ($EngineVersion) { $params.EngineVersion = $EngineVersion }
         if ($EngineAction)  { $params.EngineAction  = $EngineAction }
+        if ($ReportAction)  { $params.ReportAction  = $ReportAction }
         if ($settings)      { $params.RunnerSettings = $settings }
 
         # Collect each configuration's structured result so the run can be summarized as a single

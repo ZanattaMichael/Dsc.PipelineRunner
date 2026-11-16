@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Reporting: captured state, a versioned report document, and reporters (#85, first part).**
+  `PipelineRunnerSettings.Report.State` (`None` by default, `Drift`, `Full`) captures each
+  resource's desired properties and its `Get()` output, redacted and bounded, into a report
+  document (`SchemaVersion` `1.0`) that also records the mode, the engine and, per resource,
+  whether it drifted, whether `Set` ran and whether a `notify` forced it. With `-ReportPath` the
+  document is written to `<node>.state.json`. A new `Report` action hook sends the document to
+  the reporters named in `Report.Reporters` or to an inline `Invoke-DscRunner -ReportAction`;
+  the built-in `Webhook` reporter posts it over https with a token from a `Credential` action.
+  A reporter that fails cannot change the run's result. The existing CSV and `*.report.json`
+  files are unchanged. Not in this part: JUnit or CI-summary reporters, per-resource streaming,
+  and a setting to fail the run when a reporter fails.
+
 ### Documentation
 
 - **README reordered and shortened (871 to about 590 lines), with a "How it works" animation.**

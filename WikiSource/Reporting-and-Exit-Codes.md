@@ -265,3 +265,82 @@ foreach ($failure in $result.FailedResources) {
 
 `Test` mode plus `-FailOnError` is a drift gate: the build goes red when the estate no longer
 matches the configuration, and the published reports say exactly which resources moved.
+
+## Captured state and reporters
+
+Everything above is unchanged by this section: the CSV and `*.report.json` files keep their
+shape. `PipelineRunnerSettings.Report` adds two opt-in things on top.
+
+```yaml
+PipelineRunnerSettings:
+  Report:
+    State: Drift            # None (default) | Drift | Full
+    Reporters: [ Webhook ]  # extra destinations; the files written by -ReportPath need no entry
+    Webhook:
+      Uri: https://reports.example.com/dsc
+      Credential:           # optional; resolved by a Credential action, its password is the token
+        action: Environment
+        UserNameVariable: REPORT_USER
+        PasswordVariable: REPORT_TOKEN
+```
+
+### The report document
+
+One document per compiled file, with `SchemaVersion` `1.0`. It is what a reporter receives, and
+what `<node>.state.json` contains.
+
+| Field | Meaning |
+| --- | --- |
+| `SchemaVersion` | `1.0`. A breaking change to this document changes the major number. |
+| `NodeName`, `ConfigurationFile` | The compiled file. |
+| `Mode`, `Engine` | `Test` or `Set`, and the engine that ran. |
+| `Status`, `TotalResources`, `PassCount`, `FailCount`, `SkipCount`, `DurationSeconds`, `ErrorMessage` | As in `*.report.json`. |
+| `StateCapture` | `None`, `Drift` or `Full`. |
+| `Results` | One entry per resource: every field of the resource record above, plus the four below. |
+| `Results[].Drifted` | Whether the resource's own `Test` found it out of the desired state. `null` if it never reached `Test`. |
+| `Results[].SetInvoked` | Whether `Set` was called. |
+| `Results[].ForcedByNotify` | Whether a `notify` from a changed resource forced the re-run. |
+| `Results[].State` | `{ Desired, Actual }` when state was captured for this resource, otherwise `null`. |
+
+### State capture
+
+`State: Drift` captures state for resources that drifted; `Full` captures it for every resource
+that was evaluated. `Desired` is the resource's properties after parameters and variables were
+resolved; `Actual` is what the engine's `Get` returned. With `-ReportPath`, the document is also
+written to `<node>.state.json`.
+
+Captured state is redacted before it is stored, because `Get` output can hold secrets the
+configuration never declared:
+
+- a value under a sensitive key name (`password`, `secret`, `token`, `key`, `credential`,
+  `connectionstring`, `passphrase`) becomes `[REDACTED]`, including a whole list or mapping
+  under that key, at any depth;
+- a `[PSCredential]` or `[SecureString]` becomes `[REDACTED]`;
+- any secret the runner already knows for that resource is replaced wherever it appears inside
+  another string;
+- depth, list length and string length are bounded, and a resource whose captured state exceeds
+  65,536 characters is reported as `{ Truncated: true }` instead.
+
+Name matching is a heuristic. A secret stored under an innocuous name, that the runner was never
+told about, is not recognised. Leave `State` at `None` (the default) where that matters, and
+treat a state report with the same care as the system it describes.
+
+### Reporters
+
+A reporter is an action under `Actions/Report/<Name>.ps1`, or an inline scriptblock passed as
+`Invoke-DscRunner -ReportAction`. It receives a context with `Document` (above), its own
+`Settings` block, `NodeName` and `ReportPath`, once per compiled file.
+
+A reporter runs after the file's result has been decided. If it throws, the error is reported
+and the run's result, the report files and the other reporters are unaffected.
+
+**`Webhook`** posts the document as JSON:
+
+- `https` only; a URL with `user:password@` is refused;
+- the token comes from a `Credential` action and is sent in a header (`Authorization: Bearer`
+  by default; `Header` and `Scheme` change that), never in the URL;
+- redirects are not followed, so neither the token nor the report reaches another host;
+- a failed attempt is retried (`MaxAttempts`, default 3; `TimeoutSeconds`, default 30);
+- an error names the host and the HTTP status only: not the token, the URL's path or query, or
+  the response body.
+
