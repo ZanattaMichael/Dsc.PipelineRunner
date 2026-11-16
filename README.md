@@ -42,7 +42,131 @@ module.
 > substitutes for trusting the repository itself. See [SECURITY.md](SECURITY.md) and
 > [docs/trust-model.md](docs/trust-model.md).
 
-## Datum
+## How it works
+
+<p align="center">
+  <img src="assets/how-it-works.gif" alt="Animation: Datum merges the configuration layers into one file per node; rules check it; each resource is tested and then set; Actions plug in at every step; guard rails and a report with secrets scrubbed" width="800">
+</p>
+
+1. **Datum merges your layers** into one compiled file per node, expanding composites.
+1. **Rules check it first.** Pre-Parse and Format rules run, and unsafe expressions are refused, before anything changes.
+1. **Each resource is tested, then set.** `Test` runs first; `Set` runs only when the resource drifted and the run is in `Set` mode.
+1. **Resources declare their own behaviour** in YAML: conditions, ordering, `notify`, targets, credentials and typed parameters.
+1. **Actions plug in at every step:** where the configuration comes from, how to authenticate, which engine and which target.
+1. **You get a report** (OK, SKIPPED or FAIL per resource) with secrets scrubbed from logs, errors and output.
+
+## Contents
+
+- [Getting Started](#getting-started): install, quick start, and building a configuration
+- [Writing a configuration](#writing-a-configuration): Datum, [resource features](#resource-features), composites and run-control commands
+- [How a run executes](#how-a-run-executes): the step-by-step lifecycle
+- [Architecture: Actions](#architecture-actions): the pluggable Source, Connect, Engine, Target and Credential hooks
+- [Public Commands](#public-commands): `Invoke-DscRunner`, `Invoke-DscPipelineRunner` and their parameters
+- [Security](#security): [configuration source security](#configuration-source-security) and [supply chain and releases](#supply-chain-and-releases)
+- [More documentation](#more-documentation)
+
+## Getting Started
+
+> **Running on a hosted Linux agent with DSC v3?** See
+> [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for bootstrapping the `dsc`
+> engine, pipeline-native authentication, and workload-identity federation (no stored PAT).
+
+### Install
+
+```powershell
+Install-Module Dsc.PipelineRunner -Scope CurrentUser
+```
+
+Releases are published to the [PowerShell Gallery](https://www.powershellgallery.com/packages/Dsc.PipelineRunner)
+and as [GitHub releases](https://github.com/ZanattaMichael/Dsc.PipelineRunner/releases) with a build
+provenance attestation (see [Supply chain and releases](#supply-chain-and-releases)). Add
+`-AllowPrerelease` to install a preview.
+
+### Quick start (provider-agnostic)
+
+No Azure DevOps setup required — point `Invoke-DscRunner` at a local directory built
+from the `Example Configuration` structure below:
+
+```powershell
+Import-Module Dsc.PipelineRunner
+Invoke-DscRunner -ConfigurationSourcePath 'C:\Your-Path\Example Configuration' -Mode Test
+```
+
+The steps below walk through building that configuration; they apply to any CI/CD system.
+Running from Azure DevOps on a self-hosted agent (`Invoke-DscPipelineRunner`, or the
+`AzureDevOps` `Connect` action) needs a few more steps, covered in
+[docs/azure-devops-self-hosted-agent.md](docs/azure-devops-self-hosted-agent.md).
+
+1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
+1. Using the `Example Configuration` Directory, create a custom datum directory structure following these guidelines:
+   1. __Lower-Level Rules__ should be implemented first, such as organizational policies.
+   1. __Intermediate-Level Rules__ apply to groups of projects. For example:
+
+      _datum.yml_
+
+      ```yaml
+      ResolutionPrecedence:
+          # This is a High-Level Policy
+          - Projects\$($Node.ProjectPresence)\$($Node.Project)
+          # This is an intermediate level policy. Note that $Node.ProjectArea dictates that there potentially are multiple projects that fall under a "Project Area"
+          # These can be specified under a higher level policy.
+          - ProjectPolicies\$(Node.ProjectArea)\GitPermissions            
+          - ProjectPolicies\$(Node.ProjectArea)\GitRepositories
+          - ProjectPolicies\$(Node.ProjectArea)\ProjectGroups
+          # This is a Low-Level policy.
+          - ProjectPolicies\Project
+          - OrganizationPolicies\OrganizationGroups
+          - OrganizationPolicies\Organization
+      ```
+
+      > __Please Note:__ Lower-level configurations take precedence over higher-level configurations. In the event of a conflict, datum will default to the lower-level settings.
+
+      _`($Node.Project).yaml`_
+
+      ```yaml
+      # The Project Area can be specified within the end user yaml file.
+      ProjectArea: CustomProjectArea
+
+      parameters: {}
+
+      variables: {
+          ProjectDescription: 'Custom Magenta Project. Contact Name: John Doe.',
+          ProjectRepositoryName: 'CON_Configuration',
+          Project_Service_GitRepositories: 'enabled',
+          Project_Service_BuildPipelines: 'enabled',
+          Project_Service_AzureArtifact: 'enabled'
+      }
+      ```
+
+   1. __Higher-Level Rules__ describe lower-level areas and project-specific settings.
+
+      > __Note:__ Please keep changes within the project YAML configuration to a minimum. This ensures that the project does not become a 'snowflake' and remains consistent with established standards and practices. By minimizing deviations, we maintain uniformity across projects, facilitating easier maintenance, scalability, and collaboration among team members. This approach also reduces the risk of introducing unique complexities that could complicate future updates or integrations.
+
+   1. Please note that any adjustments should adhere to the established hierarchy and rules.
+   1. As a general guideline, __AVOID__ altering `lookup_options` unless you are fully aware of the implications.
+
+1. __Store the Configuration within the Respective Code Environment:__
+
+   - Ensure that all configuration files and settings are securely stored within the appropriate code environment to maintain consistency and security.
+   - Use environment-specific directories or repositories to manage configurations, ensuring easy access and version control.
+
+### Requirements
+
+PowerShell 7 or later, and these modules (installed with the module from the PowerShell Gallery):
+
+| Module | Version Constraint |
+|---|---|
+| `PSDesiredStateConfiguration` | `>= 2.0.0` |
+| `powershell-yaml` | `<= 1.0.0` |
+| `datum` | `<= 1.0.0` |
+| `Datum.InvokeCommand` | `<= 1.0.0` |
+
+The DSC v3 engine also needs the `dsc` executable: see
+[docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md). Azure DevOps support is opt-in and
+needs two more modules: see
+[docs/azure-devops-self-hosted-agent.md](docs/azure-devops-self-hosted-agent.md).
+
+## Writing a configuration
 
 This module utilizes Datum from Gael Colas to streamline configuration. For more information on how to implement and use it, please refer to the [official documentation or Gael Colas' resources.](https://github.com/gaelcolas/Datum)
 
@@ -107,213 +231,24 @@ This module utilizes Datum from Gael Colas to streamline configuration. For more
     | `PSDesiredStateConfiguration` module | `2.0` | `2.9` |
     | DSC Resource module | `1.0` | `1.9` |
 
-### Enhanced Pipeline Runner Resource Features
+### Resource features
 
-The pipeline runner provides a set of features applicable to all Desired State Configuration (DSC) resources, enhancing their flexibility and control. These features include:
+Every resource can carry these keys, whatever its DSC type. Each has examples and the exact rules in
+[docs/resource-features.md](docs/resource-features.md).
 
-- __preCondition__ (formerly `condition`, which is still accepted as a deprecated alias):
-  This feature allows conditional execution of resources. The expression is evaluated as a
-  PowerShell predicate before the resource runs. If it evaluates to `$true`, the resource
-  executes; if it evaluates to `$false`, the resource is skipped. This is useful for
-  dynamically controlling resource execution based on specific criteria.
+| Key | What it does |
+|---|---|
+| `preCondition` | Runs the resource only when the expression is `$true`; otherwise it is skipped. (`condition` is a deprecated alias.) |
+| `postCondition` | Asserts the outcome after `Test`/`Set`; a `$false` result marks the resource `FAIL`. Can read `result()` and call `stopProcessing()`. |
+| `preExecutionScript` / `postExecutionScript` | Run PowerShell before or after the resource. Off unless `AllowExecutionScripts` is enabled. |
+| `PipelineRunnerSettings.AllowExecutionScripts` | The configuration-level opt-in for execution scripts (default `false`). |
+| `resourceCredential` | Injects a credential resolved by a `Credential` action into the resource's properties, so it never appears in the file. |
+| `dependsOn` | Orders resources: the named resources run first. |
+| `notify` / `using()` | Runs this resource before the ones it names, forces them to re-apply when this one changed, and lets them read its output. |
+| `<params=Name>` | Replaced by a pipeline parameter with its type intact. |
 
-    __Example:__
-
-    ```yaml
-    - name: CON Board Administrators
-      preCondition: equals (variables 'ProjectWorkBoardsStatus') 'enabled'
-      type: AzureDevOpsDscNative/AzDoProjectGroup
-    ```
-
-    A preCondition may also call the function-language accessors — an explicit allow-list
-    covering lookups (`parameters()`, `variables()`, `reference()`, `using()`), run context
-    (`nodeName()`, `configurationFile()`), logic (`equals()`, `not()`), strings and collections
-    (`concat()`, `empty()`, `coalesce()`, `toLower()`, `toUpper()`, `startsWith()`,
-    `contains()`) and arithmetic (`add()`, `sub()`, `mul()`, `div()`, `mod()`, `min()`,
-    `max()`, `int()`, `float()`). Any other command invocation, a variable assignment, or a
-    method call is still rejected. There is deliberately no `secret()` accessor: a condition is
-    recorded verbatim in the audit record and in every SKIP message it produces, so secrets
-    reach a resource through its `resourceCredential` block instead. Unlike a bare
-    comparison, `parameters()`/`reference()` throw on a missing key or reference rather than
-    silently resolving to `$null`, so a typo fails just that resource instead of skipping it
-    unnoticed. These are ordinary PowerShell commands, so multi-argument calls take
-    space-separated arguments — `equals (parameters 'Environment') 'Prod'`, not
-    `equals(parameters('Environment'), 'Prod')` — the comma-in-parens form parses as a single
-    array argument and silently mis-binds:
-
-    ```yaml
-    - name: CON Board Administrators
-      preCondition: (parameters('Environment')) -eq 'Prod' -and (variables('ProjectWorkBoardsStatus')) -eq 'enabled'
-      type: AzureDevOpsDscNative/AzDoProjectGroup
-    ```
-
-- __postCondition__: evaluated after the resource's `Test`/`Set`, before `postExecutionScript`.
-  A `$false` result marks the resource `FAIL` regardless of what the engine itself reported —
-  it asserts something about the *outcome*, where `preCondition` decides whether the resource
-  runs at all. It is parsed by the same predicate allow-list as `preCondition`, plus two
-  accessors reserved for `postCondition` only: `result()` (the resource's normalized engine
-  result — `InDesiredState` / `RebootRequired` / `Message` / `Raw`) and `stopProcessing()` (see
-  below).
-
-    __Example:__
-
-    ```yaml
-    - name: Print Spooler
-      type: PSDscResources/Service
-      postCondition: result().InDesiredState -or (not (equals (parameters 'Environment') 'Prod'))
-    ```
-
-- __preExecutionScript__ / __postExecutionScript__: run arbitrary PowerShell immediately
-  before, or after, the resource's `Test`/`Set` evaluation. Useful for preparing state a
-  resource depends on, or for clean-up/state-change logic afterwards. Unlike a condition,
-  these are not restricted to a predicate — see `AllowExecutionScripts` below, which gates
-  their use. Unlike `properties`/`preCondition`/`postCondition`, these are not parsed through
-  `ExpandString` or `Assert-SafeConditionExpression` — they run as plain PowerShell, with
-  direct read access to the script-scope variable `Set-Variables` already created for each
-  Datum variable, so there is no need to go through the `variables()` accessor here.
-
-    __Example:__
-
-    ```yaml
-    - name: Project
-      type: AzureDevOpsDscNative/AzDoProject
-      postExecutionScript: if ($Project_Ensure -eq 'Absent') { Stop-TaskProcessing }
-    ```
-
-- __AllowExecutionScripts__ (`PipelineRunnerSettings.AllowExecutionScripts`, default `false`):
-  a configuration-level gate on `preExecutionScript`/`postExecutionScript`. Because an
-  execution script runs unrestricted code in the runner's own process, a configuration must
-  opt in explicitly before any resource may carry one; otherwise the run fails at PreParse
-  time, naming every offending resource in one pass, before any resource is evaluated.
-
-    ```yaml
-    PipelineRunnerSettings:
-      AllowExecutionScripts: true
-    ```
-
-- __resourceCredential__: a declarative way to inject a resolved credential into a resource's
-  own properties (for example a resource's `-Credential` parameter) without the credential
-  ever appearing in the configuration file. It resolves through the `Credential` action hook
-  (see below) and, unlike `preExecutionScript`/`postExecutionScript`, works even when
-  `AllowExecutionScripts` is off — it is declarative, not a script.
-
-    __Example:__
-
-    ```yaml
-    - name: SQL Login
-      type: SqlServerDsc/SqlLogin
-      properties:
-        InstanceName: MSSQLSERVER
-      resourceCredential:
-        action: SecretManagement   # a file in Actions/Credential/ (default: Environment)
-        name: sql-service-account  # the secret name
-        propertyName: Credential   # the properties key the resolved PSCredential is written to (default: Credential)
-    ```
-
-- __dependsOn__: This feature establishes a dependency chain, ensuring that resources are executed in a specific order. By defining dependencies, you can create a structured sequence of resource execution, where a resource will only run after its dependencies have successfully completed. This is particularly useful in complex configurations where the order of operations is critical.
-
-    __Example:__
-
-    ```yaml
-    - name: Default Git Configuration Permissions
-      type: AzureDevOpsDscNative/AzDoGitPermission
-      dependsOn:
-        - AzureDevOpsDscNative/AzDoProject/Project
-        - AzureDevOpsDscNative/AzDoProjectGroup/CON Readers
-        - AzureDevOpsDscNative/AzDoProjectGroup/CON Board Administrators
-    ```
-
-- __notify__ / __using()__: a Puppet/Chef-style relationship between two resources, combining an
-  ordering guarantee with a data link. `notify` is a string or array of strings on the
-  *notifying* resource, each naming a target resource by the same `Type/Name` identity
-  `dependsOn` uses. It means two things:
-
-    1. **Ordering** — the notifying resource is guaranteed to run before every resource it
-       notifies. This is implemented as an implicit `dependsOn` on the target (folded in before
-       the dependency sort runs), so a `notify` cycle is rejected exactly the way a `dependsOn`
-       cycle already is.
-    2. **Forced re-run** — in `Set` mode, if the notifying resource's own `Test()` reported it
-       was *not* in the desired state, and its `Set()` then completed successfully, every
-       resource it notifies is forced to re-run its own `Set()` this pass, even if that
-       resource's `Test()` reports it is already in the desired state. In `Test` mode there is
-       no `Set()` to force, so `notify` only contributes its ordering guarantee.
-
-    A resource named in another resource's `notify` list may read that resource's `Get()`
-    output with the `using('Type/Name')` accessor, addressed by the same full `Type/Name`
-    identity (not the bare `name` that `reference()` uses). Unlike `reference()`, `using()` is
-    gated: it only succeeds when the resource being read has actually declared the calling
-    resource as a `notify` target — a data dependency is always paired with the ordering
-    guarantee that makes it safe to read. `using()` is callable from anywhere within the
-    notified resource's own expressions (typically `properties`), and, like `reference()`,
-    ordinary PowerShell property-path chaining works on the result.
-
-    `using` is a reserved PowerShell word (the `using module`/`using namespace` directive) when
-    it is the first token of a statement, so `using(...)` must always sit inside an outer
-    expression — never as a bare, unwrapped call. A property value's `$(...)` already provides
-    that wrapping, so the example below (`$((using '...').Id)`) is the pattern to follow; a
-    bare `using 'Type/Name'` with nothing enclosing it fails to parse.
-
-    Both halves are **scoped to a single configuration file**. The runner processes one compiled
-    configuration at a time and resets its notify state per file, so a `notify` target must be a
-    resource declared in the same file, and `using()` cannot read a resource from another file
-    (it throws the same "has no `notify` declaration, or does not exist" error as an undeclared
-    read). A genuine change in one file never forces a `Set()` in another. This matches
-    `dependsOn`, which is file-scoped for the same reason — see
-    [docs/notify-and-using.md](docs/notify-and-using.md) for why the boundary exists.
-
-    __Example:__
-
-    ```yaml
-    resources:
-      - name: Project
-        type: AzureDevOpsDscNative/AzDoProject
-        properties:
-          ProjectName: Magenta
-        notify:
-          - AzureDevOpsDscNative/AzDoGitRepository/Default Repository
-
-      - name: Default Repository
-        type: AzureDevOpsDscNative/AzDoGitRepository
-        properties:
-          # Only readable here because 'Project' names this resource in its own notify list.
-          ProjectId: $((using 'AzureDevOpsDscNative/AzDoProject/Project').Id)
-    ```
-
-- __parameter tokens__: A resource property whose value is exactly `<params=Name>` is replaced
-  by the value of that pipeline parameter, with its type intact — a number stays a number, a
-  hashtable stays a hashtable. Parameters resolve first, before string interpolation, so a
-  parameter value that itself contains `$(...)` or a `$variable` reference still expands.
-  Referencing a parameter that is not declared fails that resource and records it in the run
-  report; it does not silently resolve to `$null`.
-
-    The same substitution works inside a list, and `parameters('Name')` reads a parameter
-    from a `condition` or a `postExecutionScript`.
-
-    Values come from the configuration's own `parameters` section and nowhere else — each
-    parameter's `defaultValue` is the value, and there is no invocation-time override on
-    `Invoke-DscRunner`. A parameter declared *without* a `defaultValue` has no value to
-    resolve to, so it is ignored with a warning and referencing it fails exactly as an
-    undeclared name does. Give every parameter a `defaultValue`; an empty string is a
-    legitimate one, and resolves to `''` rather than failing.
-
-    __Example:__
-
-    ```yaml
-    parameters:
-      ServiceName:
-        defaultValue: Spooler
-      RetryCount:
-        defaultValue: 3
-
-    resources:
-      - name: Print Spooler
-        type: PSDscResources/Service
-        properties:
-          Name: <params=ServiceName>
-          RetryCount: <params=RetryCount>
-    ```
-
-These features collectively enhance the robustness and adaptability of DSC resources managed by the pipeline runner, allowing for more precise and context-sensitive configuration management.
+Conditions and property expressions are restricted to an allow-list of side-effect-free accessors
+(`parameters()`, `variables()`, `reference()`, `equals()`, and so on); anything else is rejected.
 
 ### Composite Resources
 
@@ -386,7 +321,7 @@ In the realm of configuration, there are specialized commands designed to modify
       postCondition: result().InDesiredState -or stopProcessing()
     ```
 
-### Deep Dive: Configuration Merging and Executing Process
+## How a run executes
 
 1. Datum merges the example configuration based on the resolution precedence.
 1. Every `type: Composite/<Name>` resource is expanded into the members of its definition
@@ -569,6 +504,11 @@ Invoke-DscRunner -Source Git -SourceContext @{ Url = $repoUrl } `
 
 > A cache directory environment variable must be set before calling `Invoke-DscPipelineRunner`. Prefer the generic `PIPELINERUNNER_CACHE_DIRECTORY`; the legacy `AZDODSC_CACHE_DIRECTORY` is still honoured as a back-compat alias. `Invoke-DscRunner` needs neither — pass `-CacheDirectory`, set one of those variables, or let it use a temporary directory.
 
+## Security
+
+The configuration repository is executed as trusted code: see the note in the [Overview](#overview),
+[SECURITY.md](SECURITY.md) and [docs/trust-model.md](docs/trust-model.md).
+
 ### Configuration source security
 
 Both entry points harden the path between the configuration repository and the runner. None
@@ -596,7 +536,7 @@ of it is optional, and none of it needs configuring:
   directory the runner itself created is ever deleted; a path you supplied is left alone. Pass
   `-KeepTemporaryDirectory` to keep a clone for debugging.
 
-## Supply chain and releases
+### Supply chain and releases
 
 What the runner installs, downloads and publishes is pinned and checked, so a moved tag, a bad
 download or a new upstream release cannot change what runs without a change in this repository.
@@ -635,237 +575,17 @@ choose `preview` or `release` and a `bump` (or an explicit `version`), and tick 
 the tag it would create. It refuses to continue unless every check on `main` is passing, creates the
 annotated tag and starts the Release workflow on it. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing).
 
-## Getting Started
+## More documentation
 
-> **Running on a hosted Linux agent with DSC v3?** See
-> [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for bootstrapping the `dsc`
-> engine, pipeline-native authentication, and workload-identity federation (no stored PAT).
-
-### Install
-
-```powershell
-Install-Module Dsc.PipelineRunner -Scope CurrentUser
-```
-
-Releases are published to the [PowerShell Gallery](https://www.powershellgallery.com/packages/Dsc.PipelineRunner)
-and as [GitHub releases](https://github.com/ZanattaMichael/Dsc.PipelineRunner/releases) with a build
-provenance attestation (see [Supply chain and releases](#supply-chain-and-releases)). Add
-`-AllowPrerelease` to install a preview.
-
-### Quick start (provider-agnostic)
-
-No Azure DevOps setup required — point `Invoke-DscRunner` at a local directory built
-from the `Example Configuration` structure below:
-
-```powershell
-Import-Module Dsc.PipelineRunner
-Invoke-DscRunner -ConfigurationSourcePath 'C:\Your-Path\Example Configuration' -Mode Test
-```
-
-The steps below walk through building that configuration and, further down, setting up
-a self-hosted Azure DevOps agent if that is your target platform. Steps 1–3 apply to any
-CI/CD system; the self-hosted agent / Azure DevOps steps are only needed if you use
-`Invoke-DscPipelineRunner` or the `AzureDevOps` `Connect` action.
-
-1. Clone the repository: `git clone 'https://github.com/ZanattaMichael/Dsc.PipelineRunner' C:\Your-Path`
-1. Using the `Example Configuration` Directory, create a custom datum directory structure following these guidelines:
-   1. __Lower-Level Rules__ should be implemented first, such as organizational policies.
-   1. __Intermediate-Level Rules__ apply to groups of projects. For example:
-
-      _datum.yml_
-
-      ```yaml
-      ResolutionPrecedence:
-          # This is a High-Level Policy
-          - Projects\$($Node.ProjectPresence)\$($Node.Project)
-          # This is an intermediate level policy. Note that $Node.ProjectArea dictates that there potentially are multiple projects that fall under a "Project Area"
-          # These can be specified under a higher level policy.
-          - ProjectPolicies\$(Node.ProjectArea)\GitPermissions            
-          - ProjectPolicies\$(Node.ProjectArea)\GitRepositories
-          - ProjectPolicies\$(Node.ProjectArea)\ProjectGroups
-          # This is a Low-Level policy.
-          - ProjectPolicies\Project
-          - OrganizationPolicies\OrganizationGroups
-          - OrganizationPolicies\Organization
-      ```
-
-      > __Please Note:__ Lower-level configurations take precedence over higher-level configurations. In the event of a conflict, datum will default to the lower-level settings.
-
-      _`($Node.Project).yaml`_
-
-      ```yaml
-      # The Project Area can be specified within the end user yaml file.
-      ProjectArea: CustomProjectArea
-
-      parameters: {}
-
-      variables: {
-          ProjectDescription: 'Custom Magenta Project. Contact Name: John Doe.',
-          ProjectRepositoryName: 'CON_Configuration',
-          Project_Service_GitRepositories: 'enabled',
-          Project_Service_BuildPipelines: 'enabled',
-          Project_Service_AzureArtifact: 'enabled'
-      }
-      ```
-
-   1. __Higher-Level Rules__ describe lower-level areas and project-specific settings.
-
-      > __Note:__ Please keep changes within the project YAML configuration to a minimum. This ensures that the project does not become a 'snowflake' and remains consistent with established standards and practices. By minimizing deviations, we maintain uniformity across projects, facilitating easier maintenance, scalability, and collaboration among team members. This approach also reduces the risk of introducing unique complexities that could complicate future updates or integrations.
-
-   1. Please note that any adjustments should adhere to the established hierarchy and rules.
-   1. As a general guideline, __AVOID__ altering `lookup_options` unless you are fully aware of the implications.
-
-1. __Store the Configuration within the Respective Code Environment:__
-
-   - Ensure that all configuration files and settings are securely stored within the appropriate code environment to maintain consistency and security.
-   - Use environment-specific directories or repositories to manage configurations, ensuring easy access and version control.
-
-1. __(Azure DevOps only) Setup Dsc.PipelineRunner using a Self-Hosted Agent within the CI/CD Pipeline:__
-
-   - Follow the detailed instructions provided in the [Azure DevOps Agents Documentation](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents?view=azure-devops) to configure your self-hosted agent.
-   - __Run the agent service as an identity that is permitted to do the work:__
-
-     Unless a resource's `target` block supplies its own `credential`, the runner reaches every
-     remote machine — and reads every per-user secret store — as the account the agent service
-     runs as. The agent installs as `NT AUTHORITY\NETWORK SERVICE` by default, which presents
-     the *computer* account off-box and is almost never a member of anything on the target, so
-     remoting fails the moment the pipeline runs unattended even though it worked from an
-     interactive session.
-
-     Reconfigure the agent service to run as a domain (or, for workgroup targets, matching
-     local) account, and grant that account:
-
-     | Where | What it needs |
-     |---|---|
-     | On each target | Local `Remote Management Users` to open a WinRM session, and local `Administrators` to apply DSC — `Invoke-DscResource` drives the CIM/DSC subsystem and most resources change machine-wide state. |
-     | On each target | *Force shutdown from a remote system*, if any resource can report `RebootRequired` — the runner restarts remote targets itself. Local `Administrators` holds it by default. |
-     | On the agent | Local administrator on the agent host itself, if the pipeline is to run `Enable-PSRemoting` (including registering the `PowerShell.7` endpoint) rather than have it configured by hand beforehand. |
-     | On the agent | Ownership of the per-user state the run depends on — a `Microsoft.PowerShell.SecretStore` vault, an SSH key under `~/.ssh`, `TrustedHosts` entries. These live in the service account's profile, not in yours. |
-
-     Where that account cannot be granted those rights, leave it unprivileged and give each
-     remote resource an explicit `target.credential` instead. Full detail, including
-     cross-domain and second-hop cases, is in
-     [Remote Targets and Credentials](https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki/Remote-Targets-and-Credentials#the-identity-the-runner-runs-as).
-   - __If Using Managed Identity within Azure Arc:__
-     - Verify that the Agent Pool service is executed under an administrator account to ensure proper permissions and functionality.
-   - __Grant Permissions for Identity within Azure DevOps (AZDO):__
-     - __Using Managed Identity (Virtual Machine):__  
-       Refer to the [Managed Identities Overview](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) for steps on enabling managed identity on virtual machines.
-     - __Using Managed Identity for Azure Arc:__  
-       Managed identity is already configured. Add the computer account into the Project Collection Administrators group to grant necessary permissions.
-     - __If Using Personal Access Token (PAT):__  
-       Add the custom identity to Azure DevOps and generate a PAT to authenticate and authorize actions within the pipeline.
-
-1. __Ensure that the Agent Pools have required dependencies__
-
-    Ensure that the Agent Pool is equipped with all necessary PowerShell module dependencies as specified in the module manifest file [`source\Dsc.PipelineRunner.psd1`](.\source\Dsc.PipelineRunner.psd1). The core module's required modules are:
-
-    | Module | Version Constraint |
-    |---|---|
-    | `PSDesiredStateConfiguration` | `>= 2.0.0` |
-    | `powershell-yaml` | `<= 1.0.0` |
-    | `datum` | `<= 1.0.0` |
-    | `Datum.InvokeCommand` | `<= 1.0.0` |
-
-    Azure DevOps support is **not** a core dependency — it is an opt-in `Connect` action
-    (`Actions/Connect/AzureDevOps.ps1`) that imports the following modules on demand.
-    Install them only if you use `Invoke-DscPipelineRunner`, or `Invoke-DscRunner -Connect AzureDevOps`:
-
-    | Module | Version Constraint |
-    |---|---|
-    | `AzureDevOpsDsc.Common` | `<= 1.0.0` |
-    | `AzureDevOpsDscNative` | `<= 1.0.0` |
-
-    The module versions this repository is built and tested with are pinned in
-    [`scripts/module-versions.json`](scripts/module-versions.json). On a CI agent, install exactly those:
-
-    ```powershell
-    ./scripts/Install-PinnedModule.ps1 -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration
-    ```
-
-    To install any of these modules by hand instead, execute the following command for each module listed above:
-
-    ```powershell
-    Install-Module -Name ModuleName
-    ```
-
-    __Process:__
-
-    1. __Review the Module Manifest:__
-    - Open the `source\Dsc.PipelineRunner.psd1` file to identify all modules listed under the `RequiredModules` section.
-    - Take note of each module name and version specified.
-
-    1. __Install Each Module:__
-    - For every module identified, run the `Install-Module` command in a PowerShell session with administrative privileges. Replace `ModuleName` with the actual name of the module you wish to install.
-    - Example:
-
-        ```powershell
-        Install-Module -Name ModuleName
-        ```
-
-    1. __Verify Installation:__
-    - After installing each module, confirm its presence by running:
-
-        ```powershell
-        Get-Module -ListAvailable -Name ModuleName
-        ```
-
-    - This command will list the installed modules and their versions, ensuring they match those required by the manifest.
-
-    1. __Update Modules if Necessary:__
-    - If any module is outdated, update it using:
-
-        ```powershell
-        Update-Module -Name ModuleName
-        ```
-
-    1. __Check Compatibility:__
-    - Ensure that the installed modules are compatible with your system and other installed software to prevent conflicts or errors during execution.
-
-    By following these steps, you will ensure that your Agent Pool is fully prepared with all necessary PowerShell dependencies, facilitating seamless operation of your Azure DevOps pipelines.
-
-    > Please Note: Maintaining the correct versioning is crucial to prevent pipeline runner compilation errors. Before proceeding with any updates, always verify that the `PipelineRunnerSettings` within `Datum.yml` are within the ranges enforced by the module. The pipeline runner will reject any configuration that does not meet the specified versioning criteria.
-
-1. __Setup the CI/CD Pipeline:__
-
-    Create a pipeline that calls `Invoke-DscPipelineRunner` on your self-hosted agent. A minimal pipeline looks like:
-
-    ```yaml
-    trigger:
-      - main
-
-    pool:
-      name: SelfHosted
-
-    steps:
-      - pwsh: |
-          $env:PIPELINERUNNER_CACHE_DIRECTORY = "$(Agent.TempDirectory)\PipelineRunnerCache"
-          New-Item -Path $env:PIPELINERUNNER_CACHE_DIRECTORY -ItemType Directory -Force | Out-Null
-
-          Import-Module Dsc.PipelineRunner
-
-          Invoke-DscPipelineRunner `
-            -AzureDevopsOrganizationName "$(OrganizationName)" `
-            -ExportConfigDir "$(Agent.TempDirectory)\ExportedConfig" `
-            -ConfigurationSourcePath "$(ConfigurationRepoUrl)" `
-            -JITToken "$(System.AccessToken)" `
-            -Mode "Set"
-        displayName: 'Apply DSC Configuration'
-    ```
-
-    The exported config directory must exist before calling `Invoke-DscPipelineRunner`:
-
-    ```powershell
-    New-Item -Path "$(Agent.TempDirectory)\ExportedConfig" -ItemType Directory -Force
-    ```
-
-    1. __Test to Ensure the Pipeline Runner is Running Correctly:__
-
-    - __Set the Pipeline Runner Mode to Test:__
-        - Pass `-Mode Test` to validate configuration changes without applying them immediately.
-    - __Look for Runtime Errors:__
-        - Monitor pipeline logs for any runtime errors or warnings that could indicate misconfigurations or issues needing resolution.
-    - __Verify Expected Outcomes:__
-        - Conduct thorough testing to confirm that the pipeline runner behaves as expected, making adjustments as necessary to address any discrepancies or failures.
-    - __Review the CSV Report:__
-        - If `-ReportPath` is specified, a per-project CSV report is generated containing the pass/fail/skipped status for every resource. Review this output to verify all resources reached their desired state.
+| Topic | Where |
+|---|---|
+| Every resource key, with examples | [docs/resource-features.md](docs/resource-features.md) |
+| Composite resources | [docs/composite-resources.md](docs/composite-resources.md) |
+| `notify` and `using()` | [docs/notify-and-using.md](docs/notify-and-using.md) |
+| Conditions, execution scripts and reboot handling | [docs/lifecycle-scripting-and-reboot-handling.md](docs/lifecycle-scripting-and-reboot-handling.md) |
+| Remote targets and credentials | [docs/remote-target-credential-handling.md](docs/remote-target-credential-handling.md) |
+| The DSC v3 engine | [docs/dsc-v3.md](docs/dsc-v3.md), [docs/dsc-v3-config-functions.md](docs/dsc-v3-config-functions.md) |
+| Hosted Linux agents with DSC v3 | [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) |
+| Azure DevOps self-hosted agent and pipeline | [docs/azure-devops-self-hosted-agent.md](docs/azure-devops-self-hosted-agent.md) |
+| Trust model and security policy | [docs/trust-model.md](docs/trust-model.md), [SECURITY.md](SECURITY.md) |
+| Contributing and releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
