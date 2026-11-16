@@ -31,6 +31,7 @@ Every key is optional except the two version keys that `Test-DatumConfiguration`
 | `AllowExecutionScripts` | `false` | Whether `preExecutionScript` / `postExecutionScript` are permitted at all. |
 | `Reboot` | `Fail` | What to do when a local `Set()` reports `RebootRequired`. `Fail` or `Ignore`. |
 | `Target` | `Local` | The file-level default execution target for every resource. |
+| `Report` | — | Opt-in state capture and extra report destinations: `State` (`None`, `Drift`, `Full`), `Reporters`, and each reporter's settings. See [Reporting and Exit Codes](Reporting-and-Exit-Codes). |
 
 ## `ConfigurationVersion` / `PipelineRunnerVersion`
 

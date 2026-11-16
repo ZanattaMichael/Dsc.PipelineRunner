@@ -64,6 +64,7 @@ function Start-DscRunner {
         [string] $Engine = 'DscV2', # Execution engine action (Actions/Engine/<Engine>.ps1). 'Auto' opts in to detection; default is Invoke-DscResource.
         [string] $EngineVersion, # Optional resource version hint that biases 'Auto' engine selection by major version.
         [scriptblock] $EngineAction, # Optional inline engine override; takes precedence over -Engine.
+        [scriptblock] $ReportAction, # Optional inline reporter; receives the report document for this file.
 
         # Resolved PipelineRunnerSettings (#57 §2/§3/§4), e.g. AllowExecutionScripts, Reboot,
         # Target. Invoke-DscRunner resolves this once from Datum.yml (pre-compile, since it is
@@ -126,6 +127,28 @@ function Start-DscRunner {
     # 'target' block. 'Local' (today's only behavior) is the default so an unmodified
     # configuration's execution is unchanged.
     $defaultTargetAction = if ($RunnerSettings -and -not [string]::IsNullOrWhiteSpace([string]$RunnerSettings['Target'])) { [string]$RunnerSettings['Target'] } else { 'Local' }
+
+    # Reporting (#85). PipelineRunnerSettings.Report selects what a report contains and where it
+    # goes, beyond the CSV/JSON files -ReportPath has always written:
+    #   State:     None (default) | Drift | Full - capture each resource's desired and actual
+    #              state (redacted) for resources that drifted, or for all of them.
+    #   Reporters: names of Actions/Report/<Name>.ps1 actions to send the report document to.
+    #              'File' is the built-in writer below and needs no entry.
+    # An unknown State is an error rather than a silent 'None': someone who asked for state and
+    # did not get it would not find out until they needed it.
+    $reportSettings = if ($RunnerSettings -and $RunnerSettings['Report'] -is [System.Collections.IDictionary]) { $RunnerSettings['Report'] } else { @{} }
+    $reportState = if (-not [string]::IsNullOrWhiteSpace([string]$reportSettings['State'])) { [string]$reportSettings['State'] } else { 'None' }
+    if ($reportState -notin 'None', 'Drift', 'Full') {
+        throw "[Start-DscRunner] PipelineRunnerSettings.Report.State is '$reportState'; expected None, Drift or Full."
+    }
+    $reportState = (Get-Culture).TextInfo.ToTitleCase($reportState.ToLowerInvariant())
+    $reporterNames = @($reportSettings['Reporters'] | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -ne 'File' } | ForEach-Object { [string]$_ })
+    # Per-resource detail that is reported but is not part of the result record (whose shape,
+    # and so the CSV's columns, is unchanged): drift, whether Set ran, and captured state.
+    $resourceDetails = [System.Collections.Generic.Dictionary[string, hashtable]]::new([System.StringComparer]::Ordinal)
+    # One resource's captured state is bounded, so a resource returning a very large object
+    # cannot exhaust memory or flood a third party.
+    $maxStateCharacters = 65536
 
     # Determine the file extension of the provided FilePath
     $fileExtension = [System.IO.Path]::GetExtension($FilePath)
@@ -621,6 +644,7 @@ function Start-DscRunner {
             # verdict before any forcing is applied, since that (not the forced re-run) is what
             # determines whether this resource's own notify targets should in turn be forced.
             $neededChange = -not $result.InDesiredState
+            $setInvoked = $false
             $forcedByNotify = ($Mode -eq "Set") -and $script:pendingNotifyRefresh.Contains($resourceKey)
             if ($forcedByNotify -and -not $neededChange) {
                 Write-Verbose "Resource forced to re-run Set() by a notify from a changed resource: [$logKey]"
@@ -634,6 +658,7 @@ function Start-DscRunner {
             elseif ($Mode -eq "Set") {
 
                 try {
+                    $setInvoked = $true
                     $result = Invoke-EngineAction -Method 'Set' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
                     Write-Verbose "Executed 'Set' method to make changes: [$logKey]"
                     $resourceStatus = 'OK'
@@ -761,6 +786,31 @@ function Start-DscRunner {
             # using() can read it from a resource this one notifies.
             $script:resourceOutputs[$resourceKey] = $output_var
 
+            # Reporting (#85): what happened to this resource beyond its status and, when state
+            # capture is on, its desired and actual state. Captured here, while this resource's
+            # secrets are still known, and redacted before it is stored: Get() output can hold
+            # secrets the configuration never declared. A failure to capture must not fail the
+            # resource.
+            $resourceDetail = @{ Drifted = [bool]$neededChange; SetInvoked = [bool]$setInvoked; ForcedByNotify = [bool]$forcedByNotify; State = $null }
+            if ($reportState -eq 'Full' -or ($reportState -eq 'Drift' -and $neededChange)) {
+                try {
+                    $capturedState = [ordered]@{
+                        Desired = ConvertTo-ReportState -InputObject $Property -SecretValue $secretValues.ToArray()
+                        Actual  = ConvertTo-ReportState -InputObject $output_var -SecretValue $secretValues.ToArray()
+                    }
+                    $capturedLength = ([string]($capturedState | ConvertTo-Json -Depth 20 -Compress)).Length
+                    if ($capturedLength -gt $maxStateCharacters) {
+                        $capturedState = [ordered]@{ Truncated = $true; Reason = "The captured state was $capturedLength characters; the limit is $maxStateCharacters." }
+                    }
+                    $resourceDetail.State = $capturedState
+                }
+                catch {
+                    $resourceDetail.State = [ordered]@{ Error = 'The state of this resource could not be captured.' }
+                    Write-Verbose "[Start-DscRunner] State capture failed for [$logKey]: $((& $safeText $_.Exception.Message))"
+                }
+            }
+            $resourceDetails[('{0}|{1}|{2}' -f $FilePath, $task.type, $task.name)] = $resourceDetail
+
             # Record the single, deduplicated outcome for this resource and log one line.
             $resourceStopwatch.Stop()
             & $recordResult $task.type $task.name $resourceStatus $resourceStopwatch.ElapsedMilliseconds $resourceError
@@ -815,6 +865,39 @@ function Start-DscRunner {
         }
         $failedResources = $failedList.ToArray()
 
+        # Reporting (#85): the versioned report document. It carries everything the JSON file
+        # below has always had, plus the mode, the engine, and per resource whether it drifted,
+        # whether Set ran, whether a notify forced it, and (when state capture is on) its
+        # redacted desired and actual state. Reporters receive this document; the CSV and JSON
+        # files keep their existing shape.
+        $reportResults = foreach ($record in $results) {
+            $entry = [ordered]@{}
+            foreach ($column in $record.PSObject.Properties) { $entry[$column.Name] = $column.Value }
+            $detail = $null
+            $null = $resourceDetails.TryGetValue(('{0}|{1}|{2}' -f $record.ConfigurationFile, $record.ResourceType, $record.InstanceName), [ref]$detail)
+            $entry['Drifted']        = if ($detail) { $detail.Drifted } else { $null }
+            $entry['SetInvoked']     = if ($detail) { $detail.SetInvoked } else { $false }
+            $entry['ForcedByNotify'] = if ($detail) { $detail.ForcedByNotify } else { $false }
+            $entry['State']          = if ($detail) { $detail.State } else { $null }
+            $entry
+        }
+        $reportContract = [ordered]@{
+            SchemaVersion     = '1.0'
+            NodeName          = $nodeName
+            ConfigurationFile = $FilePath
+            Mode              = $Mode
+            Engine            = $resolvedEngine
+            Status            = $runStatus
+            TotalResources    = $results.Count
+            PassCount         = $passCount
+            FailCount         = $failCount
+            SkipCount         = $skipCount
+            DurationSeconds   = [math]::Round($runStopwatch.Elapsed.TotalSeconds, 3)
+            ErrorMessage      = $runError
+            StateCapture      = $reportState
+            Results           = @($reportResults)
+        }
+
         # Always write the report (even on early stop / abort), when a path is supplied.
         if ($ReportPath) {
 
@@ -859,9 +942,38 @@ function Start-DscRunner {
                     Results           = $results
                 }
                 $reportDocument | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath
+
+                # With state capture on, the full report document is written next to them. The
+                # two files above are unchanged either way.
+                if ($reportState -ne 'None') {
+                    $statePath = [System.IO.Path]::Combine($ReportPath, ("{0}.state.json" -f $nodeName))
+                    $reportContract | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $statePath
+                }
             }
             catch {
                 Write-Error "[Start-DscRunner] Could not write the report for '$FilePath' to '$ReportPath': $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+            }
+        }
+
+        # Reporting (#85): hand the document to each configured reporter. The run's outcome was
+        # decided above, so a reporter that fails is reported as its own error and can neither
+        # change the result nor stop the remaining reporters or nodes.
+        $reporterCalls = [System.Collections.Generic.List[hashtable]]::new()
+        foreach ($reporterName in $reporterNames) {
+            $reporterSettings = if ($reportSettings[$reporterName] -is [System.Collections.IDictionary]) { $reportSettings[$reporterName] } else { @{} }
+            $reporterCalls.Add(@{ Label = $reporterName; Arguments = @{ Hook = 'Report'; Name = $reporterName; Context = @{ Document = $reportContract; Settings = $reporterSettings; NodeName = $nodeName; ReportPath = $ReportPath } } })
+        }
+        if ($ReportAction) {
+            $reporterCalls.Add(@{ Label = '(inline)'; Arguments = @{ Hook = 'Report'; ScriptBlock = $ReportAction; Context = @{ Document = $reportContract; Settings = @{}; NodeName = $nodeName; ReportPath = $ReportPath } } })
+        }
+        foreach ($reporterCall in $reporterCalls) {
+            try {
+                $reporterArguments = $reporterCall.Arguments
+                $null = Invoke-Action @reporterArguments
+                Write-Verbose "[Start-DscRunner] Reporter '$($reporterCall.Label)' completed for $FilePath"
+            }
+            catch {
+                Write-Error "[Start-DscRunner] Reporter '$($reporterCall.Label)' failed for '$FilePath': $((& $safeText $_.Exception.Message))" -ErrorAction Continue
             }
         }
 

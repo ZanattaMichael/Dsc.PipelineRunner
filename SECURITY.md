@@ -107,7 +107,7 @@ by a security-tagged test (see [Regression tests](#regression-tests-for-these-gu
 | **CI and release** | Workflows declare minimal token permissions, avoid `pull_request_target`, guard self-hosted jobs against fork pull requests, keep untrusted event data out of `run:` steps, and pin actions. PSScriptAnalyzer results are published to code scanning. |
 | **Staying honest** | Each guarantee has a regression test under `Tests/PipelineRunner/Security/`, and a test checks that this document lists them. |
 
-**Known limits** (so that the summary above is not read as more than it is): the configuration
+**Known limits** (so that the summary above is not read as more than it is): opt-in state capture redacts by key name and by the secrets the runner knows, so a secret that `Get()` returns under an innocuous name is not recognised; the configuration
 is trusted code and is not sandboxed; `preExecutionScript` / `postExecutionScript` are
 unconstrained once enabled; the module is not Authenticode-signed (releases carry a build
 provenance attestation instead, see below; #38); the Gallery modules CI and the container image install
@@ -320,6 +320,14 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   that version, leaves one already present alone, retries a failed download, verifies the result and
   refuses a module that is not pinned; `RequiredModules.psd1` has no `latest` and agrees with the
   lock file; no workflow, script or the Dockerfile runs a bare `Install-Module`.
+- `Tests/PipelineRunner/Security/Reporting.Security.tests.ps1` — the CSV and JSON report files keep
+  their shape and no state is captured unless `Report.State` asks for it; captured desired and actual
+  state is redacted (credentials, sensitive-named values at any depth including in `Get()` output,
+  known secrets echoed inside other strings) and bounded; a reporter receives the same redacted
+  document and, if it fails, cannot change the result or stop the other reporters; a reporter name
+  cannot select a script outside `Actions/Report/`; the `Webhook` reporter is https only, refuses
+  credentials in the URL, sends the token in a header, does not follow redirects, and names only the
+  host and status in an error.
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and
