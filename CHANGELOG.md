@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-16
+
 ### Added
 
 - **A workflow that creates the release tag.** *Actions > Create release tag* works out the next
