@@ -37,6 +37,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **The runner works end to end on Linux with the DSC v3 engine.** The resource pre-check
+  (`Test-ResourcesForIncorrectProperties`) always called `Get-DscResource`. On Linux and macOS that
+  cmdlet cannot load (it needs the OMI library), so every run stopped before the first resource;
+  and a native DSC v3 resource such as `Microsoft.DSC.Debug/Echo` was reported as not found on any
+  platform. Under the DSC v3 engine a resource the pre-check cannot look up is now left for `dsc`
+  to validate against its own schema when it runs; a resource PowerShell can describe is checked
+  as before, and DSC v2 is unchanged. The pre-parse rules now receive the engine the run resolved
+  to as `Settings.ResolvedEngine`.
+- **The module builds on Linux.** The `Copy_Pipeline_Rules` and `Copy_Actions` build tasks looked
+  for `Output\Dsc.PipelineRunner`, which only resolves on a case-insensitive file system; the build
+  writes `output`. They now use the real name and `Join-Path`.
+
 - **DSC v3 engine: a warning from `dsc` no longer breaks a successful result.** `dsc` writes its
   result to standard output and its trace and warning lines to standard error, and it can warn
   while still succeeding. The runner merged the two streams, so a warning line landed in front of
@@ -46,6 +58,12 @@ All notable changes to this project will be documented in this file.
   error when `dsc` fails. `Invoke-DscExecutable` returns the new `ErrorOutput` alongside `Output`.
 
 ### Documentation
+
+- **Pipeline integrations are referenced.** The README, the wiki (Home, Getting Started) and the
+  hosted-agent and Azure DevOps guides now point to
+  [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions), which packages the runner
+  as a GitHub Action, an Azure DevOps task, a GitLab CI/CD component, a CircleCI orb and a Jenkins
+  shared-library step.
 
 - **README reordered and shortened (871 to about 590 lines), with a "How it works" animation.**
   Getting Started now comes first instead of last, followed by writing a configuration, how a run

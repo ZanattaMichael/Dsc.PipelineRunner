@@ -14,6 +14,7 @@ relationships and early termination possible.
 | If you want to… | Read |
 |---|---|
 | Run the thing for the first time | [Getting started](Getting-Started) |
+| Run it as a step in GitHub Actions, Azure DevOps, GitLab, CircleCI or Jenkins | [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions) |
 | Lay out a configuration repository | [Configuration repository layout](Configuration-Repository-Layout) |
 | Know every legal key on a resource | [Resource properties](Resource-Properties) |
 | Know every run-level setting | [PipelineRunnerSettings](PipelineRunnerSettings) |

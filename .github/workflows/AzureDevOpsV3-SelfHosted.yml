@@ -119,6 +119,11 @@ jobs:
       # prereleases when resolving 'latest'. Skipped if a `dsc` is already on PATH (warm runner).
       - name: Ensure DSC v3 executable
         shell: pwsh
+        # Install-DscV3.ps1 asks the GitHub API which release to download. Without a token that
+        # request counts against the anonymous limit for the runner's IP address (60 an hour,
+        # shared by everything on that address) and fails with 403 once it is spent.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if (Get-Command -Name dsc -CommandType Application -ErrorAction SilentlyContinue) {
             Write-Host "dsc already present: $((Get-Command dsc).Source)"

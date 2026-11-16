@@ -37,6 +37,42 @@ Describe "Test-ResourcesForIncorrectProperties" -Tag Unit, Runner, Rules, PrePar
 
     }
 
+    Context "Under the DSC v3 engine" {
+
+        It "Does not fail a resource that Get-DscResource cannot find (a native DSC v3 resource)" {
+            Mock -CommandName Get-DscResource -MockWith { $null }
+            $resources = @([PSCustomObject]@{ type = 'Microsoft.DSC.Debug/Echo'; name = 'Echo'; properties = @{ output = 'hello' } })
+
+            { . $preParseFilePath -PipelineResources $resources -Settings @{ ResolvedEngine = 'DscV3' } } | Should -Not -Throw
+        }
+
+        It "Does not fail when Get-DscResource itself cannot run (Linux without the OMI library)" {
+            Mock -CommandName Get-DscResource -MockWith { throw "Unable to load shared library 'libmi'" }
+            $resources = @([PSCustomObject]@{ type = 'Microsoft.DSC.Debug/Echo'; name = 'Echo'; properties = @{ output = 'hello' } })
+
+            { . $preParseFilePath -PipelineResources $resources -Settings @{ Engine = 'DscV3' } } | Should -Not -Throw
+        }
+
+        It "Still validates a resource PowerShell can describe" {
+            $resources = @([PSCustomObject]@{ type = 'Module/MyResourceType'; name = 'MyResource'; properties = @{ Property1 = 'Value1'; NotAProperty = 'x' } })
+
+            { . $preParseFilePath -PipelineResources $resources -Settings @{ ResolvedEngine = 'DscV3' } } | Should -Throw
+        }
+
+        It "Still requires the 'properties' key" {
+            $resources = @([PSCustomObject]@{ type = 'Microsoft.DSC.Debug/Echo'; name = 'Echo' })
+
+            { . $preParseFilePath -PipelineResources $resources -Settings @{ ResolvedEngine = 'DscV3' } } | Should -Throw
+        }
+
+        It "Under DSC v2 a resource that is not found is still an error" {
+            Mock -CommandName Get-DscResource -MockWith { $null }
+            $resources = @([PSCustomObject]@{ type = 'Module/Missing'; name = 'Missing'; properties = @{ A = 1 } })
+
+            { . $preParseFilePath -PipelineResources $resources -Settings @{ ResolvedEngine = 'DscV2' } } | Should -Throw
+        }
+    }
+
     It "Should throw error if 'name' key does not exist" {
         $resources = @(
             [PSCustomObject]@{

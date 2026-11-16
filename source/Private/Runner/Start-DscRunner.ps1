@@ -379,8 +379,13 @@ function Start-DscRunner {
     # Invoke the PreParse the rules to process the tasks before formatting them
     Write-Information "--> Processing PreParse Rules:" -Tags $infoTag
 
-    # Invoke the PreParse the rules to process the tasks before formatting them
-    Invoke-PreParseRules -Tasks $pipeline.resources -Settings $RunnerSettings
+    # Invoke the PreParse the rules to process the tasks before formatting them. The rules get the
+    # configuration's settings plus the engine this run resolved to (an explicit -Engine overrides
+    # the configuration's own Engine), so a rule can validate for the engine that will really run.
+    $preParseSettings = @{}
+    if ($RunnerSettings) { foreach ($settingKey in $RunnerSettings.Keys) { $preParseSettings[$settingKey] = $RunnerSettings[$settingKey] } }
+    $preParseSettings['ResolvedEngine'] = [string]$resolvedEngine
+    Invoke-PreParseRules -Tasks $pipeline.resources -Settings $preParseSettings
 
     # Invoke the Format Tasks Rules
     Write-Information "--> Processing Formatting Tasks:" -Tags $infoTag
