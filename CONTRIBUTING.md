@@ -18,8 +18,13 @@ run them locally before opening a pull request.
 You need PowerShell 7+ with the module dependencies installed:
 
 ```powershell
-Install-Module Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration, PSScriptAnalyzer -Force
+./scripts/Install-PinnedModule.ps1 -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration, PSScriptAnalyzer
 ```
+
+This installs the exact versions pinned in `scripts/module-versions.json`, the ones CI uses. Do not
+add a bare `Install-Module` to a workflow, script or the Dockerfile (a test fails if you do): add the
+module to the lock file and install it through that script. To move the pins forward, run the
+**Update module versions** workflow and commit the lock file it proposes in a pull request.
 
 ### Tests and code coverage
 

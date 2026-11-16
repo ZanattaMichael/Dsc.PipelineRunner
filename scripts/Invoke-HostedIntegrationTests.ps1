@@ -61,7 +61,7 @@ if (-not $SkipModuleInstall) {
             # -InformationAction Continue, but stays capturable/redirectable (PSAvoidUsingWriteHost).
             Write-Information "Installing $moduleName ..." -InformationAction Continue
             try {
-                Install-Module -Name $moduleName -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+                & (Join-Path $PSScriptRoot 'Install-PinnedModule.ps1') -Name $moduleName -InformationAction Continue
             }
             catch {
                 Write-Warning "Could not install ${moduleName}: $($_.Exception.Message). The live-vault suite will skip."

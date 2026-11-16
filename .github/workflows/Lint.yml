@@ -42,7 +42,7 @@ jobs:
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
-        run: Install-Module PSScriptAnalyzer, ConvertToSARIF -Force -Scope CurrentUser
+        run: ./scripts/Install-PinnedModule.ps1 -Name PSScriptAnalyzer, ConvertToSARIF
 
       - name: Run PSScriptAnalyzer
         shell: pwsh

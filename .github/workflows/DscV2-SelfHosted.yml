@@ -49,22 +49,16 @@ jobs:
       # Invoke-DscResource on PowerShell 7). Installed only when missing so a warm runner is
       # not re-provisioned on every run.
       #
-      # Pester is pinned to the 5.x line the rest of the suite uses (New-PesterConfiguration's
-      # schema differs across major versions). -SkipPublisherCheck is required because the
-      # runner ships an older Pester (4.x) signed by a different Authenticode publisher, which
-      # otherwise blocks installing the 5.x side-by-side.
+      # Pester and PSDesiredStateConfiguration are installed at the exact versions pinned in
+      # scripts/module-versions.json (Pester stays on the 5.x line the rest of the suite uses:
+      # New-PesterConfiguration's schema differs across major versions). The installer passes
+      # -SkipPublisherCheck, which is required because the runner ships an older Pester (4.x)
+      # signed by a different Authenticode publisher, which otherwise blocks installing 5.x
+      # side-by-side.
       - name: Ensure PowerShell dependencies
         shell: pwsh
         run: |
-          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -eq 5 })) {
-            Write-Host "Installing Pester (5.x) ..."
-            Install-Module -Name Pester -MinimumVersion '5.0.0' -MaximumVersion '5.9999.9999' `
-              -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck
-          }
-          if (-not (Get-Module -ListAvailable -Name PSDesiredStateConfiguration)) {
-            Write-Host "Installing PSDesiredStateConfiguration ..."
-            Install-Module -Name PSDesiredStateConfiguration -Force -Scope CurrentUser -AllowClobber
-          }
+          ./scripts/Install-PinnedModule.ps1 -Name Pester, PSDesiredStateConfiguration -InformationAction Continue
 
       - name: Report DSC v2 environment
         shell: pwsh

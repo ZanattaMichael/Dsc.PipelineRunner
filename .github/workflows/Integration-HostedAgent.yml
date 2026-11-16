@@ -50,7 +50,7 @@ jobs:
 
       - name: Install PowerShell dependencies
         shell: pwsh
-        run: Install-Module Pester, Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Force -Scope CurrentUser -AllowClobber
+        run: ./scripts/Install-PinnedModule.ps1 -Name Pester, Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration
 
       # The SSH Target suite connects the agent to ITSELF over SSH. That needs no second machine
       # and is still a genuine remote connection: the session is built by the real New-PSSession

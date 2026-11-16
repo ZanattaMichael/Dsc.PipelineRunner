@@ -1,5 +1,21 @@
 # Dsc.PipelineRunner
 
+[![Tests](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/CodeCoverage.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/CodeCoverage.yml)
+[![Lint](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Lint.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Lint.yml)
+[![DSC v3 hosted agent](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/DscV3-HostedAgent.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/DscV3-HostedAgent.yml)
+[![Integration](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Integration-HostedAgent.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Integration-HostedAgent.yml)
+[![Release](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Release.yml/badge.svg)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Release.yml)
+
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/Dsc.PipelineRunner?include_prereleases&label=PowerShell%20Gallery&logo=powershell&logoColor=white)](https://www.powershellgallery.com/packages/Dsc.PipelineRunner)
+[![Downloads](https://img.shields.io/powershellgallery/dt/Dsc.PipelineRunner?label=downloads)](https://www.powershellgallery.com/packages/Dsc.PipelineRunner)
+[![GitHub release](https://img.shields.io/github/v/release/ZanattaMichael/Dsc.PipelineRunner?include_prereleases&label=release)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/releases)
+[![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-5391FE?logo=powershell&logoColor=white)](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)
+[![License: MIT](https://img.shields.io/github/license/ZanattaMichael/Dsc.PipelineRunner)](LICENSE)
+
+[![Security policy](https://img.shields.io/badge/security-policy-blue?logo=github)](SECURITY.md)
+[![Build provenance](https://img.shields.io/badge/provenance-attested-success?logo=github)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/attestations)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025e8c?logo=dependabot)](.github/dependabot.yml)
+
 ## Overview
 
 `Dsc.PipelineRunner` is a platform-agnostic DSC pipeline runner designed to execute DSC configurations within any CI/CD pipeline (GitHub Actions, GitLab, Jenkins, Azure DevOps, and more). It utilizes Datum to merge configuration stubs into larger pieces of configuration, which are then parsed and applied by the runner.
@@ -575,11 +591,61 @@ of it is optional, and none of it needs configuring:
   directory the runner itself created is ever deleted; a path you supplied is left alone. Pass
   `-KeepTemporaryDirectory` to keep a clone for debugging.
 
+## Supply chain and releases
+
+What the runner installs, downloads and publishes is pinned and checked, so a moved tag, a bad
+download or a new upstream release cannot change what runs without a change in this repository.
+[SECURITY.md](SECURITY.md) has the full summary and the tests that hold each point.
+
+| What | How it is controlled |
+|---|---|
+| **PowerShell Gallery modules** | CI, the container image and the build install each module at one exact version, listed in [`scripts/module-versions.json`](scripts/module-versions.json) and installed through [`scripts/Install-PinnedModule.ps1`](scripts/Install-PinnedModule.ps1), which retries a failed download and checks the version it installed. A test fails if a bare `Install-Module` is added. |
+| **The `dsc` engine (DSC v3)** | [`scripts/Install-DscV3.ps1`](scripts/Install-DscV3.ps1) checks the archive's SHA-256 against [`scripts/dsc-checksums.json`](scripts/dsc-checksums.json) *before* extracting it, and refuses to install when it has nothing to check against. |
+| **GitHub Actions** | Every third-party action is pinned to a commit SHA, and Dependabot proposes updates. |
+| **Container image** | The base image is pinned by digest, the `dsc` install is verified as above, and the image runs as a non-root user. |
+| **Releases** | A release is a tag. The package is built from that tag, tested by the full CI suite, published, and recorded with a signed build provenance attestation. |
+
+**Updating the pinned Gallery modules.** Dependabot does not read the PowerShell Gallery, so run
+**Actions → Update module versions → Run workflow**. It lists the pinned and newest version of every
+module and uploads a proposed `module-versions.json`; review the difference, commit it in a pull
+request, and CI runs the whole suite against the new versions before they merge. The same check runs
+on any pull request that touches the lock file and fails if a pinned version has left the Gallery.
+To install the pinned versions yourself (for example on an agent pool):
+
+```powershell
+./scripts/Install-PinnedModule.ps1 -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration
+```
+
+**Verifying a release.** Download the `.nupkg` from the GitHub release and check where it came from:
+
+```bash
+gh attestation verify Dsc.PipelineRunner.<version>.nupkg --repo ZanattaMichael/Dsc.PipelineRunner
+```
+
+This proves which workflow run built the file from which commit. It is not an Authenticode
+signature, so PowerShell's `AllSigned` execution policy does not use it.
+
+**Cutting a release** (maintainers). Run **Actions → Create release tag → Run workflow** from `main`,
+choose `preview` or `release` and a `bump` (or an explicit `version`), and tick `dry_run` first to see
+the tag it would create. It refuses to continue unless every check on `main` is passing, creates the
+annotated tag and starts the Release workflow on it. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing).
+
 ## Getting Started
 
 > **Running on a hosted Linux agent with DSC v3?** See
 > [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) for bootstrapping the `dsc`
 > engine, pipeline-native authentication, and workload-identity federation (no stored PAT).
+
+### Install
+
+```powershell
+Install-Module Dsc.PipelineRunner -Scope CurrentUser
+```
+
+Releases are published to the [PowerShell Gallery](https://www.powershellgallery.com/packages/Dsc.PipelineRunner)
+and as [GitHub releases](https://github.com/ZanattaMichael/Dsc.PipelineRunner/releases) with a build
+provenance attestation (see [Supply chain and releases](#supply-chain-and-releases)). Add
+`-AllowPrerelease` to install a preview.
 
 ### Quick start (provider-agnostic)
 
@@ -705,7 +771,14 @@ CI/CD system; the self-hosted agent / Azure DevOps steps are only needed if you 
     | `AzureDevOpsDsc.Common` | `<= 1.0.0` |
     | `AzureDevOpsDscNative` | `<= 1.0.0` |
 
-    To install any of these modules, execute the following command for each module listed above:
+    The module versions this repository is built and tested with are pinned in
+    [`scripts/module-versions.json`](scripts/module-versions.json). On a CI agent, install exactly those:
+
+    ```powershell
+    ./scripts/Install-PinnedModule.ps1 -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration
+    ```
+
+    To install any of these modules by hand instead, execute the following command for each module listed above:
 
     ```powershell
     Install-Module -Name ModuleName
