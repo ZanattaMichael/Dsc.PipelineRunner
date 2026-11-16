@@ -1,0 +1,57 @@
+{
+  "_comment": "Exact PowerShell Gallery versions used by CI, the container image and the build. 'version' is what gets installed; 'maxVersion' (optional) bounds what Update-ModuleVersions.ps1 will propose. Do not edit by hand: run the 'Update module versions' workflow (or scripts/Update-ModuleVersions.ps1 -Write), review the diff, and commit it.",
+  "modules": {
+    "Datum": {
+      "version": "0.41.0",
+      "maxVersion": "1.0.0"
+    },
+    "Datum.InvokeCommand": {
+      "version": "0.4.1",
+      "maxVersion": "1.0.0"
+    },
+    "powershell-yaml": {
+      "version": "0.4.12",
+      "maxVersion": "1.0.0"
+    },
+    "PSDesiredStateConfiguration": {
+      "version": "2.0.8"
+    },
+    "Pester": {
+      "version": "5.9.1",
+      "maxVersion": "5.9999.9999"
+    },
+    "PSScriptAnalyzer": {
+      "version": "1.25.0"
+    },
+    "ConvertToSARIF": {
+      "version": "1.0.0"
+    },
+    "DscResource.Common": {
+      "version": "0.24.5"
+    },
+    "Microsoft.PowerShell.SecretManagement": {
+      "version": "1.1.2"
+    },
+    "Microsoft.PowerShell.SecretStore": {
+      "version": "1.0.6"
+    },
+    "InvokeBuild": {
+      "version": "5.14.23"
+    },
+    "ModuleBuilder": {
+      "version": "3.2.18"
+    },
+    "ChangelogManagement": {
+      "version": "3.1.0"
+    },
+    "Sampler": {
+      "version": "0.120.1"
+    },
+    "Sampler.GitHubTasks": {
+      "version": "0.5.0"
+    },
+    "MarkdownLinkCheck": {
+      "version": "0.2.0"
+    }
+  }
+}

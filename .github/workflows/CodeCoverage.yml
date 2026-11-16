@@ -58,7 +58,7 @@ jobs:
 
       - name: Download PowerShell Dependencies
         shell: pwsh
-        run: Install-Module Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration -Force
+        run: ./scripts/Install-PinnedModule.ps1 -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration
 
       - name: Perform a Pester Test to ensure that the .\tests.ps1 script exists
         shell: pwsh

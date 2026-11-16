@@ -79,17 +79,7 @@ jobs:
       - name: Ensure PowerShell dependencies
         shell: pwsh
         run: |
-          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -eq 5 })) {
-            Write-Host "Installing Pester (5.x) ..."
-            Install-Module -Name Pester -MinimumVersion '5.0.0' -MaximumVersion '5.9999.9999' `
-              -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck
-          }
-          foreach ($m in 'powershell-yaml','datum','datum.invokecommand','DscResource.Common') {
-            if (-not (Get-Module -ListAvailable -Name $m)) {
-              Write-Host "Installing $m ..."
-              Install-Module -Name $m -Force -Scope CurrentUser -AllowClobber
-            }
-          }
+          ./scripts/Install-PinnedModule.ps1 -Name Pester, powershell-yaml, datum, datum.invokecommand, DscResource.Common -InformationAction Continue
           # AzureDevOpsDscNative runs from the runner account's CurrentUser scope only. The runner
           # machines are shared with other agents, which install their own copies machine-wide; the
           # suites must not pick those up. Install the gallery's newest release (prereleases

@@ -204,13 +204,13 @@ jobs:
       # Datum.InvokeCommand, PSDesiredStateConfiguration). package_module_nupkg packages each
       # declared dependency and looks it up with Get-Module, so they must be installed on the
       # runner or the pack step throws "You cannot call a method on a null-valued expression".
-      # These are all on the PowerShell Gallery at versions satisfying the manifest constraints.
+      # They are installed at the exact versions pinned in scripts/module-versions.json, which
+      # satisfy the manifest constraints.
       # (The CodeCoverage workflow installs the same set for the same reason.)
       - name: Install module runtime dependencies
         shell: pwsh
         run: |
-          Install-Module -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration `
-            -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck
+          ./scripts/Install-PinnedModule.ps1 -Name Datum, Datum.InvokeCommand, powershell-yaml, PSDesiredStateConfiguration
 
       - name: Package module
         shell: pwsh

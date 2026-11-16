@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **PowerShell Gallery modules are pinned to exact versions.** CI, the container image and the
+  build used to install whatever the Gallery offered at the time (`Install-Module Datum ...`, and
+  `latest` for the build tools), so an upstream release or one bad download could change or fail a
+  run with no change here (a truncated download failed the `v1.2.0` release gate). Every module is
+  now listed once in `scripts/module-versions.json` and installed by `scripts/Install-PinnedModule.ps1`,
+  which installs the exact version, skips one already present, retries a failed download with a
+  growing pause and checks the version it installed. `RequiredModules.psd1` no longer uses `latest`.
+  The **Update module versions** workflow reports the pinned and newest version of each module,
+  fails if a pin has left the Gallery, and uploads a proposed lock file to review and commit. A test
+  fails if a bare `Install-Module` is added. `AzureDevOpsDscNative` stays on the newest release on
+  purpose: the Azure DevOps integration jobs exist to test against it. Not covered: the Gallery
+  publishes no checksum to verify against, and a pinned module's own dependencies are resolved by
+  PowerShellGet.
+- **README: badges, installation, and a supply-chain and releases section.** Build, release, Gallery,
+  licence and security badges; `Install-Module Dsc.PipelineRunner`; how the pins, the `dsc` download
+  check, the container image and release attestations work; how to update the pins, verify a release
+  and cut one. `SECURITY.md` now says the latest release is `1.2.x` and that the Gallery modules are
+  pinned.
+
 ## [1.2.0] - 2026-11-16
 
 ### Added

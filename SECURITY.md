@@ -8,7 +8,7 @@ the report and we will check whether the issue still reproduces on the latest.
 
 | Version | Supported for security fixes |
 |---|---|
-| Latest release (currently `1.1.x`) and `main` | Yes |
+| Latest release (currently `1.2.x`) and `main` | Yes |
 | Anything older | No - upgrade to the latest release |
 
 ## Reporting a vulnerability
@@ -103,15 +103,16 @@ by a security-tagged test (see [Regression tests](#regression-tests-for-these-gu
 | **Malformed or hostile input** | A malformed resource or a scalar `target` is a recorded failure for that resource, never a crash or a silent local run; structural mistakes fail closed; `variables` cannot overwrite runner state or steer child processes; node file names, composite fan-out and SSH host names are bounded. |
 | **Local files** | Clone and cache directories are created owner-only; cleanup only ever removes directories the runner registered; action names cannot resolve outside `Actions/<Hook>/`. |
 | **Remote targets and credentials** | Credentials come from a Credential action (`Environment`, `SecretManagement`, `Static` for development only), sessions are cached per identity, and the plaintext never reaches a target's command line. |
-| **Downloads and build inputs** | The `dsc` archive is verified by SHA-256 *before* it is extracted: against `scripts/dsc-checksums.json` (reviewed pins), else GitHub's published digest, and it is refused if neither exists. Every third-party Action is pinned to a commit SHA, the container base image to a digest, and the image runs as a non-root user. Dependabot proposes updates to those pins as reviewed pull requests. |
+| **Downloads and build inputs** | The `dsc` archive is verified by SHA-256 *before* it is extracted: against `scripts/dsc-checksums.json` (reviewed pins), else GitHub's published digest, and it is refused if neither exists. Every third-party Action is pinned to a commit SHA, the container base image to a digest, and the image runs as a non-root user. Dependabot proposes updates to those pins as reviewed pull requests. PowerShell Gallery modules are installed at exact versions from `scripts/module-versions.json` through `scripts/Install-PinnedModule.ps1` (a failed download is retried, the installed version is checked), and a test fails on a bare `Install-Module`. |
 | **CI and release** | Workflows declare minimal token permissions, avoid `pull_request_target`, guard self-hosted jobs against fork pull requests, keep untrusted event data out of `run:` steps, and pin actions. PSScriptAnalyzer results are published to code scanning. |
 | **Staying honest** | Each guarantee has a regression test under `Tests/PipelineRunner/Security/`, and a test checks that this document lists them. |
 
 **Known limits** (so that the summary above is not read as more than it is): the configuration
 is trusted code and is not sandboxed; `preExecutionScript` / `postExecutionScript` are
 unconstrained once enabled; the module is not Authenticode-signed (releases carry a build
-provenance attestation instead, see below; #38) and its PowerShell Gallery dependencies are not
-yet version-pinned (#36); constrained-language compilation is not implemented (#46);
+provenance attestation instead, see below; #38); the Gallery modules CI and the container image install
+are pinned to exact versions but the Gallery publishes no checksum to verify them against, and
+modules that a pinned module pulls in as its own dependencies are not pinned; constrained-language compilation is not implemented (#46);
 the runner sets no input-size or alias-expansion limit on YAML parsing; and `Get()` output stays in
 module memory until the next run starts.
 
@@ -125,6 +126,9 @@ download with the GitHub CLI:
 ```bash
 gh attestation verify Dsc.PipelineRunner.<version>.nupkg --repo ZanattaMichael/Dsc.PipelineRunner
 ```
+
+The attestation covers every `.nupkg` the release build produced, which includes the bundled
+dependency packages as well as `Dsc.PipelineRunner` itself; verify the file you downloaded.
 
 The package's SHA-256 is also written to the release run's summary. This proves where a package
 came from; it is **not** an Authenticode signature, so PowerShell's `AllSigned` execution policy
@@ -311,6 +315,11 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   passing, reads its inputs through `env:`, asks for no more than `contents`/`actions` write and
   `checks` read, and stores no personal access token.
 
+- `Tests/PipelineRunner/Security/ModulePinning.Security.tests.ps1` — every Gallery module is pinned to
+  one exact version in `scripts/module-versions.json`; `Install-PinnedModule.ps1` installs exactly
+  that version, leaves one already present alone, retries a failed download, verifies the result and
+  refuses a module that is not pinned; `RequiredModules.psd1` has no `latest` and agrees with the
+  lock file; no workflow, script or the Dockerfile runs a bare `Install-Module`.
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and
