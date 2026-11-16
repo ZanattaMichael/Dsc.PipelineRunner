@@ -56,17 +56,21 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) { $OutputPath = $LockFile }
 function Find-GalleryModule {
     # One Gallery query, retried: the Gallery drops a request now and then and that should not
     # fail the report. Returns $null when the Gallery answers but has no such version.
-    param([hashtable]$Query)
+    param(
+        [hashtable]$Query,
+        [int]$Attempts,
+        [int]$DelaySeconds
+    )
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
         try {
             return Find-Module @Query -Repository PSGallery -ErrorAction Stop
         }
         catch {
             if ($_.FullyQualifiedErrorId -like 'NoMatchFound*') { return $null }
-            if ($attempt -eq $MaxAttempts) { throw }
-            Write-Warning "Gallery query for '$($Query.Name)' failed (attempt $attempt of ${MaxAttempts}): $($_.Exception.Message)"
-            Start-Sleep -Seconds ($RetryDelaySeconds * $attempt)
+            if ($attempt -eq $Attempts) { throw }
+            Write-Warning "Gallery query for '$($Query.Name)' failed (attempt $attempt of ${Attempts}): $($_.Exception.Message)"
+            Start-Sleep -Seconds ($DelaySeconds * $attempt)
         }
     }
 }
@@ -83,13 +87,13 @@ foreach ($property in $lock.modules.PSObject.Properties) {
     $latestQuery = @{ Name = $name }
     $maxVersion = if ($entry.PSObject.Properties['maxVersion']) { [string]$entry.maxVersion } else { $null }
     if ($maxVersion) { $latestQuery['MaximumVersion'] = $maxVersion }
-    $latest = Find-GalleryModule -Query $latestQuery
+    $latest = Find-GalleryModule -Query $latestQuery -Attempts $MaxAttempts -DelaySeconds $RetryDelaySeconds
     if ($null -eq $latest) { throw "Module '$name' was not found on the PowerShell Gallery." }
 
     # '0.0.0' is the placeholder a brand-new entry carries before its first resolution.
     $pinnedExists = $true
     if ($pinned -ne '0.0.0') {
-        $pinnedExists = $null -ne (Find-GalleryModule -Query @{ Name = $name; RequiredVersion = $pinned })
+        $pinnedExists = $null -ne (Find-GalleryModule -Query @{ Name = $name; RequiredVersion = $pinned } -Attempts $MaxAttempts -DelaySeconds $RetryDelaySeconds)
     }
 
     $results.Add([pscustomobject]@{
