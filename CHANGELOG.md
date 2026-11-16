@@ -37,6 +37,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **The module builds on Linux.** The `Copy_Pipeline_Rules` and `Copy_Actions` build tasks looked
+  for `Output\Dsc.PipelineRunner`, which only resolves on a case-insensitive file system; the build
+  writes `output`. They now use the real name and `Join-Path`.
+
 - **DSC v3 engine: a warning from `dsc` no longer breaks a successful result.** `dsc` writes its
   result to standard output and its trace and warning lines to standard error, and it can warn
   while still succeeding. The runner merged the two streams, so a warning line landed in front of
