@@ -13,7 +13,8 @@
         - type: The type of the resource.
         - name: The name of the resource.
         - properties: The properties of the resource.
-    - This script requires the Get-DscResource cmdlet to be available.
+    - This script uses Get-DscResource. Under the DSC v3 engine a resource it cannot look up is
+      left for dsc to validate at run time (see the note below the parameters).
 
 .EXAMPLE
     $resources = @(
@@ -45,9 +46,22 @@ param(
     [Object[]]$PipelineResources,
 
     # Resolved PipelineRunnerSettings, forwarded by Invoke-PreParseRules to every rule (#57 §2).
-    # Unused by this rule; accepted for signature compatibility.
+    # This rule reads the engine from it: ResolvedEngine (set by Start-DscRunner, and reflecting
+    # an explicit -Engine) or else the configuration's own Engine.
     [hashtable]$Settings
 )
+
+# Which engine will run these resources. Under the DSC v3 engine a resource can be one that
+# PowerShell's Get-DscResource cannot see (a native DSC v3 resource such as Microsoft.DSC.Debug/Echo),
+# and on Linux and macOS Get-DscResource itself cannot load (it needs the OMI library). dsc
+# validates each resource's properties against that resource's own schema when it runs, so for
+# DSC v3 a resource this rule cannot look up is left to dsc rather than reported as an error.
+$engineName = ''
+if ($Settings) {
+    $engineName = [string]$Settings['ResolvedEngine']
+    if (-not $engineName) { $engineName = [string]$Settings['Engine'] }
+}
+$isDscV3 = $engineName -eq 'DscV3'
 
 # Collect every validation error across all resources, then fail once at the end.
 # Previously $isFail persisted across iterations and a `break` aborted the loop, so
@@ -105,8 +119,21 @@ ForEach ($task in $PipelineResources)
         $resource = $dscResourceLookup[$lookupKey]
     }
     else {
-        $resource = Get-DscResource -Name $resourceType -Module $module
+        if ($isDscV3) {
+            # Best effort under DSC v3 (see the note at the top): a lookup that fails, or finds
+            # nothing, is not an error.
+            try { $resource = Get-DscResource -Name $resourceType -Module $module -ErrorAction Stop -WarningAction SilentlyContinue }
+            catch { $resource = $null }
+        }
+        else {
+            $resource = Get-DscResource -Name $resourceType -Module $module
+        }
         if ($null -ne $resource) { $dscResourceLookup[$lookupKey] = $resource }
+    }
+
+    if ($null -eq $resource -and $isDscV3) {
+        Write-Verbose "[Test-ResourcesForIncorrectProperties] [$($task.type)/$($task.name)] is not a resource PowerShell can describe; under the DSC v3 engine dsc validates its properties when it runs."
+        continue
     }
 
     # If the resource is not found, report an error and skip its property checks

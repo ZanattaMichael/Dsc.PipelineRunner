@@ -37,6 +37,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **The runner works end to end on Linux with the DSC v3 engine.** The resource pre-check
+  (`Test-ResourcesForIncorrectProperties`) always called `Get-DscResource`. On Linux and macOS that
+  cmdlet cannot load (it needs the OMI library), so every run stopped before the first resource;
+  and a native DSC v3 resource such as `Microsoft.DSC.Debug/Echo` was reported as not found on any
+  platform. Under the DSC v3 engine a resource the pre-check cannot look up is now left for `dsc`
+  to validate against its own schema when it runs; a resource PowerShell can describe is checked
+  as before, and DSC v2 is unchanged. The pre-parse rules now receive the engine the run resolved
+  to as `Settings.ResolvedEngine`.
 - **The module builds on Linux.** The `Copy_Pipeline_Rules` and `Copy_Actions` build tasks looked
   for `Output\Dsc.PipelineRunner`, which only resolves on a case-insensitive file system; the build
   writes `output`. They now use the real name and `Join-Path`.
