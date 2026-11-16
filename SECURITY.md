@@ -330,6 +330,12 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   elements, table cells, HTML, links or images by a resource name or message, and cannot write outside
   the report directory. `Report.OnError: Fail` marks a file `ReportFailed` without altering resource
   results, and `Get()` output is released from memory when its file is finished.
+- `Tests/PipelineRunner/Security/DryRun.Security.tests.ps1` — a dry run (`-Mode DryRun`) never calls an
+  engine, a Target action or a Credential action and never runs an execution script; it still fails a
+  resource for an unsafe or malformed expression, an undeclared parameter, an unknown or path-shaped
+  target/credential action, a scalar target or a script that does not parse; an expression that reads
+  run-time state is validated and deferred, not evaluated; the resultant configuration it writes and
+  returns has secrets redacted; and a Test or Set run returns no RSOP.
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and

@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Dry runs and the resultant configuration (RSOP).** `Invoke-DscRunner -Mode DryRun` (also on
+  `Invoke-DscPipelineRunner`) validates a configuration before the real run: it compiles Datum,
+  orders the resources, runs the Pre-Parse and Format rules, resolves parameters, and validates
+  and evaluates conditions and property expressions, without calling an engine, connecting to a
+  target, fetching a credential, running an execution script or running the `Connect` action.
+  An expression that reads run-time state (`reference()`, `using()`, `result()`) is validated and
+  reported as deferred. Each resource is reported `OK`, `SKIP` or `FAIL` with every problem
+  listed, so `-FailOnError` fails a validation stage the usual way. The resultant configuration
+  of each node (resources in run order with resolved properties, parameters, variables and
+  settings, secrets redacted) is returned as `Rsop`, written to `<node>.rsop.json` with
+  `-ReportPath`, and passed to reporters.
 - **Reporting: captured state, a versioned report document, and reporters (#85, first part).**
   `PipelineRunnerSettings.Report.State` (`None` by default, `Drift`, `Full`) captures each
   resource's desired properties and its `Get()` output, redacted and bounded, into a report

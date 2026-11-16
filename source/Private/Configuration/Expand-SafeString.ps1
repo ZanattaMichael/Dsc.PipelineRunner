@@ -63,7 +63,12 @@ function Expand-SafeString {
     param(
         [Parameter(Mandatory = $true)]
         [AllowEmptyString()]
-        [string] $Value
+        [string] $Value,
+
+        # Validate every embedded expression and return the value unexpanded. Used by a dry run
+        # for a value that reads run-time state (reference(), using()), which cannot be
+        # evaluated before the resources it reads have run but can still be checked.
+        [switch] $ValidateOnly
     )
 
     if ($Value.IndexOfAny([char[]]@('$', '`')) -lt 0) {
@@ -99,6 +104,8 @@ function Expand-SafeString {
     elseif ($null -eq $expandable -or $expandable -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) {
         throw "[Expand-SafeString] Refusing to expand a property value that does not parse as a single expandable string."
     }
+
+    if ($ValidateOnly) { return $Value }
 
     return $ExecutionContext.InvokeCommand.ExpandString($Value)
 }

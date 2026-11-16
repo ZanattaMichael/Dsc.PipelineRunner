@@ -55,6 +55,11 @@ module.
 1. **Actions plug in at every step:** where the configuration comes from, how to authenticate, which engine and which target.
 1. **You get a report** (OK, SKIPPED or FAIL per resource) with secrets scrubbed from logs, errors and output.
 
+**Validate before you run.** `Invoke-DscRunner -Mode DryRun` checks a configuration and writes its
+resultant configuration (RSOP) per node, without calling an engine, connecting to a target or
+fetching a credential, so a pull-request pipeline can validate a change before the real run. See
+[Reporting and Exit Codes](WikiSource/Reporting-and-Exit-Codes.md#dry-runs-and-the-resultant-configuration-rsop).
+
 ## Contents
 
 - [Getting Started](#getting-started): install, quick start, and building a configuration

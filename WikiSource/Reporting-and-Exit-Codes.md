@@ -369,3 +369,68 @@ On Azure Pipelines, show the summary with
 - an error names the host and the HTTP status only: not the token, the URL's path or query, or
   the response body.
 
+## Dry runs and the resultant configuration (RSOP)
+
+`Invoke-DscRunner -Mode DryRun` validates a configuration and works out what a real run would
+do, without doing any of it. It is meant for a pipeline stage that runs before the real one,
+for example on a pull request, and it needs no credentials.
+
+```powershell
+$dry = Invoke-DscRunner -ConfigurationSourcePath ./config -Mode DryRun -ReportPath ./reports -FailOnError
+```
+
+### What a dry run does and does not do
+
+| Step | Dry run |
+| --- | --- |
+| Resolve the source, compile Datum, expand composites | Yes, exactly as a real run. |
+| `Connect` action | Skipped. |
+| Order resources (`dependsOn`, `notify`), Pre-Parse and Format rules | Yes. |
+| `preCondition` | Validated. Evaluated, unless it reads run-time state. |
+| Properties: `<params=...>` and `$(...)` | Parameters resolved; expressions validated and evaluated, unless one reads run-time state. |
+| `postCondition` | Validated only (it reads the resource's result). |
+| `target`, `resourceCredential` | Shape checked, and the named action must exist. No connection is made and no secret is fetched. |
+| `preExecutionScript` / `postExecutionScript` | Parsed for syntax errors. Never run. |
+| Engine `Test`, `Set`, `Get` | Never called. |
+
+An expression that calls `reference()`, `using()`, `result()` or `stopProcessing()` depends on
+state that only exists once resources have run. A dry run checks it against the same allow-list
+as a real run and lists it under `Deferred`; it is neither evaluated nor counted as a failure.
+
+Because the compile step still runs, the configuration repository is still executed as code
+(see the trust model). A dry run removes the engine, the targets and the credentials from the
+picture; it does not sandbox the Datum merge.
+
+### Results
+
+Each resource gets the usual status: `OK` (valid, would be evaluated), `SKIP` (its
+`preCondition` is false) or `FAIL` (something is wrong, with every problem listed). The run
+summary, `-FailOnError`, the CSV and `*.report.json` all work as they do for a real run, so a
+dry-run stage fails the pipeline the same way.
+
+### The RSOP document
+
+The resultant configuration of each node, after the Datum merge, composite expansion, ordering
+and expression evaluation. It is returned as the `Rsop` property of each configuration's
+result, written to `<node>.rsop.json` with `-ReportPath`, and included in the report document
+reporters receive (`Document.Rsop`, with `Mode` `DryRun`).
+
+| Field | Meaning |
+| --- | --- |
+| `SchemaVersion` | `1.0`. |
+| `NodeName`, `ConfigurationFile`, `Engine`, `DefaultTarget` | The file and the engine and target it would use. |
+| `Settings` | The `PipelineRunnerSettings` in effect. |
+| `Parameters`, `Variables` | Their resolved values. |
+| `Resources` | One entry per resource, in the order they would run. |
+| `Resources[].Type`, `Name`, `Order` | Identity and position. |
+| `Resources[].Status`, `WouldRun`, `Problems` | The verdict and every problem found. |
+| `Resources[].PreCondition` | `True`, `False`, `Deferred`, or `null` when there is none. |
+| `Resources[].Deferred` | Which of `preCondition`, `properties`, `postCondition` could not be evaluated yet. |
+| `Resources[].Properties` | The resolved properties (unexpanded where deferred). |
+| `Resources[].Target`, `ComputerName`, `CredentialActions` | Where it would run and which credential actions it would call. |
+| `Resources[].DependsOn`, `Notify`, `HasExecutionScripts` | Its declared relationships and whether it carries scripts. |
+
+Secrets are redacted the same way as captured state: by sensitive key name at any depth, for
+`[PSCredential]` and `[SecureString]` values, and for any known secret echoed inside another
+string. The same limit applies: a secret stored under an innocuous name is not recognised.
+

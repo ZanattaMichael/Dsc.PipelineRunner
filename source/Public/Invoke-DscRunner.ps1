@@ -52,7 +52,10 @@ alias); failing that, a new temporary directory is created. Replaces the old
 AZDODSC_CACHE_DIRECTORY hard requirement.
 
 .PARAMETER Mode
-'Test' (default) or 'Set'.
+'Test' (default) evaluates each resource and reports drift. 'Set' also applies changes.
+'DryRun' validates the configuration and works out what would run without calling an engine,
+connecting to a target, resolving a credential or running the Connect action; it returns (and,
+with -ReportPath, writes to <node>.rsop.json) the resultant configuration for each node.
 
 .PARAMETER ReportPath
 Optional directory to write the per-configuration CSV report into.
@@ -113,7 +116,7 @@ function Invoke-DscRunner {
         [ValidateScript({ Test-Path -LiteralPath $_ -PathType Container })]
         [string]$CacheDirectory,
 
-        [ValidateSet('Test', 'Set')]
+        [ValidateSet('Test', 'Set', 'DryRun')]
         [string]$Mode = 'Test',
 
         [ValidateScript({ Test-Path -Path $_ -PathType Container })]
@@ -189,7 +192,13 @@ function Invoke-DscRunner {
 
         #
         # 2. Connect — establish any required auth/session (default: None).
-        $null = Invoke-Action -Hook Connect -Name $Connect -ScriptBlock $ConnectAction -Context $ConnectContext
+        # A dry run validates the configuration without credentials, so it does not connect.
+        if ($Mode -eq 'DryRun') {
+            Write-Verbose "[Invoke-DscRunner] Dry run: skipping the Connect action."
+        }
+        else {
+            $null = Invoke-Action -Hook Connect -Name $Connect -ScriptBlock $ConnectAction -Context $ConnectContext
+        }
 
         #
         # 3. Determine the compile/cache directory. An explicit -CacheDirectory wins, then the

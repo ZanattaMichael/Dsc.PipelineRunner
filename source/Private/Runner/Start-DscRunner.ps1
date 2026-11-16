@@ -58,8 +58,11 @@ function Start-DscRunner {
     # Declare parameters for the function with default values and validation where needed
     param (
         [string] $FilePath, # The path to the configuration file (.yaml/.yml or .json)
-        [ValidateSet("Test", "Set")] # Ensures that Mode can only be 'Test' or 'Set'
-        [string] $Mode = "Test", # Default mode is 'Test', can be set to 'Set' for applying changes,
+        # 'Test' evaluates each resource and reports drift; 'Set' also applies changes. 'DryRun'
+        # validates the configuration and works out what would run, without calling an engine,
+        # opening a connection or resolving a credential.
+        [ValidateSet("Test", "Set", "DryRun")]
+        [string] $Mode = "Test",
         [String] $ReportPath = $null, # Optional parameter for specifying a report path
         [string] $Engine = 'DscV2', # Execution engine action (Actions/Engine/<Engine>.ps1). 'Auto' opts in to detection; default is Invoke-DscResource.
         [string] $EngineVersion, # Optional resource version hint that biases 'Auto' engine selection by major version.
@@ -398,7 +401,33 @@ function Start-DscRunner {
     $script:currentNodeName          = $nodeName
     $script:currentConfigurationFile = $FilePath
 
+    # Dry run (-Mode DryRun): the resultant configuration (RSOP) for this file, built up as each
+    # resource is checked. Nothing in a dry run calls an engine, a Target or a Credential action.
+    $rsopResources = [System.Collections.Generic.List[object]]::new()
+    # Accessors that read state which only exists once resources have run. A dry run cannot
+    # evaluate an expression that uses one; it validates it and reports it as deferred.
+    $runtimeAccessorPattern = '\b(reference|using|result|stopProcessing)\s*(\(|''|")'
+    # Whether Actions/<Hook>/<Name>.ps1 exists, by the same naming rule Invoke-Action enforces.
+    $actionExists = {
+        param($Hook, $Name)
+        if ([string]$Name -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*$' -or [string]$Name -match '\.\.') { return $false }
+        $actionsBase = (Get-Module 'Dsc.PipelineRunner').ModuleBase
+        if ([string]::IsNullOrWhiteSpace([string]$actionsBase)) { return $false }
+        return (Test-Path -LiteralPath ([System.IO.Path]::Combine([string]$actionsBase, 'Actions', [string]$Hook, ("{0}.ps1" -f $Name))) -PathType Leaf)
+    }
+    # Every string inside a property tree, at any depth.
+    $collectStrings = {
+        param($Value)
+        if ($Value -is [string]) { $Value }
+        elseif ($Value -is [System.Collections.IDictionary]) { foreach ($entryValue in @($Value.Values)) { & $collectStrings $entryValue } }
+        elseif ($Value -is [System.Collections.IEnumerable]) { foreach ($item in $Value) { & $collectStrings $item } }
+    }
+
     try {
+        if ($Mode -eq 'DryRun' -and -not $EngineAction -and -not (& $actionExists 'Engine' $resolvedEngine)) {
+            throw "The engine '$resolvedEngine' does not exist (no Actions/Engine/$resolvedEngine.ps1)."
+        }
+
         # Loop through each task/resource and process it according to its configuration
         foreach ($task in $tasks) {
 
@@ -441,6 +470,124 @@ function Start-DscRunner {
             $script:currentResourceKey = $resourceKey
 
             Write-Verbose "Processing resource: [$logKey]"
+
+            # Dry run: check everything about this resource that can be checked without touching
+            # an engine, a target or a secret, record what would happen, and move on.
+            if ($Mode -eq 'DryRun') {
+                $dryProblems = [System.Collections.Generic.List[string]]::new()
+                $dryDeferred = [System.Collections.Generic.List[string]]::new()
+                $wouldRun = $true
+                $preConditionOutcome = $null
+
+                # preCondition: validated always; evaluated unless it reads run-time state.
+                $dryPreCondition = if ($null -ne $task.preCondition) { $task.preCondition } elseif ($null -ne $task.Condition) { $task.Condition } else { $null }
+                if ($null -ne $dryPreCondition) {
+                    try {
+                        Assert-SafeConditionExpression -Expression $dryPreCondition
+                        if ([string]$dryPreCondition -match $runtimeAccessorPattern) {
+                            $dryDeferred.Add('preCondition')
+                            $preConditionOutcome = 'Deferred'
+                        }
+                        else {
+                            $dryConditionResult = & ([scriptblock]::Create((ConvertTo-NormalizedConditionExpression -Expression $dryPreCondition)))
+                            if ($dryConditionResult -eq $false) { $wouldRun = $false; $preConditionOutcome = 'False' } else { $preConditionOutcome = 'True' }
+                        }
+                    }
+                    catch { $dryProblems.Add("preCondition: $((& $safeText $_.Exception.Message))") }
+                }
+
+                # Properties: parameter tokens are always resolved. Expressions are evaluated
+                # unless one reads run-time state, in which case each is validated instead.
+                $dryProperties = $null
+                try {
+                    $dryParameterised = Expand-Parameters -InputHashTable $task.properties
+                    $dryStrings = @(& $collectStrings $dryParameterised)
+                    if (@($dryStrings | Where-Object { $_ -match $runtimeAccessorPattern }).Count -gt 0) {
+                        $dryDeferred.Add('properties')
+                        foreach ($dryString in $dryStrings) { $null = Expand-SafeString -Value $dryString -ValidateOnly }
+                        $dryProperties = ConvertTo-ReportState -InputObject $dryParameterised
+                    }
+                    else {
+                        $dryExpanded = Expand-HashTable -InputHashTable $dryParameterised
+                        & $collectSecrets $dryExpanded
+                        $dryProperties = ConvertTo-ReportState -InputObject $dryExpanded -SecretValue $secretValues.ToArray()
+                    }
+                }
+                catch { $dryProblems.Add("properties: $((& $safeText $_.Exception.Message))") }
+
+                # postCondition reads result(), so it can only be validated.
+                if ($null -ne $task.postCondition) {
+                    try {
+                        Assert-SafeConditionExpression -Expression $task.postCondition -AllowStopProcessing
+                        $dryDeferred.Add('postCondition')
+                    }
+                    catch { $dryProblems.Add("postCondition: $((& $safeText $_.Exception.Message))") }
+                }
+
+                # Execution scripts are not run; a script that does not parse is reported.
+                foreach ($scriptKey in 'preExecutionScript', 'postExecutionScript') {
+                    if ($null -ne $task.$scriptKey) {
+                        $scriptParseErrors = $null
+                        $null = [System.Management.Automation.Language.Parser]::ParseInput([string]$task.$scriptKey, [ref]$null, [ref]$scriptParseErrors)
+                        if ($scriptParseErrors -and $scriptParseErrors.Count -gt 0) { $dryProblems.Add("${scriptKey}: does not parse ($((& $safeText $scriptParseErrors[0].Message)))") }
+                    }
+                }
+
+                # Target and credentials: shape and action names are checked. Nothing is
+                # connected to and no secret is fetched.
+                $dryTargetAction = $defaultTargetAction
+                $dryComputerName = $null
+                $dryCredentialActions = [System.Collections.Generic.List[string]]::new()
+                if ($null -ne $task.target) {
+                    if ($task.target -isnot [System.Collections.IDictionary]) {
+                        $dryProblems.Add("target: must be a mapping (action, computerName, credential), not a $($task.target.GetType().Name)")
+                    }
+                    else {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$task.target.action)) { $dryTargetAction = [string]$task.target.action }
+                        $dryComputerName = if ($null -ne $task.target.computerName) { & $safeText ([string]$task.target.computerName) } else { $null }
+                        if ($null -ne $task.target.credential) {
+                            if ($task.target.credential -isnot [System.Collections.IDictionary]) { $dryProblems.Add('target.credential: must be a mapping') }
+                            else { $dryCredentialActions.Add($(if (-not [string]::IsNullOrWhiteSpace([string]$task.target.credential.action)) { [string]$task.target.credential.action } else { 'Environment' })) }
+                        }
+                    }
+                }
+                if (-not (& $actionExists 'Target' $dryTargetAction)) { $dryProblems.Add("target: the action '$((& $safeText $dryTargetAction))' does not exist") }
+                if ($null -ne $task.resourceCredential) {
+                    if ($task.resourceCredential -isnot [System.Collections.IDictionary]) { $dryProblems.Add('resourceCredential: must be a mapping') }
+                    else { $dryCredentialActions.Add($(if (-not [string]::IsNullOrWhiteSpace([string]$task.resourceCredential.action)) { [string]$task.resourceCredential.action } else { 'Environment' })) }
+                }
+                foreach ($dryCredentialAction in $dryCredentialActions) {
+                    if (-not (& $actionExists 'Credential' $dryCredentialAction)) { $dryProblems.Add("credential: the action '$((& $safeText $dryCredentialAction))' does not exist") }
+                }
+
+                $targetAction = $dryTargetAction
+                $dryStatus = if ($dryProblems.Count -gt 0) { 'FAIL' } elseif (-not $wouldRun) { 'SKIP' } else { 'OK' }
+                $dryMessage = if ($dryProblems.Count -gt 0) { $dryProblems -join '; ' } elseif (-not $wouldRun) { "Would be skipped by preCondition {$dryPreCondition}." } else { $null }
+
+                $rsopResources.Add([ordered]@{
+                        Order               = $TaskCounter
+                        Type                = [string]$task.type
+                        Name                = [string]$task.name
+                        Status              = $dryStatus
+                        WouldRun            = ($wouldRun -and $dryProblems.Count -eq 0)
+                        PreCondition        = $preConditionOutcome
+                        Deferred            = @($dryDeferred)
+                        Problems            = @($dryProblems)
+                        Target              = $dryTargetAction
+                        ComputerName        = $dryComputerName
+                        CredentialActions   = @($dryCredentialActions | Select-Object -Unique)
+                        DependsOn           = @($task.dependsOn | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
+                        Notify              = @($task.notify | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
+                        HasExecutionScripts = ($null -ne $task.preExecutionScript -or $null -ne $task.postExecutionScript)
+                        Properties          = $dryProperties
+                    })
+
+                $resourceStopwatch.Stop()
+                & $recordResult $task.type $task.name $dryStatus $resourceStopwatch.ElapsedMilliseconds $dryMessage
+                if ($dryStatus -eq 'FAIL') { Write-Error "[Start-DscRunner] Dry run: resource [$logKey] is not valid: $dryMessage" -ErrorAction Continue }
+                Write-Information ("[{0}/{1}] {2} {3} (dry run{4})" -f $TaskCounter, $totalTasks, $dryStatus, $logKey, $(if ($dryDeferred.Count -gt 0) { '; deferred: ' + ($dryDeferred -join ', ') } else { '' })) -Tags $infoTag
+                continue
+            }
 
             # If the StopTaskProcessing variable is set to true, stop processing the tasks
             if ($Script:StopTaskProcessing) {
@@ -906,6 +1053,26 @@ function Start-DscRunner {
             Results           = @($reportResults)
         }
 
+        # Dry run: the resultant configuration (RSOP). What this file resolves to after the
+        # Datum merge, composite expansion, ordering and (where it does not need run-time
+        # state) expression evaluation, with secrets redacted. It is part of the report
+        # document, is written to <node>.rsop.json, and is returned to the caller.
+        $rsopDocument = $null
+        if ($Mode -eq 'DryRun') {
+            $rsopDocument = [ordered]@{
+                SchemaVersion     = '1.0'
+                NodeName          = $nodeName
+                ConfigurationFile = $FilePath
+                Engine            = $resolvedEngine
+                DefaultTarget     = $defaultTargetAction
+                Settings          = ConvertTo-ReportState -InputObject $RunnerSettings
+                Parameters        = ConvertTo-ReportState -InputObject $parameters
+                Variables         = ConvertTo-ReportState -InputObject $variables
+                Resources         = @($rsopResources)
+            }
+            $reportContract['Rsop'] = $rsopDocument
+        }
+
         # Always write the report (even on early stop / abort), when a path is supplied.
         if ($ReportPath) {
 
@@ -956,6 +1123,11 @@ function Start-DscRunner {
                 if ($reportState -ne 'None') {
                     $statePath = [System.IO.Path]::Combine($ReportPath, ("{0}.state.json" -f $nodeName))
                     $reportContract | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $statePath
+                }
+
+                if ($null -ne $rsopDocument) {
+                    $rsopPath = [System.IO.Path]::Combine($ReportPath, ("{0}.rsop.json" -f $nodeName))
+                    $rsopDocument | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rsopPath
                 }
             }
             catch {
@@ -1031,7 +1203,7 @@ function Start-DscRunner {
     # Emit the structured run result so callers (Invoke-DscRunner / Invoke-DscPipelineRunner)
     # can aggregate outcomes across configuration files, surface a machine-readable report and
     # set a non-zero exit code on failure.
-    return [pscustomobject]@{
+    $runResult = [pscustomobject]@{
         ConfigurationFile = $FilePath
         NodeName          = $nodeName
         Status            = $runStatus
@@ -1044,5 +1216,13 @@ function Start-DscRunner {
         FailedResources   = $failedResources
         Results           = $results
     }
+
+    # A dry run also returns the resultant configuration. Added only then, so the result of a
+    # Test or Set run keeps exactly the properties it has always had.
+    if ($Mode -eq 'DryRun') {
+        $runResult | Add-Member -NotePropertyName Rsop -NotePropertyValue $rsopDocument
+    }
+
+    return $runResult
 
 }
