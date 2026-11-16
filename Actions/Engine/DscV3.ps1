@@ -206,8 +206,19 @@ if ($null -ne $Context.Session -and $null -ne $Context.Session.PSSession) {
 }
 $run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson -Session $remoteSession
 
+# dsc writes its result to standard output and its trace, warning and error lines to standard
+# error. On failure both are worth reporting (the reason is on standard error). On success only
+# standard output is the result: dsc can warn and still succeed, and a warning line must not be
+# parsed as part of the JSON.
+$standardError = [string]$run.ErrorOutput
+
 if ($run.ExitCode -ne 0) {
-    throw "[Actions/Engine/DscV3] 'dsc resource $verb' failed for [$resourceType] (exit $($run.ExitCode)): $(Protect-DscV3Output -Text $run.Output -Secrets $secretValues)"
+    $failureText = (@([string]$run.Output, $standardError) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+    throw "[Actions/Engine/DscV3] 'dsc resource $verb' failed for [$resourceType] (exit $($run.ExitCode)): $(Protect-DscV3Output -Text $failureText -Secrets $secretValues)"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($standardError)) {
+    Write-Verbose "[Actions/Engine/DscV3] dsc wrote to standard error for [$resourceType] while succeeding: $(Protect-DscV3Output -Text $standardError -Secrets $secretValues)"
 }
 
 $parsed = $null

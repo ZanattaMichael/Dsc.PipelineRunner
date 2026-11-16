@@ -349,4 +349,171 @@ Describe "Security: reports, captured state and reporters" -Tag Unit, Security {
             $thrown | Should -Not -Match 'private/path'
         }
     }
+
+    Context "a failing reporter and Report.OnError" {
+
+        It "leaves the result alone by default (Warn)" {
+            $file = New-TwoResourceConfig
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction { throw 'nope' }
+
+            $result.Status | Should -Be 'Completed'
+        }
+
+        It "marks an otherwise-complete file ReportFailed when OnError is Fail, without altering resource results" {
+            $file = New-TwoResourceConfig
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction { throw 'nope' } -RunnerSettings @{ Report = @{ OnError = 'Fail' } }
+
+            $result.Status | Should -Be 'ReportFailed'
+            $result.ErrorMessage | Should -Match "Reporter '\(inline\)' failed"
+            $result.PassCount | Should -Be 1
+            $result.FailCount | Should -Be 1
+        }
+
+        It "does not mark the file when every reporter succeeds" {
+            $file = New-TwoResourceConfig
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction { } -RunnerSettings @{ Report = @{ OnError = 'Fail' } }
+
+            $result.Status | Should -Be 'Completed'
+        }
+
+        It "rejects an unknown OnError setting" {
+            $file = New-TwoResourceConfig
+            { Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -RunnerSettings @{ Report = @{ OnError = 'Ignore' } } } |
+                Should -Throw '*expected Warn or Fail*'
+        }
+
+        It "makes the run summary Failed when a file is ReportFailed" {
+            . (Get-FunctionPath 'Merge-DscRunnerResult.ps1').FullName
+            $clean = [pscustomobject]@{ Status = 'Completed'; TotalResources = 1; PassCount = 1; FailCount = 0; SkipCount = 0; DurationSeconds = 0; FailedResources = @() }
+            $undelivered = [pscustomobject]@{ Status = 'ReportFailed'; TotalResources = 1; PassCount = 1; FailCount = 0; SkipCount = 0; DurationSeconds = 0; FailedResources = @() }
+
+            (Merge-DscRunnerResult -Result @($clean, $undelivered)).Status | Should -Be 'Failed'
+            (Merge-DscRunnerResult -Result @($clean)).Status | Should -Be 'Completed'
+        }
+    }
+
+    Context "Get() output is released when the file is finished" {
+
+        It "does not keep resource state in memory after the run returns" {
+            $file = New-TwoResourceConfig
+            $seen = @{ Count = 0 }
+            $reporter = { param($Context) $Global:ReportSecDocuments.Add($Context.Document) }
+
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction $reporter -RunnerSettings @{ Report = @{ State = 'Full' } }
+
+            # The state was available to the report...
+            ($Global:ReportSecDocuments[0].Results | Where-Object InstanceName -eq 'changed').State.Actual.Path | Should -Not -BeNullOrEmpty
+            # ...and is gone afterwards.
+            $references.Count | Should -Be 0
+            $script:resourceOutputs.Count | Should -Be 0
+        }
+    }
+
+    Context "the JUnit and Summary reporters treat names and messages as untrusted text" {
+
+        BeforeAll {
+            $script:junit = Join-Path $Global:RepositoryRoot 'Actions/Report/JUnit.ps1'
+            $script:summary = Join-Path $Global:RepositoryRoot 'Actions/Report/Summary.ps1'
+
+            function New-HostileDocument {
+                param([string]$NodeName = 'node1')
+                return [ordered]@{
+                    SchemaVersion = '1.0'; NodeName = $NodeName; Mode = 'Test'; Engine = 'DscV2'; Status = 'Completed'
+                    TotalResources = 3; PassCount = 1; FailCount = 1; SkipCount = 1; DurationSeconds = 1.5; ErrorMessage = $null
+                    Results = @(
+                        [ordered]@{ ResourceType = 'Test/Res'; InstanceName = 'fine'; Status = 'OK'; DurationMs = 10; ErrorMessage = $null; Drifted = $false; SetInvoked = $false }
+                        [ordered]@{ ResourceType = 'Test/Res'; InstanceName = "evil`"/><testcase name=`"forged"; Status = 'FAIL'; DurationMs = 20
+                            ErrorMessage = "boom </failure><system-out>x</system-out> | col | <script>alert(1)</script> ![img](http://x/y) `u{0}`u{1}`u{8}"; Drifted = $true; SetInvoked = $false }
+                        [ordered]@{ ResourceType = 'Test/Res'; InstanceName = "multi`nline | pipe"; Status = 'SKIP'; DurationMs = 0; ErrorMessage = 'skipped'; Drifted = $null; SetInvoked = $false }
+                    )
+                }
+            }
+        }
+
+        BeforeEach {
+            $script:savedStepSummary = $env:GITHUB_STEP_SUMMARY
+            $env:GITHUB_STEP_SUMMARY = $null
+        }
+
+        AfterEach {
+            $env:GITHUB_STEP_SUMMARY = $script:savedStepSummary
+        }
+
+        It "writes well-formed JUnit XML that a hostile name or message cannot add elements to" {
+            $rep = New-ReportDirectory
+            $outcome = & $script:junit -Context @{ Document = (New-HostileDocument); ReportPath = $rep }
+
+            $xml = [xml](Get-Content -LiteralPath $outcome.Path -Raw)
+            $suite = $xml.testsuites.testsuite
+            $suite.tests | Should -Be '3'
+            $suite.failures | Should -Be '1'
+            $suite.skipped | Should -Be '1'
+            @($suite.testcase).Count | Should -Be 3
+            @($suite.SelectNodes('.//system-out')).Count | Should -Be 0
+            @($suite.testcase | Where-Object { $_.name -eq 'forged' }).Count | Should -Be 0
+            @($suite.SelectNodes('testcase/failure')).Count | Should -Be 1
+            $suite.SelectSingleNode('testcase/failure').message | Should -Match 'boom'
+        }
+
+        It "keeps the JUnit file inside the report directory whatever the node name is: <NodeName>" -ForEach @(
+            @{ NodeName = '../../outside' }
+            @{ NodeName = '..' }
+            @{ NodeName = 'sub/dir/node' }
+        ) {
+            $rep = New-ReportDirectory
+            $outcome = & $script:junit -Context @{ Document = (New-HostileDocument -NodeName $NodeName); ReportPath = $rep }
+
+            (Split-Path -Parent $outcome.Path) | Should -Be $rep
+            @(Get-ChildItem -LiteralPath $rep -File).Count | Should -Be 1
+        }
+
+        It "refuses to write JUnit XML with nowhere to put it" {
+            { & $script:junit -Context @{ Document = (New-HostileDocument) } } | Should -Throw '*No directory*'
+        }
+
+        It "writes a Markdown summary whose table a hostile name or message cannot break" {
+            $rep = New-ReportDirectory
+            $outcome = & $script:summary -Context @{ Document = (New-HostileDocument); ReportPath = $rep }
+
+            $text = Get-Content -LiteralPath $outcome.Path -Raw
+            $text | Should -Not -Match '<script'
+            $text | Should -Not -Match '<testcase'
+            $text | Should -Not -Match '(?<!\\)!\[img\]'
+            # Two listed rows (FAIL and SKIP), each still exactly one line with five cells.
+            $rows = @($text -split "`n" | Where-Object { $_ -match '^\| (FAIL|SKIP) ' })
+            $rows.Count | Should -Be 2
+            foreach ($row in $rows) { @([regex]::Matches($row, '(?<!\\)\|')).Count | Should -Be 6 }
+            $outcome.JobSummary | Should -BeFalse
+        }
+
+        It "appends the summary to the GitHub job summary when there is one" {
+            $jobSummary = Join-Path $TestDrive ("step-" + [guid]::NewGuid().ToString('N') + '.md')
+            Set-Content -LiteralPath $jobSummary -Value 'earlier step'
+            $env:GITHUB_STEP_SUMMARY = $jobSummary
+
+            $outcome = & $script:summary -Context @{ Document = (New-HostileDocument) }
+
+            $outcome.JobSummary | Should -BeTrue
+            $written = Get-Content -LiteralPath $jobSummary -Raw
+            $written | Should -Match 'earlier step'
+            $written | Should -Match 'DSC run: node1'
+        }
+
+        It "refuses to write a summary with nowhere to put it" {
+            { & $script:summary -Context @{ Document = (New-HostileDocument) } } | Should -Throw '*Nowhere to write*'
+        }
+
+        It "caps the summary table so one configuration cannot flood a job summary" {
+            $rep = New-ReportDirectory
+            $document = New-HostileDocument
+            $document.Results = @(1..450 | ForEach-Object { [ordered]@{ ResourceType = 'Test/Res'; InstanceName = "r$_"; Status = 'FAIL'; DurationMs = 1; ErrorMessage = ('m' * 2000); Drifted = $true; SetInvoked = $false } })
+
+            $outcome = & $script:summary -Context @{ Document = $document; ReportPath = $rep }
+
+            $text = Get-Content -LiteralPath $outcome.Path -Raw
+            @($text -split "`n" | Where-Object { $_ -match '^\| FAIL ' }).Count | Should -Be 200
+            $text | Should -Match '250 more not shown'
+            $text.Length | Should -BeLessThan 100000
+        }
+    }
 }

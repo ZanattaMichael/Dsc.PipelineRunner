@@ -113,7 +113,7 @@ function Invoke-DscPipelineRunner {
         # Optional: 'Test' (default) reports drift, 'Set' remediates it. Previously declared
         # Mandatory alongside a default, which meant the default was unreachable (#17).
         [Parameter()]
-        [ValidateSet('Test', 'Set')]
+        [ValidateSet('Test', 'Set', 'DryRun')]
         [String]$Mode = 'Test',
 
         # Supplying a PAT selects the PAT parameter set, so the credential a caller passes is

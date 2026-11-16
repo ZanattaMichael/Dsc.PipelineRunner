@@ -113,8 +113,7 @@ unconstrained once enabled; the module is not Authenticode-signed (releases carr
 provenance attestation instead, see below; #38); the Gallery modules CI and the container image install
 are pinned to exact versions but the Gallery publishes no checksum to verify them against, and
 modules that a pinned module pulls in as its own dependencies are not pinned; constrained-language compilation is not implemented (#46);
-the runner sets no input-size or alias-expansion limit on YAML parsing; and `Get()` output stays in
-module memory until the next run starts.
+and the runner sets no input-size or alias-expansion limit on YAML parsing.
 
 ### Verifying a release
 
@@ -327,7 +326,16 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   document and, if it fails, cannot change the result or stop the other reporters; a reporter name
   cannot select a script outside `Actions/Report/`; the `Webhook` reporter is https only, refuses
   credentials in the URL, sends the token in a header, does not follow redirects, and names only the
-  host and status in an error.
+  host and status in an error. The `JUnit` and `Summary` reporters cannot be made to emit extra XML
+  elements, table cells, HTML, links or images by a resource name or message, and cannot write outside
+  the report directory. `Report.OnError: Fail` marks a file `ReportFailed` without altering resource
+  results, and `Get()` output is released from memory when its file is finished.
+- `Tests/PipelineRunner/Security/DryRun.Security.tests.ps1` — a dry run (`-Mode DryRun`) never calls an
+  engine, a Target action or a Credential action and never runs an execution script; it still fails a
+  resource for an unsafe or malformed expression, an undeclared parameter, an unknown or path-shaped
+  target/credential action, a scalar target or a script that does not parse; an expression that reads
+  run-time state is validated and deferred, not evaluated; the resultant configuration it writes and
+  returns has secrets redacted; and a Test or Set run returns no RSOP.
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and

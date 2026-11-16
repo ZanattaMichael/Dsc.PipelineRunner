@@ -55,6 +55,11 @@ module.
 1. **Actions plug in at every step:** where the configuration comes from, how to authenticate, which engine and which target.
 1. **You get a report** (OK, SKIPPED or FAIL per resource) with secrets scrubbed from logs, errors and output.
 
+**Validate before you run.** `Invoke-DscRunner -Mode DryRun` checks a configuration and writes its
+resultant configuration (RSOP) per node, without calling an engine, connecting to a target or
+fetching a credential, so a pull-request pipeline can validate a change before the real run. See
+[Reporting and Exit Codes](WikiSource/Reporting-and-Exit-Codes.md#dry-runs-and-the-resultant-configuration-rsop).
+
 ## Contents
 
 - [Getting Started](#getting-started): install, quick start, and building a configuration
@@ -391,7 +396,7 @@ named file under `Actions/<Hook>/<Name>.ps1` (or overridden inline with a
 | `Engine` | Drive resource `Test`/`Set`/`Get` | `DscV2` (default, `Invoke-DscResource`), `DscV3` (`dsc.exe`) | `Engine` |
 | `Target` | Resolve the session a resource evaluates against | `Local` (default, no-op), `WinRM` (CimSession + PSSession), `SSH` (PSSession over SSH, DscV3 only) | `PipelineRunnerSettings.Target` / per-resource `target.action` |
 | `Credential` | Resolve a `[PSCredential]` for a target connection or a `resourceCredential` | `Environment` (default, from env vars), `Static` (inline, dev/test only), `SecretManagement` (`Get-Secret` from a registered vault) | per-use `action` key (a `target.credential` or `resourceCredential` block) |
-| `Report` | Deliver each file's report document somewhere, in addition to the CSV/JSON files | `Webhook` (https POST) | `PipelineRunnerSettings.Report.Reporters` |
+| `Report` | Deliver each file's report document somewhere, in addition to the CSV/JSON files | `Webhook` (https POST), `JUnit`, `Summary` (Markdown / GitHub job summary) | `PipelineRunnerSettings.Report.Reporters` |
 
 Select an action by name in `Datum.yml`:
 
