@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Dsc.PipelineRunner logo: configuration layers merge into one pipeline that ends in a checked node" width="160" height="160">
+</p>
+
 # Dsc.PipelineRunner
 
 [![Tests](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/CodeCoverage.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/CodeCoverage.yml)
