@@ -97,6 +97,29 @@ Invoke-DscRunner -ConfigurationSourcePath 'C:\config' `
 
 See [Reporting and Exit Codes](Reporting-and-Exit-Codes) for the exact shape of every report.
 
+## Run it from a CI/CD pipeline
+
+The companion repository [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions)
+packages everything on this page as a pipeline step: a GitHub Action, an Azure DevOps task, a
+GitLab CI/CD component, a CircleCI orb and a Jenkins shared-library step. Each installs the module,
+checks the agent's requirements, runs `Invoke-DscRunner` and fails the step when the run failed.
+
+```yaml
+# GitHub Actions
+steps:
+  - uses: actions/checkout@v4
+  - uses: ZanattaMichael/Dsc.PipelineRunnerActions@v1
+    with:
+      configuration-path: config
+      mode: Test
+      module-version: 1.2.1
+```
+
+The [settings](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/settings.md) are the
+parameters on this page under other names (`mode`, `report-path`, `fail-on-error`,
+`configuration-repository-url`, `configuration-revision` and so on), and there is a
+[guide for each platform](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions#documentation).
+
 ## Run against a Git configuration
 
 The `Git` source action clones the repository first, and `-ConfigurationRevision` pins it.

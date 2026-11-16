@@ -62,7 +62,7 @@ fetching a credential, so a pull-request pipeline can validate a change before t
 
 ## Contents
 
-- [Getting Started](#getting-started): install, quick start, and building a configuration
+- [Getting Started](#getting-started): install, quick start, [running from a CI/CD pipeline](#run-it-from-a-cicd-pipeline), and building a configuration
 - [Writing a configuration](#writing-a-configuration): Datum, [resource features](#resource-features), composites and run-control commands
 - [How a run executes](#how-a-run-executes): the step-by-step lifecycle
 - [Architecture: Actions](#architecture-actions): the pluggable Source, Connect, Engine, Target and Credential hooks
@@ -154,6 +154,43 @@ Running from Azure DevOps on a self-hosted agent (`Invoke-DscPipelineRunner`, or
 
    - Ensure that all configuration files and settings are securely stored within the appropriate code environment to maintain consistency and security.
    - Use environment-specific directories or repositories to manage configurations, ensuring easy access and version control.
+
+### Run it from a CI/CD pipeline
+
+You do not have to script the install and the call yourself. The companion repository
+[Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions) packages the runner as a
+pipeline step for each platform:
+
+| Platform | Integration | Guide |
+| --- | --- | --- |
+| GitHub Actions | Action | [GitHub Actions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/github-actions.md) |
+| Azure DevOps | Pipeline task (`DscPipelineRunner@1`) in an extension | [Azure DevOps](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/azure-devops.md) |
+| GitLab CI/CD | CI/CD component | [GitLab](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/gitlab.md) |
+| CircleCI | Orb | [CircleCI](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/circleci.md) |
+| Jenkins | Shared-library step | [Jenkins](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/jenkins.md) |
+| Bitbucket, TeamCity and others | The step script, driven by environment variables | [Other platforms](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/other-platforms.md) |
+
+On GitHub Actions, for example:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: ZanattaMichael/Dsc.PipelineRunnerActions@v1
+    with:
+      configuration-path: config     # the folder that contains Datum.yml
+      mode: Test                     # Test reports drift, Set applies, DryRun validates
+      module-version: 1.2.1          # pin the Dsc.PipelineRunner version
+```
+
+Every integration installs this module (at the version you pin) and the resource modules you list,
+checks what the agent needs and reports everything that is missing in one pass, prints the
+effective settings, runs `Invoke-DscRunner`, and fails the step when the run failed. They all take
+the same [settings](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/settings.md) and have
+the same [requirements](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/requirements.md).
+Pin the integration to a release tag or a commit SHA (`@v1` exists once its first release is cut;
+until then reference a commit SHA); its
+[publishing guide](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/publishing.md) says where
+each one is published.
 
 ### Requirements
 
@@ -591,6 +628,7 @@ annotated tag and starts the Release workflow on it. See [CONTRIBUTING.md](CONTR
 | Conditions, execution scripts and reboot handling | [docs/lifecycle-scripting-and-reboot-handling.md](docs/lifecycle-scripting-and-reboot-handling.md) |
 | Remote targets and credentials | [docs/remote-target-credential-handling.md](docs/remote-target-credential-handling.md) |
 | The DSC v3 engine | [docs/dsc-v3.md](docs/dsc-v3.md), [docs/dsc-v3-config-functions.md](docs/dsc-v3-config-functions.md) |
+| GitHub Actions, Azure DevOps, GitLab, CircleCI and Jenkins integrations | [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions) |
 | Hosted Linux agents with DSC v3 | [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) |
 | Azure DevOps self-hosted agent and pipeline | [docs/azure-devops-self-hosted-agent.md](docs/azure-devops-self-hosted-agent.md) |
 | Trust model and security policy | [docs/trust-model.md](docs/trust-model.md), [SECURITY.md](SECURITY.md) |

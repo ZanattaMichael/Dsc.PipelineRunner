@@ -5,6 +5,11 @@ or with the `AzureDevOps` `Connect` action. They follow on from steps 1 to 3 of
 [Getting Started](../README.md#getting-started), which build the configuration itself and apply to any
 CI/CD system.
 
+> **Prefer a pipeline task?** The [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions)
+> extension provides `DscPipelineRunner@1`, which installs the module and calls the runner for you;
+> see its [Azure DevOps guide](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions/blob/main/docs/azure-devops.md).
+> The agent identity and permissions described below still apply.
+
 1. __(Azure DevOps only) Setup Dsc.PipelineRunner using a Self-Hosted Agent within the CI/CD Pipeline:__
 
    - Follow the detailed instructions provided in the [Azure DevOps Agents Documentation](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents?view=azure-devops) to configure your self-hosted agent.

@@ -5,6 +5,11 @@ standalone, cross-platform command-line engine (`dsc`) that runs on Linux, macOS
 Windows. Running the pipeline runner's **DscV3** engine on a hosted Linux agent is what
 makes cloud-hosted, ephemeral agents genuinely useful — no Windows box required.
 
+> **Using a packaged pipeline step?** The [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions)
+> integrations (GitHub Actions, Azure DevOps, GitLab, CircleCI, Jenkins) install the module and run
+> it for you. They do not install `dsc`: bootstrap it first, as in section 1 below, then set
+> `engine: DscV3` on the step.
+
 This page covers three things:
 
 1. Bootstrapping `dsc` on a fresh agent.

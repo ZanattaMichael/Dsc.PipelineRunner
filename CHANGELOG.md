@@ -47,6 +47,12 @@ All notable changes to this project will be documented in this file.
 
 ### Documentation
 
+- **Pipeline integrations are referenced.** The README, the wiki (Home, Getting Started) and the
+  hosted-agent and Azure DevOps guides now point to
+  [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions), which packages the runner
+  as a GitHub Action, an Azure DevOps task, a GitLab CI/CD component, a CircleCI orb and a Jenkins
+  shared-library step.
+
 - **README reordered and shortened (871 to about 590 lines), with a "How it works" animation.**
   Getting Started now comes first instead of last, followed by writing a configuration, how a run
   executes, Actions, commands and security, with a table of contents and a documentation index.
