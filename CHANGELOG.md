@@ -18,6 +18,21 @@ All notable changes to this project will be documented in this file.
   files are unchanged. Not in this part: JUnit or CI-summary reporters, per-resource streaming,
   and a setting to fail the run when a reporter fails.
 
+### Fixed
+
+- **A resource property that is a list with one item now reaches the engine as a list.** It was
+  collapsed to its only item (`tags: [ one ]` arrived as the string `one`, a one-entry list of
+  mappings as a single mapping), and an empty list arrived as `$null` from a JSON configuration
+  and failed the resource from a YAML one. A resource expecting an array could therefore receive
+  a scalar, and the DSC v3 engine sent `dsc` an object or a scalar where the resource's schema
+  asks for an array. Three places unrolled the list on return and all three are fixed: the JSON
+  loader (`ConvertTo-CaseInsensitiveHashtable`), the list expansion used for both formats
+  (`Expand-ParameterInArray`, `Expand-StringInArray`), and `<params=Name>` naming a list
+  parameter (`Resolve-PipelineParameter`). Lists of two or more items are unchanged. Because the
+  JSON loader fix applies to the whole document, other one-item lists in a JSON configuration
+  (for example `dependsOn`) are now lists as well, as they already were in YAML. A list nested
+  directly inside a list is merged into its parent in both formats, as it was for JSON.
+
 ### Documentation
 
 - **README reordered and shortened (871 to about 590 lines), with a "How it works" animation.**

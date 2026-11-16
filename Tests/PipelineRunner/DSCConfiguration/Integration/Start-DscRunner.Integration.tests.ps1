@@ -465,4 +465,88 @@ Describe "Start-DscRunner pipeline integration" -Tag Integration {
             $result.PassCount | Should -Be 2
         }
     }
+
+    Context "a one-item list property reaches the engine as a list" {
+
+        # The whole path: the file is loaded by the runner (ConvertFrom-Yaml for YAML,
+        # ConvertFrom-Json + ConvertTo-CaseInsensitiveHashtable for JSON), expanded by
+        # Expand-Parameters / Expand-HashTable, and handed to the engine. Each of those steps
+        # used to unroll a one-item list into its only element. The property is compared in its
+        # JSON form, which is also what the DSC v3 engine sends to `dsc`.
+
+        BeforeAll {
+            $script:ListConfigs = @{
+                JSON = @{
+                    FileName = 'one-item-list.json'
+                    Content  = @'
+{
+  "parameters": { "Login": { "defaultValue": "svc" }, "Members": { "defaultValue": [ "solo" ] } },
+  "variables": {},
+  "resources": [
+    { "type": "Test/Res", "name": "Res", "properties": {
+        "tags":         [ "one" ],
+        "users":        [ { "login": "a" } ],
+        "tokenList":    [ "<params=Login>" ],
+        "tokenMapping": [ { "login": "<params=Login>" } ],
+        "exprList":     [ "$(1 + 1)" ],
+        "exprMapping":  [ { "login": "n-$(1 + 1)" } ],
+        "listParam":    "<params=Members>",
+        "empty":        [],
+        "two":          [ "a", "b" ]
+    } }
+  ]
+}
+'@
+                }
+                YAML = @{
+                    FileName = 'one-item-list.yaml'
+                    Content  = @'
+parameters:
+  Login:   { defaultValue: svc }
+  Members: { defaultValue: [ solo ] }
+variables: {}
+resources:
+  - type: Test/Res
+    name: Res
+    properties:
+      tags:         [ one ]
+      users:        [ { login: a } ]
+      tokenList:    [ '<params=Login>' ]
+      tokenMapping: [ { login: '<params=Login>' } ]
+      exprList:     [ '$(1 + 1)' ]
+      exprMapping:  [ { login: 'n-$(1 + 1)' } ]
+      listParam:    '<params=Members>'
+      empty:        []
+      two:          [ a, b ]
+'@
+                }
+            }
+        }
+
+        It "passes '<Property>' from a <Format> configuration to the engine as <Expected>" -ForEach @(
+            foreach ($format in 'JSON', 'YAML') {
+                @{ Format = $format; Property = 'tags';         Expected = '["one"]' }
+                @{ Format = $format; Property = 'users';        Expected = '[{"login":"a"}]' }
+                @{ Format = $format; Property = 'tokenList';    Expected = '["svc"]' }
+                @{ Format = $format; Property = 'tokenMapping'; Expected = '[{"login":"svc"}]' }
+                @{ Format = $format; Property = 'exprList';     Expected = '["2"]' }
+                @{ Format = $format; Property = 'exprMapping';  Expected = '[{"login":"n-2"}]' }
+                @{ Format = $format; Property = 'listParam';    Expected = '["solo"]' }
+                @{ Format = $format; Property = 'empty';        Expected = '[]' }
+                @{ Format = $format; Property = 'two';          Expected = '["a","b"]' }
+            }
+        ) {
+            $definition = $script:ListConfigs[$Format]
+            $config = New-ConfigFile -Name $definition.FileName -Json $definition.Content
+            $calls  = [System.Collections.Generic.List[object]]::new()
+
+            $result = Start-DscRunner -FilePath $config -EngineAction (New-RecordingEngine -Calls $calls)
+
+            $result.FailCount | Should -Be 0
+            $calls.Count | Should -BeGreaterThan 0
+            $received = $calls[0].Property[$Property]
+            ($received -is [System.Collections.IList]) | Should -BeTrue
+            ConvertTo-Json -InputObject $received -Compress -Depth 5 | Should -BeExactly $Expected
+        }
+    }
 }

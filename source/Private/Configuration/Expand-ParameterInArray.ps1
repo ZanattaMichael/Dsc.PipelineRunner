@@ -21,6 +21,8 @@ If a parameter within the array is not found in the `$Script:parameters` hashtab
 function Expand-ParameterInArray {
     param (
         [Parameter(Mandatory=$true)]
+        # An empty list is a valid value (`tags: []`) and must come back as an empty list.
+        [AllowEmptyCollection()]
         [array]$InputArray
     )
 
@@ -43,14 +45,20 @@ function Expand-ParameterInArray {
         elseif ($item -is [hashtable]) {
             $expandedArray.Add((Expand-Parameters -InputHashTable $item))
         } 
-        elseif ($item -is [array]) {
-            # `+=` flattened a nested array one level; AddRange keeps that behaviour.
-            $expandedArray.AddRange($item)
+        elseif (($item -is [System.Collections.IList]) -and ($item -isnot [System.Collections.IDictionary])) {
+            # `+=` flattened a nested array one level; AddRange keeps that behaviour. A YAML
+            # configuration nests a List[object] rather than an object[], so both are matched
+            # and a nested list behaves the same whichever format the configuration is in.
+            $expandedArray.AddRange(@($item))
         }
         else {
             $expandedArray.Add($item)
         }
     }
 
-    return $expandedArray
+    # The unary comma stops PowerShell unrolling the result on its way out: a plain
+    # `return $expandedArray` handed the caller a scalar for a one-entry list and $null for
+    # an empty one, so a resource property declared as a list reached the engine as a single
+    # value. The result is always an object[], whatever its length.
+    return , $expandedArray.ToArray()
 }

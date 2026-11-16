@@ -47,9 +47,12 @@ function ConvertTo-CaseInsensitiveHashtable {
 
     # Strings are IEnumerable; treat them (and any non-collection scalar) as a leaf.
     if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string]) {
-        # Wrap in @() so an array is always returned, keeping the resource list's order
-        # and its count stable even for a single-element collection.
-        return @(foreach ($item in $InputObject) { ConvertTo-CaseInsensitiveHashtable -InputObject $item })
+        # Build the array with @() and return it behind a unary comma. @() alone is not
+        # enough: `return @(...)` still unrolls on the way out, so the caller (including the
+        # recursive call that fills a dictionary entry above) received a scalar for a
+        # one-element list and $null for an empty one. The comma keeps the list's shape, and
+        # a list nested inside a list stays one element instead of being merged into its parent.
+        return , @(foreach ($item in $InputObject) { ConvertTo-CaseInsensitiveHashtable -InputObject $item })
     }
 
     return $InputObject
