@@ -30,7 +30,12 @@ credential inside that JSON never appears on the process command line, where any
 can read it from the process table.
 
 .OUTPUTS
-[hashtable] @{ ExitCode = <int>; Output = <string> }
+[hashtable] @{ ExitCode = <int>; Output = <string>; ErrorOutput = <string> }
+
+Output is the executable's standard output only. ErrorOutput is its standard error. They are
+kept apart because dsc writes its result (JSON) to standard output and its trace, warning and
+error lines to standard error, and it can write a warning while still succeeding: merging the
+two put a timestamped trace line in front of the JSON and made a successful result unparseable.
 #>
 function Invoke-DscExecutable {
     [CmdletBinding()]
@@ -65,15 +70,23 @@ function Invoke-DscExecutable {
         $remoteResult = Invoke-Command -Session $Session -ScriptBlock {
             param($RemoteExecutable, $RemoteArguments, $RemoteStandardInput)
             $remoteOutput = $RemoteStandardInput | & $RemoteExecutable @RemoteArguments 2>&1
+            $remoteExitCode = $LASTEXITCODE
+            # Standard error arrives as ErrorRecord objects when it is redirected with 2>&1;
+            # everything else is standard output. Split them here, on the far side, so only
+            # strings cross the session.
+            $remoteStdErr = @($remoteOutput | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+            $remoteStdOut = @($remoteOutput | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
             return @{
-                ExitCode = $LASTEXITCODE
-                Output   = ($remoteOutput | Out-String)
+                ExitCode    = $remoteExitCode
+                Output      = ($remoteStdOut | Out-String)
+                ErrorOutput = ($remoteStdErr -join "`n")
             }
         } -ArgumentList $Executable, $Arguments, $standardInputText
 
         return @{
-            ExitCode = $remoteResult.ExitCode
-            Output   = $remoteResult.Output
+            ExitCode    = $remoteResult.ExitCode
+            Output      = $remoteResult.Output
+            ErrorOutput = [string]$remoteResult.ErrorOutput
         }
     }
 
@@ -83,8 +96,15 @@ function Invoke-DscExecutable {
     else {
         $output = & $Executable @Arguments 2>&1
     }
+    $exitCode = $LASTEXITCODE
+
+    # Standard error arrives as ErrorRecord objects when it is redirected with 2>&1; everything
+    # else is standard output. Keep them apart (see .OUTPUTS).
+    $stdErr = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+    $stdOut = @($output | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
     return @{
-        ExitCode = $LASTEXITCODE
-        Output   = ($output | Out-String)
+        ExitCode    = $exitCode
+        Output      = ($stdOut | Out-String)
+        ErrorOutput = ($stdErr -join "`n")
     }
 }

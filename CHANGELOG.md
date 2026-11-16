@@ -35,6 +35,16 @@ All notable changes to this project will be documented in this file.
   is unchanged. A file's `Get()` output is now released from memory once the file is reported,
   instead of staying until the next run. Not done: per-resource streaming.
 
+### Fixed
+
+- **DSC v3 engine: a warning from `dsc` no longer breaks a successful result.** `dsc` writes its
+  result to standard output and its trace and warning lines to standard error, and it can warn
+  while still succeeding. The runner merged the two streams, so a warning line landed in front of
+  the JSON and the resource failed with `Could not parse dsc.exe output as JSON`. Standard output
+  and standard error are now kept apart: the result is parsed from standard output only, standard
+  error is written to the verbose log on success, and both are included (secrets scrubbed) in the
+  error when `dsc` fails. `Invoke-DscExecutable` returns the new `ErrorOutput` alongside `Output`.
+
 ### Documentation
 
 - **README reordered and shortened (871 to about 590 lines), with a "How it works" animation.**

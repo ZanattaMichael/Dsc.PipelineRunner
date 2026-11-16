@@ -429,6 +429,13 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             # (see the SCOPE note at the top of this file and the -Skip test below), so some resources
             # are expected to fail through the adapter. What this proves is that the real v3 engine runs
             # dsc.exe against the live org and the runner surfaces a legible, structured result.
+            #
+            # The tolerance is deliberately narrow. A failed resource is accepted only when it is
+            #   * drift (the resource answered and is not in the desired state), or
+            #   * the known adapter limitation: AzDoGitPermission rejecting its Permissions value.
+            # Anything else -- above all a fault in the engine itself, such as dsc output the runner
+            # could not parse -- fails this test. Without that, an engine bug hides behind the
+            # expected failures (as the standard-error parsing bug did).
             Connect-AzureDevOps
 
             $result = Start-DscRunner -FilePath $script:BuildConfigPath -Mode 'Test' -Engine 'DscV3' -RunnerSettings $script:RunnerSettings
@@ -438,6 +445,21 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             $result.TotalResources | Should -BeGreaterThan 0
             # The report exposes the runner's structured counts regardless of per-resource outcome.
             ($result.PassCount + $result.FailCount + $result.SkipCount) | Should -Be $result.TotalResources
+
+            $unexpectedFailures = @(
+                foreach ($failed in $result.FailedResources) {
+                    $message = [string]$failed.ErrorMessage
+                    $isDrift = [string]::IsNullOrWhiteSpace($message) -or $message -like 'Differing properties:*'
+                    $isKnownLimitation = ([string]$failed.ResourceType -like '*AzDoGitPermission') -and
+                        ($message -like "*'dsc resource *' failed for*") -and
+                        ($message -like '*Permissions*') -and
+                        ($message -like '*System.Collections.Hashtable*')
+                    if (-not ($isDrift -or $isKnownLimitation)) {
+                        '{0}/{1}: {2}' -f $failed.ResourceType, $failed.InstanceName, $message
+                    }
+                }
+            )
+            $unexpectedFailures | Should -BeNullOrEmpty -Because 'only drift and the known AzDoGitPermission adapter limitation are tolerated; any other failure is a fault in the engine or the runner'
         }
 
         It "builds the Magenta environment, is idempotent, then tears it down" -Skip {

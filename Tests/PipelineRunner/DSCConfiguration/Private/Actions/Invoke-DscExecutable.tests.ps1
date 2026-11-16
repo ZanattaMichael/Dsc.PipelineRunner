@@ -31,6 +31,32 @@ Describe "Invoke-DscExecutable Function Tests" -Tag Unit, Actions, Engine {
             $result.ExitCode | Should -Be 0
             $result.Output | Should -Match 'stdin-marker-5f2c'
         }
+
+        It "Keeps standard error out of Output, so a warning cannot corrupt a JSON result" {
+            # What dsc does when a resource warns but succeeds: JSON on standard output, a
+            # timestamped trace line on standard error, exit code 0.
+            $script = '[Console]::Error.WriteLine(''2026-01-02T03:04:05.000000Z WARN something minor''); [Console]::Out.WriteLine(''{"inDesiredState":true}''); exit 0'
+            $result = Invoke-DscExecutable -Executable (Get-Process -Id $PID).Path -Arguments @('-NoProfile', '-NonInteractive', '-Command', $script)
+
+            $result.ExitCode | Should -Be 0
+            $result.Output | Should -Not -Match 'WARN'
+            ($result.Output | ConvertFrom-Json).inDesiredState | Should -BeTrue
+            $result.ErrorOutput | Should -Match 'WARN something minor'
+        }
+
+        It "Returns standard error in ErrorOutput when the executable fails" {
+            $script = '[Console]::Error.WriteLine(''the real reason''); exit 3'
+            $result = Invoke-DscExecutable -Executable (Get-Process -Id $PID).Path -Arguments @('-NoProfile', '-NonInteractive', '-Command', $script)
+
+            $result.ExitCode | Should -Be 3
+            $result.ErrorOutput | Should -Match 'the real reason'
+        }
+
+        It "Returns an empty ErrorOutput when nothing was written to standard error" {
+            $result = Invoke-DscExecutable -Executable (Get-Process -Id $PID).Path -Arguments @('-NoProfile', '-NonInteractive', '-Command', '''ok''')
+
+            $result.ErrorOutput | Should -BeNullOrEmpty
+        }
     }
 
     Context "Remote-target execution (#57 §4)" {

@@ -41,6 +41,32 @@ Describe "Actions/Engine/DscV3 Tests" -Tag Unit, Engine {
             Should -Throw "*exit 2*"
     }
 
+    It "Reports dsc's standard error when dsc.exe exits non-zero" {
+        Mock -CommandName Invoke-DscExecutable -MockWith {
+            return @{ ExitCode = 2; Output = ''; ErrorOutput = 'ERROR the real reason' }
+        }
+
+        { & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} } } |
+            Should -Throw "*the real reason*"
+    }
+
+    It "Parses the result when dsc warns on standard error but succeeds" {
+        # dsc writes trace and warning lines to standard error and can still exit 0. Those lines
+        # are not part of the JSON result and must not make a successful result unparseable.
+        Mock -CommandName Invoke-DscExecutable -MockWith {
+            return @{
+                ExitCode    = 0
+                Output      = '{"inDesiredState":false,"differingProperties":["Ensure"]}'
+                ErrorOutput = '2026-01-02T03:04:05.000000Z  WARN something minor'
+            }
+        }
+
+        $result = & $script:DscV3Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+        $result.InDesiredState | Should -BeFalse
+        $result.Message | Should -Match 'Ensure'
+    }
+
     It "Throws when dsc.exe output is not valid JSON" {
         Mock -CommandName Invoke-DscExecutable -MockWith {
             return @{ ExitCode = 0; Output = 'not-json' }
@@ -175,6 +201,24 @@ Describe "Actions/Engine/DscV3 Tests" -Tag Unit, Engine {
             $thrown | Should -Not -Match 'p@ssw0rd'
             $thrown | Should -Match '\[REDACTED\]'
             $thrown | Should -Match 'exit 2'
+        }
+
+        It "Scrubs a resolved secret out of dsc's standard error before throwing" {
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 2; Output = ''; ErrorOutput = 'ERROR invalid input {"Credential":{"password":"p@ssw0rd"}}' }
+            }
+            $securePassword = ConvertTo-SecureString -String 'p@ssw0rd' -AsPlainText -Force
+            $cred = [System.Management.Automation.PSCredential]::new('svc-account', $securePassword)
+
+            $thrown = $null
+            try {
+                $null = & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{ Credential = $cred } }
+            }
+            catch { $thrown = $_.Exception.Message }
+
+            $thrown | Should -Match 'invalid input'
+            $thrown | Should -Not -Match 'p@ssw0rd'
+            $thrown | Should -Match '\[REDACTED\]'
         }
 
         It "Scrubs a resolved SecureString out of a JSON parse failure before throwing" {
