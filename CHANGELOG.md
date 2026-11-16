@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **A logo, and the PowerShell Gallery icon is no longer the Azure DevOps logo.** The module had
+  inherited `icon.png` from the Azure DevOps DSC project, so the Gallery page showed Microsoft's
+  Azure DevOps mark on a runner that has no hard Azure DevOps dependency. `icon.png` (the file
+  the manifest's `IconUri` points at) is now the project logo: configuration layers merging into one
+  pipeline that ends in a check mark, the desired state, on a blue-gradient tile in the same style as
+  the AzureDevOpsDscNative icons. The SVG source is `assets/logo.svg` (with a 512px PNG), there is a
+  dark-tile variant in `assets/logo-dark.svg`. The README header is now a lockup in the same style (the
+  logo, the name with `Runner` in the accent blue, and a tagline), with light and dark versions in
+  `assets/header-light.svg` and `assets/header-dark.svg` that GitHub picks between by theme; the
+  lettering is outlines, so it does not depend on an installed font.
+
 ### Added
 
 - **PowerShell Gallery modules are pinned to exact versions.** CI, the container image and the

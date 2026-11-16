@@ -1,4 +1,9 @@
-# Dsc.PipelineRunner
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/header-dark.svg">
+    <img src="assets/header-light.svg" alt="Dsc.PipelineRunner: Desired State Configuration in any CI/CD pipeline" height="120">
+  </picture>
+</h1>
 
 [![Tests](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/CodeCoverage.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/CodeCoverage.yml)
 [![Lint](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Lint.yml/badge.svg?branch=main)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/actions/workflows/Lint.yml)
