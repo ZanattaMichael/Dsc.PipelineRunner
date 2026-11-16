@@ -102,6 +102,7 @@ The key this value sits under (used for the sensitive-name rule). Callers leave 
 #>
 function ConvertTo-ReportState {
     [CmdletBinding()]
+    [OutputType([string], [object[]], [System.Collections.Specialized.OrderedDictionary], [bool], [long], [double], [decimal])]
     param (
         [AllowNull()]
         [object] $InputObject,
