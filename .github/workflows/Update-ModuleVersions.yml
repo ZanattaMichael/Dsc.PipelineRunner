@@ -1,0 +1,49 @@
+name: Update module versions
+
+# The PowerShell Gallery modules CI, the container image and the build install are pinned to exact
+# versions in scripts/module-versions.json. Dependabot does not cover the Gallery, so this is how
+# the pins move: run this workflow (Actions > Update module versions > Run workflow), download
+# the 'module-versions' artifact, review the diff against scripts/module-versions.json, and commit
+# it in a pull request. CI then runs the whole suite against the new versions before they merge.
+#
+# It also runs on any pull request that touches the lock file, where it fails if a pinned version
+# has been removed from the Gallery. It installs nothing and writes nothing back to the repository.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/module-versions.json'
+      - 'scripts/Update-ModuleVersions.ps1'
+      - '.github/workflows/Update-ModuleVersions.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-module-versions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    name: Resolve module versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Report the pinned and newest version of every module, fail if a pin is gone from the
+      # Gallery, and write the lock file the newest versions would produce.
+      - name: Resolve the newest versions
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/module-versions" -Force | Out-Null
+          ./scripts/Update-ModuleVersions.ps1 -Write -OutputPath "$env:RUNNER_TEMP/module-versions/module-versions.json" -InformationAction Continue
+
+      - name: Upload the proposed lock file
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: module-versions
+          path: ${{ runner.temp }}/module-versions/module-versions.json
+          if-no-files-found: warn
