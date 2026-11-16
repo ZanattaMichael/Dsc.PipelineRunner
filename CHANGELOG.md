@@ -15,8 +15,14 @@ All notable changes to this project will be documented in this file.
   the reporters named in `Report.Reporters` or to an inline `Invoke-DscRunner -ReportAction`;
   the built-in `Webhook` reporter posts it over https with a token from a `Credential` action.
   A reporter that fails cannot change the run's result. The existing CSV and `*.report.json`
-  files are unchanged. Not in this part: JUnit or CI-summary reporters, per-resource streaming,
-  and a setting to fail the run when a reporter fails.
+  files are unchanged.
+- **Reporting: `JUnit` and `Summary` reporters, `Report.OnError`, and released `Get()` output (#85).**
+  `JUnit` writes `<node>.junit.xml` for a CI system's test-results step; `Summary` writes Markdown
+  to the GitHub Actions job summary and to `<node>.summary.md`. Both treat resource names and
+  messages as untrusted text. `Report.OnError: Fail` gives an otherwise-complete file the status
+  `ReportFailed` when a reporter fails, which makes the run summary `Failed`; the default (`Warn`)
+  is unchanged. A file's `Get()` output is now released from memory once the file is reported,
+  instead of staying until the next run. Not done: per-resource streaming.
 
 ### Documentation
 

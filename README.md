@@ -391,7 +391,7 @@ named file under `Actions/<Hook>/<Name>.ps1` (or overridden inline with a
 | `Engine` | Drive resource `Test`/`Set`/`Get` | `DscV2` (default, `Invoke-DscResource`), `DscV3` (`dsc.exe`) | `Engine` |
 | `Target` | Resolve the session a resource evaluates against | `Local` (default, no-op), `WinRM` (CimSession + PSSession), `SSH` (PSSession over SSH, DscV3 only) | `PipelineRunnerSettings.Target` / per-resource `target.action` |
 | `Credential` | Resolve a `[PSCredential]` for a target connection or a `resourceCredential` | `Environment` (default, from env vars), `Static` (inline, dev/test only), `SecretManagement` (`Get-Secret` from a registered vault) | per-use `action` key (a `target.credential` or `resourceCredential` block) |
-| `Report` | Deliver each file's report document somewhere, in addition to the CSV/JSON files | `Webhook` (https POST) | `PipelineRunnerSettings.Report.Reporters` |
+| `Report` | Deliver each file's report document somewhere, in addition to the CSV/JSON files | `Webhook` (https POST), `JUnit`, `Summary` (Markdown / GitHub job summary) | `PipelineRunnerSettings.Report.Reporters` |
 
 Select an action by name in `Datum.yml`:
 

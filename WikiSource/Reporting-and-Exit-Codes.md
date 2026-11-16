@@ -275,7 +275,8 @@ shape. `PipelineRunnerSettings.Report` adds two opt-in things on top.
 PipelineRunnerSettings:
   Report:
     State: Drift            # None (default) | Drift | Full
-    Reporters: [ Webhook ]  # extra destinations; the files written by -ReportPath need no entry
+    OnError: Warn           # Warn (default) | Fail - what a failing reporter does to the result
+    Reporters: [ Webhook, JUnit, Summary ]  # extra destinations; the -ReportPath files need no entry
     Webhook:
       Uri: https://reports.example.com/dsc
       Credential:           # optional; resolved by a Credential action, its password is the token
@@ -325,6 +326,9 @@ Name matching is a heuristic. A secret stored under an innocuous name, that the 
 told about, is not recognised. Leave `State` at `None` (the default) where that matters, and
 treat a state report with the same care as the system it describes.
 
+A resource's `Get` output is held in memory only while its file is being evaluated (for
+`reference()` and `using()`), and is released as soon as the file has been reported.
+
 ### Reporters
 
 A reporter is an action under `Actions/Report/<Name>.ps1`, or an inline scriptblock passed as
@@ -332,7 +336,28 @@ A reporter is an action under `Actions/Report/<Name>.ps1`, or an inline scriptbl
 `Settings` block, `NodeName` and `ReportPath`, once per compiled file.
 
 A reporter runs after the file's result has been decided. If it throws, the error is reported
-and the run's result, the report files and the other reporters are unaffected.
+and the report files and the other reporters are unaffected. What happens to the result is set
+by `Report.OnError`:
+
+| `OnError` | A reporter fails |
+| --- | --- |
+| `Warn` (default) | The error is reported; the result is unchanged. |
+| `Fail` | A file that otherwise completed gets the status `ReportFailed`, which makes the run summary `Failed` (and, with `-FailOnError`, the exit code 1). Resource results are never altered, and an abort or early stop is not overwritten. Use it where an undelivered report must fail the pipeline, such as an audit trail. |
+
+The built-in reporters:
+
+| Reporter | Writes | Settings |
+| --- | --- | --- |
+| `Webhook` | The document as JSON, to an https endpoint. | `Uri`, `Credential`, `Header`, `Scheme`, `TimeoutSeconds`, `MaxAttempts` |
+| `JUnit` | `<node>.junit.xml`: one test case per resource, for a CI system's "publish test results" step. | `Path` (defaults to `-ReportPath`) |
+| `Summary` | A Markdown summary: appended to the GitHub Actions job summary when there is one, and written to `<node>.summary.md` when there is a directory. | `ListAll` (default: only `FAIL` and `SKIP`), `Path` |
+
+`JUnit` and `Summary` treat resource names and messages as untrusted text: a name cannot add
+XML elements, table columns, HTML, links or images, and neither file can be written outside the
+report directory. The summary table is capped at 200 rows.
+
+On Azure Pipelines, show the summary with
+`##vso[task.uploadsummary]<path to node.summary.md>` from a later step.
 
 **`Webhook`** posts the document as JSON:
 

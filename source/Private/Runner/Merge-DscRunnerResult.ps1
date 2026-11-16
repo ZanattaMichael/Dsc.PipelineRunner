@@ -14,7 +14,8 @@ The summary carries an overall Status:
   * Completed        — every configuration finished and nothing failed.
   * PartialSuccess   — nothing failed, but at least one configuration stopped early
                        (Stop-TaskProcessing) or skipped resources.
-  * Failed           — at least one resource failed.
+  * Failed           — at least one resource failed, or a report could not be delivered and
+                       PipelineRunnerSettings.Report.OnError is Fail.
   * Aborted          — at least one configuration was aborted by an unexpected exception.
 
 When -ReportPath is supplied an aggregate report.json is written alongside the per-file
@@ -65,6 +66,7 @@ function Merge-DscRunnerResult {
     $failedResources = [System.Collections.Generic.List[object]]::new()
     $anyAborted     = $false
     $anyStopped     = $false
+    $anyReportFailed = $false
 
     foreach ($configuration in $configurations) {
         # Guard each read: a caller-supplied object (or a future engine) may not carry every
@@ -77,6 +79,7 @@ function Merge-DscRunnerResult {
 
         if ($configuration.Status -eq 'AbortedByException') { $anyAborted = $true }
         if ($configuration.Status -eq 'StoppedByRequest')   { $anyStopped = $true }
+        if ($configuration.Status -eq 'ReportFailed')       { $anyReportFailed = $true }
 
         foreach ($failed in $configuration.FailedResources) {
             if ($null -ne $failed) { $failedResources.Add($failed) }
@@ -88,7 +91,7 @@ function Merge-DscRunnerResult {
     if ($anyAborted) {
         $status = 'Aborted'
     }
-    elseif ($failCount -gt 0) {
+    elseif ($failCount -gt 0 -or $anyReportFailed) {
         $status = 'Failed'
     }
     elseif ($anyStopped -or $skipCount -gt 0) {

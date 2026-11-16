@@ -134,6 +134,7 @@ function Start-DscRunner {
     #              state (redacted) for resources that drifted, or for all of them.
     #   Reporters: names of Actions/Report/<Name>.ps1 actions to send the report document to.
     #              'File' is the built-in writer below and needs no entry.
+    #   OnError:   Warn (default) | Fail - what a failing reporter does to the result.
     # An unknown State is an error rather than a silent 'None': someone who asked for state and
     # did not get it would not find out until they needed it.
     $reportSettings = if ($RunnerSettings -and $RunnerSettings['Report'] -is [System.Collections.IDictionary]) { $RunnerSettings['Report'] } else { @{} }
@@ -142,6 +143,13 @@ function Start-DscRunner {
         throw "[Start-DscRunner] PipelineRunnerSettings.Report.State is '$reportState'; expected None, Drift or Full."
     }
     $reportState = (Get-Culture).TextInfo.ToTitleCase($reportState.ToLowerInvariant())
+    # OnError: Warn (default) reports a failed reporter as an error and leaves the result alone.
+    # Fail marks an otherwise-clean file 'ReportFailed', for runs where an undelivered report
+    # must fail the pipeline (an audit trail, for example).
+    $reportOnError = if (-not [string]::IsNullOrWhiteSpace([string]$reportSettings['OnError'])) { [string]$reportSettings['OnError'] } else { 'Warn' }
+    if ($reportOnError -notin 'Warn', 'Fail') {
+        throw "[Start-DscRunner] PipelineRunnerSettings.Report.OnError is '$reportOnError'; expected Warn or Fail."
+    }
     $reporterNames = @($reportSettings['Reporters'] | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -ne 'File' } | ForEach-Object { [string]$_ })
     # Per-resource detail that is reported but is not part of the result record (whose shape,
     # and so the CSV's columns, is unchanged): drift, whether Set ran, and captured state.
@@ -973,9 +981,22 @@ function Start-DscRunner {
                 Write-Verbose "[Start-DscRunner] Reporter '$($reporterCall.Label)' completed for $FilePath"
             }
             catch {
-                Write-Error "[Start-DscRunner] Reporter '$($reporterCall.Label)' failed for '$FilePath': $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+                $reporterProblem = "Reporter '$($reporterCall.Label)' failed for '$FilePath': $((& $safeText $_.Exception.Message))"
+                Write-Error "[Start-DscRunner] $reporterProblem" -ErrorAction Continue
+                # Only a run that otherwise completed is re-marked: an abort or an early stop is
+                # the more important thing to report, and resource results are never altered.
+                if ($reportOnError -ieq 'Fail' -and $runStatus -eq 'Completed') {
+                    $runStatus = 'ReportFailed'
+                    $runError = $reporterProblem
+                }
             }
         }
+
+        # The Get() output held for reference()/using() is not needed once the file is finished
+        # and reported. Release it rather than keep every resource's state (which can include
+        # secrets) in module memory until the next run starts.
+        $references.Clear()
+        $script:resourceOutputs = @{}
 
         # Print the summary block.
         $outcomeIsClean = ($failCount -eq 0) -and ($runStatus -eq 'Completed')
