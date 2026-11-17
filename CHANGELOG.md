@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-17
+
 ### Added
 
 - **Capability policy (preview, #86 Part B).** A `Policy.yml` at the root of a configuration, beside
