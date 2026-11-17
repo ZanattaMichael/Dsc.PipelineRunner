@@ -261,7 +261,10 @@ function Invoke-DscPipelineRunner {
 
         # The parameter set is the single source of truth for how to authenticate.
         if ($PSCmdlet.ParameterSetName -eq 'PAT') {
-            New-AzDoAuthenticationProvider -OrganizationName $AzureDevopsOrganizationName -PersonalAccessToken $PATToken
+            # AzureDevOpsDsc 2.0 removed the plain-text -PersonalAccessToken parameter. The
+            # SecureString parameter is accepted by 1.x and 2.0 alike.
+            $securePATToken = Get-PipelineAuthToken -Token $PATToken
+            New-AzDoAuthenticationProvider -OrganizationName $AzureDevopsOrganizationName -SecureStringPersonalAccessToken $securePATToken
         }
         else {
             New-AzDoAuthenticationProvider -OrganizationName $AzureDevopsOrganizationName -useManagedIdentity
