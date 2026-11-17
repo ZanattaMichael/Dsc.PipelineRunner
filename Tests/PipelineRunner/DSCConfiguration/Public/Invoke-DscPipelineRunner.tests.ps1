@@ -16,6 +16,8 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             (Get-FunctionPath 'Remove-RunnerTemporaryDirectory.ps1')
             (Get-FunctionPath 'Get-PipelineAuthToken.ps1')
             (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
+            (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
+            (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
             (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1')
         ) | ForEach-Object {
             . $_.FullName

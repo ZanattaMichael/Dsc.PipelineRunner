@@ -89,8 +89,14 @@ Directories supplied by the caller are never deleted, with or without this switc
 .PARAMETER PolicyPath
 Preview. A capability policy file that says what each layer of the configuration may use (Target
 actions, engines, execution scripts, Datum script blocks). A layer is decided by a file's path in
-the configuration. The file must be outside the configuration directory. A configuration file
-that breaks the policy does not start, and every violation is named. See docs/capability-policy.md.
+the configuration. Normally this is not needed: the policy is the file Policy.yml at the root of
+the configuration, beside Datum.yml, and is used when it is there. -PolicyPath names a different
+file, which then wins. A configuration file that breaks the policy does not start, and every
+violation is named. See docs/capability-policy.md.
+
+.PARAMETER RequirePolicy
+Preview. Fail when there is no capability policy: no Policy.yml in the configuration and no
+-PolicyPath.
 
 .EXAMPLE
 Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Mode Test
@@ -138,12 +144,16 @@ function Invoke-DscRunner {
 
         [switch]$KeepTemporaryDirectory,
 
-        # Preview (issue #86, Part B): a capability policy file that says what each layer of the
-        # configuration may use (Targets, Engines, execution scripts, Datum script blocks). It is
-        # the pipeline's to supply and must be outside the configuration directory. See
-        # docs/capability-policy.md.
+        # Preview (issue #86, Part B): a capability policy says what each layer of the
+        # configuration may use (Targets, Engines, execution scripts, Datum script blocks). By
+        # default it is the file Policy.yml at the root of the configuration, beside Datum.yml;
+        # -PolicyPath names another file, which then wins. See docs/capability-policy.md.
         [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
-        [string]$PolicyPath
+        [string]$PolicyPath,
+
+        # Preview: fail when there is no capability policy (no Policy.yml in the configuration and
+        # no -PolicyPath), for a pipeline that must never run an unconstrained configuration.
+        [switch]$RequirePolicy
     )
 
     $ErrorActionPreference = 'Stop'
@@ -239,10 +249,11 @@ function Invoke-DscRunner {
         $sourceIsRemote = ($Source -eq 'Git') -or ($SourceContext.ContainsKey('Url') -and -not [string]::IsNullOrWhiteSpace([string]$SourceContext['Url']) -and ([string]$SourceContext['Url'] -match '^(http|https|git|ssh):'))
         $buildArguments = @{ OutputPath = $resolvedCacheDirectory; ConfigurationPath = $configurationDirectory; AllowedRoot = $resolvedCacheDirectory; SourceIsRemote = $sourceIsRemote }
         $capabilityPolicy = $null
-        if ($PolicyPath) {
-            # Loaded here, by the pipeline's side of the run, and refused if it sits inside the
-            # configuration it is meant to constrain.
-            $capabilityPolicy = Import-CapabilityPolicy -Path $PolicyPath -ConfigurationPath $configurationDirectory
+        $resolvedPolicyPath = Resolve-CapabilityPolicyPath -ConfigurationPath $configurationDirectory -PolicyPath $PolicyPath -Require:$RequirePolicy
+        if ($resolvedPolicyPath) {
+            # Policy.yml beside Datum.yml, or the file the pipeline named. Refused if it sits in a
+            # sub-folder of the configuration, where a constrained layer could change it.
+            $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $configurationDirectory
             $buildArguments.PolicyPath = $capabilityPolicy.Path
             Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
         }

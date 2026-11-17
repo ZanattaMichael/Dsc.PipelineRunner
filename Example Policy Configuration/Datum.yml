@@ -1,0 +1,37 @@
+# A small configuration that shows the capability policy (preview). See README.md in this folder.
+#
+# Two layers contribute to every node:
+#   Projects\<presence>\<node>   written by an application team (the node's own file)
+#   Platform\Baseline            written by the platform team (applies to every node)
+#
+# Policy.yml, beside this file, says what each of them may use. It is NOT part of this file and
+# is not in the list below: Datum builds its tree from this folder's sub-folders, so a file at
+# the root is outside the hierarchy and nothing can be merged into it.
+ResolutionPrecedence:
+  - Projects\$($Node.ProjectPresence)\$($Node.Project)
+  - Platform\Baseline
+
+DatumHandlersThrowOnError: true
+
+default_lookup_options: MostSpecific
+
+PipelineRunnerSettings:
+  ConfigurationVersion: 0.5
+  PipelineRunnerVersion: 1.1.0
+  Engine: DscV2
+  # The platform's baseline uses a postExecutionScript. The policy decides WHICH layers may.
+  AllowExecutionScripts: true
+  Target: Local
+
+DatumHandlers:
+  Datum.InvokeCommand::InvokeCommand:
+    SkipDuringLoad: true
+
+lookup_options:
+  variables:
+    merge_hash_array: deep
+  resources:
+    merge_hash_array: UniqueKeyValTuples
+    merge_options:
+      tuple_keys:
+        - name

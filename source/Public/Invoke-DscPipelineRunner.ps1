@@ -61,6 +61,13 @@ loudly instead of silently succeeding.
 Leave a cloned configuration directory on disk after the run instead of deleting it. A
 caller-supplied local configuration directory is never deleted, with or without this switch.
 
+.PARAMETER PolicyPath
+Preview. A capability policy file (see docs/capability-policy.md). Normally not needed: the file
+Policy.yml at the root of the configuration, beside Datum.yml, is used when it is there.
+
+.PARAMETER RequirePolicy
+Preview. Fail when there is no capability policy.
+
 .EXAMPLE
 Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir "C:\Configs" `
                          -ConfigurationSourcePath "https://dev.azure.com/MyOrg/Project/_git/config" `
@@ -142,7 +149,17 @@ function Invoke-DscPipelineRunner {
 
         # Opt-in: keep a cloned configuration directory after the run, for debugging.
         [Parameter()]
-        [switch]$KeepTemporaryDirectory
+        [switch]$KeepTemporaryDirectory,
+
+        # Preview (issue #86, Part B): a capability policy file. Normally not needed: Policy.yml
+        # at the root of the configuration, beside Datum.yml, is used when it is there.
+        [Parameter()]
+        [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
+        [String]$PolicyPath,
+
+        # Preview: fail when there is no capability policy.
+        [Parameter()]
+        [switch]$RequirePolicy
     )
 
     # Set the Error Action Preference
@@ -206,7 +223,17 @@ function Invoke-DscPipelineRunner {
         # Compile the Datum Configuration. The caller-supplied export directory is the trusted
         # scratch root; pass it as -AllowedRoot so the compile step's path-traversal guard (#33)
         # permits it while still rejecting a path that escapes it.
-        Build-DatumConfiguration -OutputPath $ExportConfigDir -ConfigurationPath $DatumConfigurationPath -AllowedRoot $ExportConfigDir -SourceIsRemote:$sourceIsRemote
+        $buildArguments = @{ OutputPath = $ExportConfigDir; ConfigurationPath = $DatumConfigurationPath; AllowedRoot = $ExportConfigDir; SourceIsRemote = $sourceIsRemote }
+
+        # Capability policy (preview, #86 Part B): Policy.yml beside Datum.yml, or -PolicyPath.
+        $capabilityPolicy = $null
+        $resolvedPolicyPath = Resolve-CapabilityPolicyPath -ConfigurationPath $DatumConfigurationPath -PolicyPath $PolicyPath -Require:$RequirePolicy
+        if ($resolvedPolicyPath) {
+            $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $DatumConfigurationPath
+            $buildArguments.PolicyPath = $capabilityPolicy.Path
+            Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+        }
+        Build-DatumConfiguration @buildArguments
 
         #
         # Resolve PipelineRunnerSettings (#57 §2/§3/§4) from the (pre-compile) Datum source
@@ -256,6 +283,10 @@ function Invoke-DscPipelineRunner {
         # Forward the resolved PipelineRunnerSettings down to Start-DscRunner (#57 §2/§3/§4).
         if ($settings) {
             $params.RunnerSettings = $settings
+        }
+
+        if ($capabilityPolicy) {
+            $params.Policy = $capabilityPolicy
         }
 
         # Collect each configuration's structured result so the run can be summarized as a single

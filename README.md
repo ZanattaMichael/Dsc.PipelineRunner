@@ -507,7 +507,8 @@ forced-refresh semantics in `Set` mode, and the declaration-gated visibility
 | `ReportPath` | Optional directory where a per-project CSV report is written after execution. |
 | `FailOnError` | Switch. Sets a non-zero process exit code when the run reports a failure. |
 | `KeepTemporaryDirectory` | Switch. Leaves any directory the runner created (a clone, a temporary cache) in place instead of removing it when the run ends. A caller-supplied local path is never removed. |
-| `PolicyPath` | Preview. A [capability policy](docs/capability-policy.md) file, kept outside the configuration, that says what each layer of the configuration may use. A file that breaks it does not start. |
+| `PolicyPath` | Preview. A [capability policy](docs/capability-policy.md) file that says what each layer of the configuration may use. Normally not needed: `Policy.yml` at the root of the configuration, beside `Datum.yml`, is used when it is there. A file that breaks the policy does not start. |
+| `RequirePolicy` | Preview. Switch. Fails the run when there is no capability policy. |
 
 ```powershell
 # Local directory, no authentication, DSC v2 engine (all defaults).
@@ -633,5 +634,5 @@ annotated tag and starts the Release workflow on it. See [CONTRIBUTING.md](CONTR
 | Hosted Linux agents with DSC v3 | [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) |
 | Azure DevOps self-hosted agent and pipeline | [docs/azure-devops-self-hosted-agent.md](docs/azure-devops-self-hosted-agent.md) |
 | Trust model and security policy | [docs/trust-model.md](docs/trust-model.md), [SECURITY.md](SECURITY.md) |
-| Capability policy (preview): what each layer of a configuration may use | [docs/capability-policy.md](docs/capability-policy.md) |
+| Capability policy (preview): what each layer of a configuration may use | [docs/capability-policy.md](docs/capability-policy.md), [worked example](Example%20Policy%20Configuration) |
 | Contributing and releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |

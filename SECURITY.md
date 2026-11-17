@@ -337,8 +337,11 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   run-time state is validated and deferred, not evaluated; the resultant configuration it writes and
   returns has secrets redacted; and a Test or Set run returns no RSOP.
 - `Tests/PipelineRunner/Security/CapabilityPolicy.Security.tests.ps1` — the capability policy
-  (preview, `-PolicyPath`, see [docs/capability-policy.md](docs/capability-policy.md)): a policy file
-  inside the configuration is refused and one that cannot be read exactly is an error; a layer is
+  (preview, `Policy.yml` beside `Datum.yml`, see [docs/capability-policy.md](docs/capability-policy.md)):
+  the policy is a file of its own that Datum never loads, so it cannot be merged or overridden; a
+  policy in a layer's sub-folder is neither discovered nor accepted, a `Datum.yml` that declares a
+  store for the policy file is refused, and `-RequirePolicy` fails a configuration that has none; a
+  policy that cannot be read exactly is an error; a layer is
   decided by a file's path, a path that climbs out of the configuration belongs to no layer, and an
   unclaimed file has no capabilities whatever the default; what several layers contributed to is
   allowed only if every one of them is; a Datum script block in a layer that may not use one stops

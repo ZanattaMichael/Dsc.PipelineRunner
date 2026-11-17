@@ -13,6 +13,7 @@ Execution-Lifecycle
 Pipeline-Rules
 Engines
 Remote-Targets-and-Credentials
+Capability-Policy
 Reporting-and-Exit-Codes
 Troubleshooting
 Contributing
