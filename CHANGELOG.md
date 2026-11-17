@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Capability policy (preview, #86 Part B).** `Invoke-DscRunner -PolicyPath` takes a policy file,
+  kept outside the configuration, that says what each layer of the configuration may use: Target
+  actions, engines, execution scripts and Datum script blocks. A layer is decided by a file's path.
+  The compile records which layers contributed to each resource (`<node>.provenance.json`), and a
+  resource several layers contributed to is held to the most restricted of them. A file that breaks
+  the policy does not start, and every violation is named in one pass; a dry run reports the same.
+  Without `-PolicyPath` nothing changes. See [docs/capability-policy.md](docs/capability-policy.md)
+  for the design, the limits of the preview and the follow-up work.
+
 - **Dry runs and the resultant configuration (RSOP).** `Invoke-DscRunner -Mode DryRun` (also on
   `Invoke-DscPipelineRunner`) validates a configuration before the real run: it compiles Datum,
   orders the resources, runs the Pre-Parse and Format rules, resolves parameters, and validates

@@ -86,6 +86,12 @@ Leave any temporary directory the runner created (a clone, or a fallback cache d
 on disk after the run instead of deleting it. Useful when debugging a compile failure.
 Directories supplied by the caller are never deleted, with or without this switch.
 
+.PARAMETER PolicyPath
+Preview. A capability policy file that says what each layer of the configuration may use (Target
+actions, engines, execution scripts, Datum script blocks). A layer is decided by a file's path in
+the configuration. The file must be outside the configuration directory. A configuration file
+that breaks the policy does not start, and every violation is named. See docs/capability-policy.md.
+
 .EXAMPLE
 Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Mode Test
 Runs against a local directory with no authentication (Source: Local, Connect: None).
@@ -130,7 +136,14 @@ function Invoke-DscRunner {
 
         [switch]$FailOnError,
 
-        [switch]$KeepTemporaryDirectory
+        [switch]$KeepTemporaryDirectory,
+
+        # Preview (issue #86, Part B): a capability policy file that says what each layer of the
+        # configuration may use (Targets, Engines, execution scripts, Datum script blocks). It is
+        # the pipeline's to supply and must be outside the configuration directory. See
+        # docs/capability-policy.md.
+        [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
+        [string]$PolicyPath
     )
 
     $ErrorActionPreference = 'Stop'
@@ -224,9 +237,19 @@ function Invoke-DscRunner {
         # step's trust-boundary warning (#27). Inline/custom Source actions that fetch remotely are
         # opaque here; the SECURITY.md trust model documents the requirement for those.
         $sourceIsRemote = ($Source -eq 'Git') -or ($SourceContext.ContainsKey('Url') -and -not [string]::IsNullOrWhiteSpace([string]$SourceContext['Url']) -and ([string]$SourceContext['Url'] -match '^(http|https|git|ssh):'))
-        Build-DatumConfiguration -OutputPath $resolvedCacheDirectory -ConfigurationPath $configurationDirectory -AllowedRoot $resolvedCacheDirectory -SourceIsRemote:$sourceIsRemote
+        $buildArguments = @{ OutputPath = $resolvedCacheDirectory; ConfigurationPath = $configurationDirectory; AllowedRoot = $resolvedCacheDirectory; SourceIsRemote = $sourceIsRemote }
+        $capabilityPolicy = $null
+        if ($PolicyPath) {
+            # Loaded here, by the pipeline's side of the run, and refused if it sits inside the
+            # configuration it is meant to constrain.
+            $capabilityPolicy = Import-CapabilityPolicy -Path $PolicyPath -ConfigurationPath $configurationDirectory
+            $buildArguments.PolicyPath = $capabilityPolicy.Path
+            Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+        }
+        Build-DatumConfiguration @buildArguments
 
         $params = @{ Mode = $Mode; Engine = $Engine }
+        if ($capabilityPolicy) { $params.Policy = $capabilityPolicy }
         if ($ReportPath)    { $params.ReportPath    = $ReportPath }
         if ($EngineVersion) { $params.EngineVersion = $EngineVersion }
         if ($EngineAction)  { $params.EngineAction  = $EngineAction }

@@ -135,6 +135,14 @@ None of this narrows the core boundary — a configuration that can name a `targ
 it already declares. It documents where that trust now reaches, so operators can scope
 network access and credential availability on the build agent accordingly.
 
+## Capability policy (preview)
+
+Everything above treats the configuration repository as one unit of trust. A
+[capability policy](capability-policy.md) (`Invoke-DscRunner -PolicyPath`) is a first step towards
+trusting its layers differently: the pipeline's owner states which Targets, engines, execution
+scripts and Datum script blocks each layer may use, and the runner refuses a file that breaks it.
+It is a preview with stated limits; in particular it is not a sandbox for the compile step.
+
 ## Future hardening (tracked)
 
 - AST-based allow-listing of permitted DSC resource types.

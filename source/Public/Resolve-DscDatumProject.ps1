@@ -76,6 +76,9 @@ Function Resolve-DscDatumProject {
     # its definition (Composites/<Name>.yml), so the compiled file only ever carries ordinary
     # resources. Runs after hierarchy resolution, so an instance is merged and overridden by
     # name like any other resource first. See Expand-CompositeResource.
+    # Kept for the provenance record below: the resources as merged, before composite expansion.
+    $mergedResources = @($configuration.resources | Where-Object { $null -ne $_ })
+
     if ($null -ne $configuration.resources) {
         $compositeDefinitions = Get-CompositeDefinition -Datum $Datum
         $configuration.resources = @(Expand-CompositeResource -Resources @($configuration.resources) -Definitions $compositeDefinitions)
@@ -105,6 +108,17 @@ Function Resolve-DscDatumProject {
 
     # Convert the configuration to YAML format and save it to the output file
     $configuration | ConvertTo-Yaml | Out-File -LiteralPath ([System.IO.Path]::Combine($OutputPath, "$nodeFileName.yml"))
+
+    # Capability policy (preview, #86 Part B): record which layers contributed to each resource.
+    # $CapabilityPolicyPath comes from the compile script block's scope, like $Datum. The record is
+    # written by the runner from the layer files' paths; nothing in a layer file can change it.
+    if (-not [string]::IsNullOrWhiteSpace([string]$CapabilityPolicyPath)) {
+        $capabilityPolicy = Import-CapabilityPolicy -Path ([string]$CapabilityPolicyPath)
+        $provenance = Get-ResourceProvenance -Datum $Datum -Node $Node -Policy $capabilityPolicy -MergedResource $mergedResources -ExpandedResource @($configuration.resources | Where-Object { $null -ne $_ })
+        $provenance['Node'] = $nodeFileName
+        $provenance | ConvertTo-Json -Depth 6 | Out-File -LiteralPath ([System.IO.Path]::Combine($OutputPath, "$nodeFileName.provenance.json"))
+        Write-Verbose "Provenance record for node: $($NodeName.Name) written ($($provenance.Resources.Count) resource(s))"
+    }
     Write-Verbose "Configuration for node: $($NodeName.Name) has been converted to YAML and saved to file"
     
 

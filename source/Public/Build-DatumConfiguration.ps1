@@ -60,8 +60,24 @@ Function Build-DatumConfiguration {
         # trusted and protected like the runner's own source. See issue #27 and SECURITY.md.
         [Parameter()]
         [Switch]
-        $SourceIsRemote
+        $SourceIsRemote,
+
+        # Preview (issue #86, Part B): a capability policy file. When supplied, a layer that may
+        # not use Datum script blocks is stopped before Datum loads anything, and a provenance
+        # record (<node>.provenance.json) is written beside each compiled file so the run can
+        # enforce the policy. The file must be outside -ConfigurationPath.
+        [Parameter()]
+        [String]
+        $PolicyPath
     )
+
+    $resolvedPolicyPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($PolicyPath)) {
+        $capabilityPolicy = Import-CapabilityPolicy -Path $PolicyPath -ConfigurationPath $ConfigurationPath
+        $resolvedPolicyPath = [string]$capabilityPolicy.Path
+        # On the raw files, before the compile runspace exists: see Assert-DatumScriptBlockPolicy.
+        Assert-DatumScriptBlockPolicy -ConfigurationPath $ConfigurationPath -Policy $capabilityPolicy
+    }
 
     if ($SourceIsRemote) {
         Write-Warning "[Build-DatumConfiguration] The configuration was cloned from a remote source and will be executed as trusted PowerShell code in this process. Dsc.PipelineRunner does not sandbox configuration content — protect the configuration repository with the same controls as the runner's own source (branch protection, required reviews). See SECURITY.md ('Trust model')."
@@ -134,7 +150,7 @@ Function Build-DatumConfiguration {
     # Create a PowerShell instance and attach the script block and runspace
     $powerShellInstance = [powershell]::Create()
     $powerShellInstance.Runspace = $runspace
-    $null = $powerShellInstance.AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath).AddArgument($runnerModulePath)
+    $null = $powerShellInstance.AddScript($scriptBlock).AddArgument($OutputPath).AddArgument($ConfigurationPath).AddArgument($runnerModulePath).AddArgument($resolvedPolicyPath)
 
     try {
         # Run the PowerShell script asynchronously and wait for completion
