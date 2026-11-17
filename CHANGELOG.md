@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Personal access token sign-in against AzureDevOpsDsc 2.0.** `Actions/Connect/AzureDevOps.ps1`
+  and `Invoke-DscPipelineRunner` passed the token to `New-AzDoAuthenticationProvider` as the
+  plain-text `-PersonalAccessToken`, which AzureDevOpsDsc 2.0 removed, so PAT sign-in failed with
+  a parameter binding error. Both now pass `-SecureStringPersonalAccessToken`, which the 1.x
+  provider accepts as well. The `PATToken` key of the `AzureDevOps` Connect action's context now
+  also accepts a `[SecureString]`.
+
 ## [1.3.0] - 2026-11-17
 
 ### Added
@@ -52,12 +61,6 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **Personal access token sign-in against AzureDevOpsDsc 2.0.** `Actions/Connect/AzureDevOps.ps1`
-  and `Invoke-DscPipelineRunner` passed the token to `New-AzDoAuthenticationProvider` as the
-  plain-text `-PersonalAccessToken`, which AzureDevOpsDsc 2.0 removed, so PAT sign-in failed with
-  a parameter binding error. Both now pass `-SecureStringPersonalAccessToken`, which the 1.x
-  provider accepts as well. The `PATToken` key of the `AzureDevOps` Connect action's context now
-  also accepts a `[SecureString]`.
 - **The runner works end to end on Linux with the DSC v3 engine.** The resource pre-check
   (`Test-ResourcesForIncorrectProperties`) always called `Get-DscResource`. On Linux and macOS that
   cmdlet cannot load (it needs the OMI library), so every run stopped before the first resource;
