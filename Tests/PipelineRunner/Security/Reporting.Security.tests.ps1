@@ -516,4 +516,198 @@ Describe "Security: reports, captured state and reporters" -Tag Unit, Security {
             $text.Length | Should -BeLessThan 100000
         }
     }
+
+    Context "per-resource streaming (Report.Stream)" {
+
+        BeforeAll {
+            # Records every call a reporter receives: the event, and a deep copy of the document
+            # as JSON, so later changes to the live objects cannot alter what was "sent".
+            $script:recorder = {
+                param($Context)
+                $Global:ReportSecEvents.Add([pscustomobject]@{
+                    Event    = [string]$Context.Event
+                    Document = $Context.Document
+                    Json     = [string]($Context.Document | ConvertTo-Json -Depth 20 -Compress)
+                })
+            }
+        }
+
+        BeforeEach {
+            $Global:ReportSecEvents = [System.Collections.Generic.List[object]]::new()
+        }
+
+        AfterAll {
+            Remove-Variable -Name ReportSecEvents -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "is off by default: a reporter is called once, with the file's document" {
+            $file = New-TwoResourceConfig
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction $script:recorder
+
+            $Global:ReportSecEvents.Count | Should -Be 1
+            $Global:ReportSecEvents[0].Event | Should -Be 'File'
+            $Global:ReportSecEvents[0].Document.Contains('Event') | Should -BeFalse
+        }
+
+        It "sends one event per resource, in order and before the file's document, when Stream is on" {
+            $file = New-TwoResourceConfig
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction $script:recorder -RunnerSettings @{ Report = @{ Stream = $true } }
+
+            @($Global:ReportSecEvents | ForEach-Object Event) | Should -Be @('Resource', 'Resource', 'File')
+
+            $first = $Global:ReportSecEvents[0].Document
+            $first.SchemaVersion | Should -Be '1.0'
+            $first.Event | Should -Be 'Resource'
+            $first.Mode | Should -Be 'Test'
+            $first.Sequence | Should -Be 1
+            $first.TotalResources | Should -Be 2
+            $Global:ReportSecEvents[1].Document.Sequence | Should -Be 2
+
+            # Each event describes its resource exactly as the file's document does.
+            $final = $Global:ReportSecEvents[2].Document
+            foreach ($resourceEvent in $Global:ReportSecEvents[0..1]) {
+                $sent = $resourceEvent.Document.Result
+                $same = $final.Results | Where-Object { $_.InstanceName -eq $sent.InstanceName }
+                ($sent | ConvertTo-Json -Depth 20 -Compress) | Should -BeExactly ($same | ConvertTo-Json -Depth 20 -Compress)
+            }
+            ($Global:ReportSecEvents[0..1] | ForEach-Object { $_.Document.Result } | Where-Object InstanceName -eq 'changed').Drifted | Should -BeTrue
+        }
+
+        It "sends an event for a resource that is skipped or fails before it reaches the engine" {
+            $json = @{ resources = @(
+                    @{ name = 'skipped'; type = 'Test/Res'; preCondition = '1 -ne 1'; properties = @{ kind = 'steady' } }
+                    @{ name = 'ran';     type = 'Test/Res'; properties = @{ kind = 'steady' } }
+                ) } | ConvertTo-Json -Depth 8
+            $file = New-ConfigFile -Name 'stream-skip.json' -Json $json
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction $script:recorder -RunnerSettings @{ Report = @{ Stream = $true } }
+
+            $statuses = @($Global:ReportSecEvents | Where-Object Event -eq 'Resource' | ForEach-Object { '{0}={1}' -f $_.Document.Result.InstanceName, $_.Document.Result.Status })
+            $statuses | Should -Be @('skipped=SKIP', 'ran=OK')
+        }
+
+        It "keeps every secret out of the resource events when State is Full" {
+            $file = New-TwoResourceConfig
+            $null = Start-DscRunner -FilePath $file -Mode Set -EngineAction $script:engine -ReportAction $script:recorder -RunnerSettings @{ Report = @{ Stream = $true; State = 'Full' } }
+
+            $resourceEvents = @($Global:ReportSecEvents | Where-Object Event -eq 'Resource')
+            $resourceEvents.Count | Should -Be 2
+            # State really was captured, so the absence of the secrets below is not vacuous.
+            $resourceEvents[1].Document.Result.State.Actual.Path | Should -Not -BeNullOrEmpty
+            foreach ($secret in $script:allSecrets) {
+                foreach ($resourceEvent in $resourceEvents) { $resourceEvent.Json | Should -Not -Match ([regex]::Escape($secret)) }
+            }
+        }
+
+        It "scrubs a secret out of an engine error message before it is streamed" {
+            $json = @{ resources = @(
+                    @{ name = 'broken'; type = 'Test/Res'; properties = @{ kind = 'steady'; adminPassword = 'declared-pw-dd44' } }
+                ) } | ConvertTo-Json -Depth 8
+            $file = New-ConfigFile -Name 'stream-error.json' -Json $json
+            $failingEngine = { param($Context) throw "could not sign in with $($Context.Property.adminPassword)" }
+
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $failingEngine -ReportAction $script:recorder -RunnerSettings @{ Report = @{ Stream = $true } }
+
+            $resourceEvent = @($Global:ReportSecEvents | Where-Object Event -eq 'Resource')[0]
+            $resourceEvent.Document.Result.Status | Should -Be 'FAIL'
+            $resourceEvent.Document.Result.ErrorMessage | Should -Match 'could not sign in'
+            $resourceEvent.Json | Should -Not -Match 'declared-pw-dd44'
+        }
+
+        It "does not let a reporter that fails on a resource event change any result, and stops sending it events" {
+            $file = New-TwoResourceConfig
+            $baseline = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine
+
+            $flaky = {
+                param($Context)
+                $Global:ReportSecEvents.Add([pscustomobject]@{ Event = [string]$Context.Event })
+                if ($Context.Event -eq 'Resource') { throw 'endpoint down token=stream-token-1a2b' }
+            }
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction $flaky -RunnerSettings @{ Report = @{ Stream = $true } }
+
+            $result.Status | Should -Be $baseline.Status
+            $result.PassCount | Should -Be $baseline.PassCount
+            $result.FailCount | Should -Be $baseline.FailCount
+            # One failed resource event, none for the second resource, and still the file's document.
+            @($Global:ReportSecEvents | ForEach-Object Event) | Should -Be @('Resource', 'File')
+            @($Global:ReportSecLog | Where-Object { $_ -match 'failed on a resource event' }).Count | Should -Be 1
+        }
+
+        It "marks the file ReportFailed for an undelivered resource event when OnError is Fail" {
+            $file = New-TwoResourceConfig
+            $flaky = { param($Context) if ($Context.Event -eq 'Resource') { throw 'endpoint down' } }
+
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -ReportAction $flaky -RunnerSettings @{ Report = @{ Stream = $true; OnError = 'Fail' } }
+
+            $result.Status | Should -Be 'ReportFailed'
+            $result.ErrorMessage | Should -Match 'failed on a resource event'
+            $result.PassCount | Should -Be 1
+            $result.FailCount | Should -Be 1
+        }
+
+        It "sends resource events in a dry run too, without calling the engine" {
+            $file = New-TwoResourceConfig
+            $engineCalls = @{ Count = 0 }
+            $countingEngine = { param($Context) $engineCalls.Count++; return @{ InDesiredState = $true } }.GetNewClosure()
+
+            $null = Start-DscRunner -FilePath $file -Mode DryRun -EngineAction $countingEngine -ReportAction $script:recorder -RunnerSettings @{ Report = @{ Stream = $true } }
+
+            @($Global:ReportSecEvents | ForEach-Object Event) | Should -Be @('Resource', 'Resource', 'File')
+            $Global:ReportSecEvents[0].Document.Mode | Should -Be 'DryRun'
+            $engineCalls.Count | Should -Be 0
+            foreach ($secret in 'declared-pw-aa11', 'declared-pw-bb22', 'list-pw-cc33') {
+                foreach ($sent in $Global:ReportSecEvents) { $sent.Json | Should -Not -Match ([regex]::Escape($secret)) }
+            }
+        }
+
+        It "rejects a Stream setting that is not true or false" {
+            $file = New-TwoResourceConfig
+            { Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -RunnerSettings @{ Report = @{ Stream = 'Resource' } } } |
+                Should -Throw '*expected true or false*'
+        }
+
+        It "lets one reporter's own Stream setting override Report.Stream" {
+            $file = New-TwoResourceConfig
+            Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Report' -and $Name } -MockWith {
+                $Global:ReportSecEvents.Add([pscustomobject]@{ Event = "$Name/$($Context.Event)" })
+            }
+
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:engine -RunnerSettings @{
+                Report = @{ Stream = $true; Reporters = @('Quiet', 'Live'); Quiet = @{ Stream = $false } }
+            }
+
+            @($Global:ReportSecEvents | ForEach-Object Event) | Should -Be @('Live/Resource', 'Live/Resource', 'Quiet/File', 'Live/File')
+        }
+
+        It "the JUnit and Summary reporters ignore a resource event and write nothing" {
+            $dir = New-ReportDirectory
+            $resourceEvent = [ordered]@{ SchemaVersion = '1.0'; Event = 'Resource'; NodeName = 'node1'; Result = [ordered]@{ InstanceName = 'a'; Status = 'OK' } }
+
+            & (Join-Path $Global:RepositoryRoot 'Actions/Report/JUnit.ps1') -Context @{ Event = 'Resource'; Document = $resourceEvent; Settings = @{}; NodeName = 'node1'; ReportPath = $dir } | Should -BeNullOrEmpty
+            & (Join-Path $Global:RepositoryRoot 'Actions/Report/Summary.ps1') -Context @{ Event = 'Resource'; Document = $resourceEvent; Settings = @{}; NodeName = 'node1'; ReportPath = $dir } | Should -BeNullOrEmpty
+
+            @(Get-ChildItem -LiteralPath $dir).Count | Should -Be 0
+        }
+
+        It "the Webhook reporter gives a resource event one attempt, so a failing endpoint cannot stall every resource" {
+            $Global:ReportSecRequests = [System.Collections.Generic.List[hashtable]]::new()
+            Mock -CommandName Start-Sleep
+            Mock -CommandName Invoke-WebRequest -MockWith {
+                # The parameter is -TimeoutSec up to PowerShell 7.3 and -ConnectionTimeoutSeconds (with
+                # that alias) from 7.4.
+                $timeout = if ($ConnectionTimeoutSeconds) { $ConnectionTimeoutSeconds } else { $TimeoutSec }
+                $Global:ReportSecRequests.Add(@{ Body = $Body; TimeoutSec = $timeout })
+                return [pscustomobject]@{ StatusCode = 503; Content = '' }
+            }
+            $resourceEvent = [ordered]@{ SchemaVersion = '1.0'; Event = 'Resource'; NodeName = 'n'; Result = [ordered]@{ InstanceName = 'a' } }
+
+            { & $script:webhook -Context @{ Event = 'Resource'; Document = $resourceEvent; Settings = @{ Uri = 'https://reports.example.com/dsc' } } } |
+                Should -Throw '*after 1 attempt(s)*'
+
+            $Global:ReportSecRequests.Count | Should -Be 1
+            $Global:ReportSecRequests[0].TimeoutSec | Should -Be 10
+            ($Global:ReportSecRequests[0].Body | ConvertFrom-Json).Event | Should -Be 'Resource'
+            Should -Invoke -CommandName Start-Sleep -Times 0
+        }
+    }
 }
+

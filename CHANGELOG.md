@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Reporting: per-resource streaming (#85).** `PipelineRunnerSettings.Report.Stream: true` also
+  calls each reporter once per resource, as soon as that resource's outcome is known, so a long
+  run can be followed while it is still going; `Report.<Name>.Stream` sets it for one reporter. The
+  reporter's context has `Event` set to `Resource` and a resource event document (`SchemaVersion`
+  `1.0`, `Sequence`, `TotalResources`, and the resource as `Result`, in the shape of an entry in
+  the report document, redacted the same way). The file's report document is still sent at the end
+  and is unchanged. A reporter that fails on a resource event is reported once, receives no more
+  events for that file and cannot change a result; with `Report.OnError: Fail` the file is marked
+  `ReportFailed`. `Webhook` gives a resource event one attempt and a 10 second timeout
+  (`StreamMaxAttempts`, `StreamTimeoutSeconds`); `JUnit` and `Summary` ignore resource events.
+  Off by default, so an existing configuration and an existing reporter behave as before.
+
 ## [1.3.1] - 2026-11-17
 
 ### Fixed
