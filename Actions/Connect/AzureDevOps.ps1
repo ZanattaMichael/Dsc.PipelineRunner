@@ -16,6 +16,9 @@ A hashtable. Recognized keys:
   OrganizationName   - the Azure DevOps organization (required).
   AuthenticationType - 'ManagedIdentity' (default) or 'PAT'.
   PATToken           - the Personal Access Token, required when AuthenticationType = 'PAT'.
+                       A [SecureString] (preferred) or a plain string. It is always handed to
+                       the provider as a SecureString: AzureDevOpsDsc 2.0 removed the plain-text
+                       -PersonalAccessToken parameter.
 
 .OUTPUTS
 $null (the provider registers an ambient session as a side effect).
@@ -46,11 +49,24 @@ if (-not (Get-Command -Name New-AzDoAuthenticationProvider -ErrorAction Silently
 
 switch ($authenticationType) {
     'PAT' {
-        if ([string]::IsNullOrWhiteSpace($Context.PATToken)) {
+        # AzureDevOpsDsc 2.0 removed the plain-text -PersonalAccessToken parameter, so the token
+        # is always passed as a SecureString (a parameter the 1.x provider accepts as well). A
+        # caller may supply either form.
+        $patToken = $Context.PATToken
+        if ($patToken -is [securestring]) {
+            if ($patToken.Length -eq 0) {
+                throw "[Actions/Connect/AzureDevOps] AuthenticationType 'PAT' requires a 'PATToken' in the action context."
+            }
+            $securePatToken = $patToken
+        }
+        elseif ([string]::IsNullOrWhiteSpace($patToken)) {
             throw "[Actions/Connect/AzureDevOps] AuthenticationType 'PAT' requires a 'PATToken' in the action context."
         }
+        else {
+            $securePatToken = ConvertTo-SecureString -String ([string]$patToken) -AsPlainText -Force
+        }
         Write-Verbose "[Actions/Connect/AzureDevOps] Authenticating to '$organizationName' with a Personal Access Token."
-        New-AzDoAuthenticationProvider -OrganizationName $organizationName -PersonalAccessToken $Context.PATToken
+        New-AzDoAuthenticationProvider -OrganizationName $organizationName -SecureStringPersonalAccessToken $securePatToken
     }
     'ManagedIdentity' {
         Write-Verbose "[Actions/Connect/AzureDevOps] Authenticating to '$organizationName' with a Managed Identity."

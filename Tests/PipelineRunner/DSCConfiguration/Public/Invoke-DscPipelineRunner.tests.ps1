@@ -23,9 +23,12 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
 
         . $preParseFilePath
 
-        # Mock Authentication Provider Function
+        # Mock Authentication Provider Function. It mirrors the AzureDevOpsDsc 2.0 signature:
+        # an advanced function with no plain-text -PersonalAccessToken, so a call that still
+        # passes the removed parameter fails to bind here as it does against the real module.
         Function New-AzDoAuthenticationProvider {
-            param($OrganizationName, $PersonalAccessToken, [switch]$useManagedIdentity)
+            [CmdletBinding()]
+            param($OrganizationName, [securestring]$SecureStringPersonalAccessToken, [switch]$useManagedIdentity)
         }
 
 
@@ -170,7 +173,18 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
        It "Should create authentication provider with PAT" {
             $PAT = Get-MockPATToken
             Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -PATToken $PAT -Mode "test" -ConfigurationSourcePath $ConfigurationSourcePath
-            Assert-MockCalled -CommandName New-AzDoAuthenticationProvider -Exactly 1 -Scope It -ParameterFilter { $PersonalAccessToken -eq $PAT }
+            Assert-MockCalled -CommandName New-AzDoAuthenticationProvider -Exactly 1 -Scope It -ParameterFilter {
+                $SecureStringPersonalAccessToken -is [securestring] -and
+                [System.Net.NetworkCredential]::new('', $SecureStringPersonalAccessToken).Password -eq $PAT
+            }
+       }
+
+       It "Should not pass the plain-text -PersonalAccessToken that AzureDevOpsDsc 2.0 removed" {
+            $PAT = Get-MockPATToken
+            Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -PATToken $PAT -ConfigurationSourcePath $ConfigurationSourcePath
+            Assert-MockCalled -CommandName New-AzDoAuthenticationProvider -Exactly 1 -Scope It -ParameterFilter {
+                -not $PesterBoundParameters.ContainsKey('PersonalAccessToken')
+            }
        }
 
        It "Should not fall back to managed identity when a PAT is supplied" {

@@ -209,15 +209,18 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
         # Get-Command; define a stub so it resolves on an agent without AzureDevOpsDsc.Common, then
         # mock it to record how the runner authenticated. The mock body writes to a $Global list so it
         # is observable across the '&'-invoked action-file scope boundary.
+        # The stub mirrors the AzureDevOpsDsc 2.0 signature: an advanced function with no plain-text
+        # -PersonalAccessToken, so a call that passes the removed parameter fails to bind.
         function New-AzDoAuthenticationProvider {
-            param([string]$OrganizationName, [string]$PersonalAccessToken, [switch]$useManagedIdentity)
+            [CmdletBinding()]
+            param([string]$OrganizationName, [securestring]$SecureStringPersonalAccessToken, [switch]$useManagedIdentity)
         }
         $Global:AuthCalls = [System.Collections.Generic.List[object]]::new()
         Mock -CommandName New-AzDoAuthenticationProvider -MockWith {
-            param([string]$OrganizationName, [string]$PersonalAccessToken, [switch]$useManagedIdentity)
+            param([string]$OrganizationName, [securestring]$SecureStringPersonalAccessToken, [switch]$useManagedIdentity)
             $Global:AuthCalls.Add([pscustomobject]@{
                 Organization = $OrganizationName
-                PATToken     = $PersonalAccessToken
+                PATToken     = if ($SecureStringPersonalAccessToken) { [System.Net.NetworkCredential]::new('', $SecureStringPersonalAccessToken).Password }
                 AuthType     = if ($useManagedIdentity) { 'ManagedIdentity' } else { 'PAT' }
             })
         }
@@ -357,6 +360,18 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
             $Global:AuthCalls[0].PATToken     | Should -Be $script:FakePatToken
         }
 
+        It "accepts a Personal Access Token that is already a SecureString" {
+            $null = Invoke-Action -Hook Connect -Name 'AzureDevOps' -Context @{
+                OrganizationName   = $script:OrganizationName
+                AuthenticationType = 'PAT'
+                PATToken           = (ConvertTo-SecureString -String $script:FakePatToken -AsPlainText -Force)
+            }
+
+            $Global:AuthCalls.Count           | Should -Be 1
+            $Global:AuthCalls[0].AuthType     | Should -Be 'PAT'
+            $Global:AuthCalls[0].PATToken     | Should -Be $script:FakePatToken
+        }
+
         It "supports Managed Identity authentication" {
             Connect-FakeAzureDevOps -AuthenticationType 'ManagedIdentity'
 
@@ -369,6 +384,16 @@ Describe "Azure DevOps environment lifecycle against the Example Configuration (
                 Invoke-Action -Hook Connect -Name 'AzureDevOps' -Context @{
                     OrganizationName   = $script:OrganizationName
                     AuthenticationType = 'PAT'
+                }
+            } | Should -Throw '*PATToken*'
+        }
+
+        It "refuses PAT authentication when the SecureString token is empty" {
+            {
+                Invoke-Action -Hook Connect -Name 'AzureDevOps' -Context @{
+                    OrganizationName   = $script:OrganizationName
+                    AuthenticationType = 'PAT'
+                    PATToken           = [securestring]::new()
                 }
             } | Should -Throw '*PATToken*'
         }
