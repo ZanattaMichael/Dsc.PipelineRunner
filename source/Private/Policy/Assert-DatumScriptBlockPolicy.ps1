@@ -37,6 +37,9 @@ function Assert-DatumScriptBlockPolicy {
         Where-Object { $_.Extension -in '.yml', '.yaml', '.json', '.psd1' -and $_.FullName -notmatch '[\\/]\.git[\\/]' }
 
     foreach ($file in $files) {
+        # The policy file itself sits at the root, outside the Datum tree: Datum never loads it.
+        if ($file.DirectoryName.TrimEnd('\', '/') -eq $root -and $file.Name -in 'Policy.yml', 'Policy.yaml') { continue }
+
         $text = [System.IO.File]::ReadAllText($file.FullName)
         if ($text.IndexOf('[x=', [System.StringComparison]::Ordinal) -lt 0) { continue }
 
@@ -48,6 +51,26 @@ function Assert-DatumScriptBlockPolicy {
         $decision = Test-PolicyCapability -Policy $Policy -Layer $layer -Capability 'DatumScriptBlocks'
         if (-not $decision.Allowed) {
             $violations.Add("'$relative' (layer $layer) contains a Datum script block ([x={ ... }=]), which that layer is not allowed.")
+        }
+    }
+
+    # The policy must stay outside the Datum hierarchy. By default Datum builds its tree from the
+    # root's folders, so a root file is outside it; but Datum.yml can declare stores explicitly
+    # (DatumStructure), and a store pointing at the policy file would pull it into the merge.
+    $definitionFile = Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Name -in 'Datum.yml', 'Datum.yaml' } | Select-Object -First 1
+    if ($null -ne $definitionFile) {
+        $definition = $null
+        try { $definition = Get-Content -LiteralPath $definitionFile.FullName -Raw | ConvertFrom-Yaml } catch { $definition = $null }
+        if ($definition -is [System.Collections.IDictionary] -and $definition.Contains('DatumStructure')) {
+            foreach ($store in @($definition['DatumStructure'])) {
+                $storePaths = if ($store -is [System.Collections.IDictionary] -and $store['StoreOptions'] -is [System.Collections.IDictionary]) { @($store['StoreOptions'].Values) } else { @() }
+                foreach ($storePath in ($storePaths | Where-Object { $_ -is [string] })) {
+                    $leaf = [System.IO.Path]::GetFileName(($storePath -replace '\\', '/').TrimEnd('/'))
+                    if ($leaf -in 'Policy', 'Policy.yml', 'Policy.yaml' -and -not (Test-Path -LiteralPath ([System.IO.Path]::Combine($root, 'Policy')) -PathType Container)) {
+                        $violations.Add("Datum.yml declares a store for '$storePath'. The policy file must stay outside the Datum hierarchy so that it cannot be merged.")
+                    }
+                }
+            }
         }
     }
 

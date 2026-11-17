@@ -1,0 +1,34 @@
+# Platform layer: applies to every node. Owned by the platform team (see Policy.yml).
+parameters: {}
+
+variables:
+  # A Datum script block. Only a layer with the DatumScriptBlocks capability may write one.
+  BuildStamp: '[x={ (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd") }=]'
+  JumpHost: bastion.contoso.example
+
+resources:
+
+  # Reached through SSH and followed by a script: both are things only the platform may do.
+  - name: Platform marker
+    type: PSDscResources/Environment
+    target:
+      action: SSH
+      computerName: $(variables('JumpHost'))
+    properties:
+      Name: PLATFORM_BASELINE
+      Value: $(variables('BuildStamp'))
+      Ensure: Present
+      Target:
+        - Machine
+    postExecutionScript: |
+      Write-Verbose 'Platform baseline evaluated.'
+
+  # A default the teams are expected to replace. See Projects/Present/WebTeam.yml.
+  - name: Log level
+    type: PSDscResources/Environment
+    properties:
+      Name: APP_LOG_LEVEL
+      Value: Warning
+      Ensure: Present
+      Target:
+        - Machine

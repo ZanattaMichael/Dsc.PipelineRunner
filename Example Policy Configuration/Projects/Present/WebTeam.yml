@@ -1,0 +1,41 @@
+# An application team's node. Owned by that team (layer 'Teams' in Policy.yml).
+parameters: {}
+
+variables:
+  SiteName: web-frontend
+
+resources:
+
+  # Replaces the platform's 'Log level' by name. What runs is this version, and it is held to
+  # this team's permissions.
+  - name: Log level
+    type: PSDscResources/Environment
+    properties:
+      Name: APP_LOG_LEVEL
+      Value: Information
+      Ensure: Present
+      Target:
+        - Machine
+
+  # The team's own resource, on the default Target (Local).
+  - name: Site name
+    type: PSDscResources/Environment
+    properties:
+      Name: APP_SITE_NAME
+      Value: $(variables('SiteName'))
+      Ensure: Present
+      Target:
+        - Machine
+
+  # Allowed for this layer: WinRM is in its Targets list.
+  - name: Site name on the web server
+    type: PSDscResources/Environment
+    target:
+      action: WinRM
+      computerName: web01.contoso.example
+    properties:
+      Name: APP_SITE_NAME
+      Value: $(variables('SiteName'))
+      Ensure: Present
+      Target:
+        - Machine

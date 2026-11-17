@@ -18,7 +18,7 @@ A platform team owns the baseline and the composites. Application teams own thei
 The platform team may use any Target and engine. Application teams may only use `Local` and
 `WinRM`, the two built-in engines, no execution scripts and no Datum script blocks.
 
-`policy.yml`, kept **outside** the configuration repository:
+`Policy.yml`, at the root of the configuration, **beside `Datum.yml`**:
 
 ```yaml
 PolicyVersion: 1
@@ -38,9 +38,20 @@ Layers:
       Engines: [ DscV2, DscV3 ]
 ```
 
-```powershell
-Invoke-DscRunner -ConfigurationSourcePath ./config -PolicyPath ./policy/policy.yml -Mode Test
 ```
+config/
+├── Datum.yml        the hierarchy
+├── Policy.yml       the capability policy: its own file, never merged
+├── OrganizationPolicies/ …
+└── Projects/ …
+```
+
+```powershell
+Invoke-DscRunner -ConfigurationSourcePath ./config -Mode Test
+```
+
+Nothing has to be passed: when `Policy.yml` is there, it applies. A complete, tested example is in
+[`Example Policy Configuration`](../Example%20Policy%20Configuration).
 
 What then happens:
 
@@ -53,6 +64,31 @@ What then happens:
 | declares a resource on `WinRM` | Runs. |
 
 and a platform resource that no team touched keeps using SSH.
+
+## Where the policy lives
+
+The policy is **a file of its own, `Policy.yml`, at the same level as `Datum.yml`**. It is not a
+block inside `Datum.yml`, and it is **never merged**:
+
+- Datum builds its tree from the configuration root's **sub-folders**. A file at the root is not
+  in the tree, so it is not in `ResolutionPrecedence`, no layer can contribute to it, and no layer
+  can override it. There is exactly one policy and it says what it says.
+- A `Datum.yml` that declares a store for the policy file (which would pull it into the merge) is
+  refused.
+- A `Policy.yml` in a sub-folder is not the policy. It is not discovered, and naming it explicitly
+  is refused, because sub-folders are the layers the policy constrains.
+
+| How the policy is chosen | |
+| --- | --- |
+| `Policy.yml` (or `Policy.yaml`) beside `Datum.yml` | Used automatically. |
+| `-PolicyPath <file>` | Wins over the file in the configuration. For a pipeline that imposes its own policy, kept anywhere outside the configuration's sub-folders. |
+| `-RequirePolicy` | Fails the run when neither exists, so removing `Policy.yml` cannot quietly switch enforcement off. |
+| None of these | No policy: the runner behaves as it always has. |
+
+**Protect `Policy.yml` like `Datum.yml`.** Whoever can change it decides what every layer may do.
+Give both files to the top layer with CODEOWNERS and branch protection. A pipeline that does not
+want to depend on that uses `-PolicyPath` with a file from somewhere the contributors cannot
+write, or at least `-RequirePolicy`.
 
 ## The policy file
 
@@ -158,7 +194,8 @@ platform resource onto a Target the team may not use by setting a variable.
 - No provenance record, an unreadable one, or one written under a different policy: the file does
   not start.
 - A resource in the compiled file that is not in the record has no capabilities.
-- A policy file inside the configuration directory is refused.
+- A policy file in a sub-folder of the configuration is refused.
+- With `-RequirePolicy`, a configuration without a policy does not run.
 
 ## Composites
 
@@ -192,7 +229,10 @@ Be clear about these before depending on the policy.
    resource types and methods is designed (below) but not in the preview.
 4. **Credentials, sources and Connect actions** are not governed yet.
 5. **The policy is only as good as the repository controls behind it.** If a team can push to
-   another team's folder, path-based provenance says nothing useful.
+   another team's folder, path-based provenance says nothing useful. The same goes for
+   `Policy.yml` itself: it is in the configuration repository, so a contributor who can change it
+   (or delete it) controls the policy. Protect it with CODEOWNERS, and use `-RequirePolicy` or an
+   external `-PolicyPath` in the pipeline if that protection is not enough.
 6. **The compiled directory is trusted.** The provenance record is written there. A caller-supplied
    `-CacheDirectory` that others can write to defeats it.
 
@@ -201,8 +241,8 @@ Be clear about these before depending on the policy.
 | Question | Decision |
 | --- | --- |
 | How is provenance stamped? | By the runner, per precedence entry, through Datum's own lookup. Verified against a real Datum compile by the integration suite. |
-| Where does the policy live? | Outside the configuration, supplied by the pipeline (`-PolicyPath`). A path inside the configuration is refused. The path-to-layer mapping is part of the policy for the same reason. |
-| Merge semantics of the policy | There is one policy file and it is not merged with anything. Lower layers cannot contribute to it at all, which is stronger than "may only narrow". If per-team narrowing is wanted later, it is an intersection applied after this policy. |
+| Where does the policy live? | In its own file, `Policy.yml`, at the root of the configuration beside `Datum.yml` (maintainer direction), outside the Datum hierarchy. A pipeline may instead name a file with `-PolicyPath`, and may insist on one with `-RequirePolicy`. A policy in a sub-folder is refused. The path-to-layer mapping is part of the policy. |
+| Merge semantics of the policy | There are none: the policy cannot be merged. It is one file that Datum never loads, so lower layers cannot contribute to it at all, which is stronger than "may only narrow". If per-team narrowing is wanted later, it is an intersection applied after this policy. |
 | Enforcement points | Before compile (script blocks), before the first resource (everything knowable), and at the point of use (Target). |
 | Default | No policy: today's behaviour. With a policy: `Default` is explicit and required, and unclaimed files are always denied. |
 | Stamps in the compiled file | A separate `<node>.provenance.json`, not inside the compiled YAML, so the compiled file stays what it was and the record is clearly runner output. |
@@ -219,4 +259,5 @@ Be clear about these before depending on the policy.
   platform resource without taking over its Target.
 - Policy decisions in the report document and the JUnit and summary reporters.
 - Constrained Language Mode for the compile (Part A), and a policy key that requires it.
-- A parameter on `Invoke-DscPipelineRunner`.
+- Signing or pinning the policy (a pipeline-supplied SHA-256 the file must match), for
+  configurations whose repository controls cannot be relied on.

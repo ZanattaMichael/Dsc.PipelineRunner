@@ -3,10 +3,16 @@
 Loads and validates a capability policy file (issue #86, Part B; preview).
 
 .DESCRIPTION
-A capability policy says what each layer of a configuration is allowed to use. It is supplied by
-the pipeline (Invoke-DscRunner -PolicyPath), never by the configuration it constrains: a policy a
-constrained layer could edit would constrain nothing. For that reason a policy file that lives
-inside the configuration directory is refused.
+A capability policy says what each layer of a configuration is allowed to use.
+
+Where it lives: in its own file, Policy.yml, at the root of the configuration, beside Datum.yml.
+It is not part of Datum.yml and it is never merged: Datum builds its tree from the root's folders,
+so a file at the root is outside the hierarchy and no layer can add to it or override it. It may
+also be supplied from outside the configuration (-PolicyPath). What is refused is a policy file
+in a sub-folder of the configuration, because those folders are the layers the policy constrains.
+
+Protect Policy.yml the way Datum.yml is protected (CODEOWNERS, branch protection): whoever can
+edit it decides what every layer may do.
 
 The file is YAML:
 
@@ -37,7 +43,8 @@ error, not a warning, because a policy that is silently misread is worse than no
 The policy file.
 
 .PARAMETER ConfigurationPath
-The configuration directory the policy will be applied to. The policy must not be inside it.
+The configuration directory the policy will be applied to. The policy file must be at its root
+(beside Datum.yml) or outside it, never in one of its sub-folders.
 
 .OUTPUTS
 [hashtable] The policy: PolicyVersion, Default, Layers (ordered), Path, Sha256.
@@ -62,8 +69,10 @@ function Import-CapabilityPolicy {
     if (-not [string]::IsNullOrWhiteSpace($ConfigurationPath) -and (Test-Path -LiteralPath $ConfigurationPath)) {
         $configurationRoot = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ConfigurationPath).ProviderPath).TrimEnd('\', '/')
         $comparison = if ($IsWindows -or $null -eq $IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
-        if ($fullPath.StartsWith($configurationRoot + [System.IO.Path]::DirectorySeparatorChar, $comparison)) {
-            throw "$prefix The policy file is inside the configuration directory it constrains ('$configurationRoot'). A policy the configuration's contributors can edit constrains nothing: keep it outside the configuration (another repository, or a path protected from them) and pass it with -PolicyPath."
+        $insideConfiguration = $fullPath.StartsWith($configurationRoot + [System.IO.Path]::DirectorySeparatorChar, $comparison)
+        $atRoot = [string]::Equals([System.IO.Path]::GetDirectoryName($fullPath).TrimEnd('\', '/'), $configurationRoot, $comparison)
+        if ($insideConfiguration -and -not $atRoot) {
+            throw "$prefix The policy file is in a sub-folder of the configuration ('$fullPath'). The sub-folders are the layers a policy constrains, so a policy there could be changed by the layer it restricts. Keep it at the root of the configuration, beside Datum.yml (as Policy.yml), or outside the configuration."
         }
     }
 

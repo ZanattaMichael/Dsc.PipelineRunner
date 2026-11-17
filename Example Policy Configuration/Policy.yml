@@ -1,0 +1,36 @@
+# Capability policy (preview): what each layer of this configuration may use.
+#
+# This file sits beside Datum.yml and is used automatically. It is outside the Datum hierarchy,
+# so no layer can add to it or override it. Protect it the way you protect Datum.yml: whoever can
+# change this file decides what every layer may do.
+#
+# Reference: docs/capability-policy.md
+PolicyVersion: 1
+
+# What a layer may do with a capability it does not list. Deny is the safe choice.
+Default: Deny
+
+# The first layer whose Paths match a file owns that file. Paths are relative to this folder,
+# use forward slashes and have no file extension. A file no layer claims may do nothing.
+Layers:
+
+  # The platform team: the definition file and the baseline every node gets.
+  - Name: Platform
+    Paths:
+      - Datum.yml
+      - Platform/**
+      - Composites/**
+    Capabilities:
+      Targets: [ '*' ]            # any Target action, including SSH
+      Engines: [ '*' ]
+      ExecutionScripts: true      # preExecutionScript / postExecutionScript
+      DatumScriptBlocks: true     # [x={ ... }=] blocks evaluated during the merge
+
+  # Application teams: their own node files.
+  - Name: Teams
+    Paths:
+      - Projects/**
+    Capabilities:
+      Targets: [ Local, WinRM ]   # no SSH
+      Engines: [ DscV2, DscV3 ]   # the built-in engines only
+      # ExecutionScripts and DatumScriptBlocks are not listed, so Default (Deny) applies.

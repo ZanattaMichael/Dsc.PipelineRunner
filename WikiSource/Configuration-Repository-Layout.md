@@ -10,6 +10,7 @@ file independently.
 ```
 config/
 ├── Datum.yml                       # resolution precedence, lookup options, PipelineRunnerSettings
+├── Policy.yml                      # optional: capability policy (preview). Its own file, never merged
 ├── Composites/                     # optional: composite resource definitions (not in ResolutionPrecedence)
 │   └── StandardProject.yml
 ├── Projects/
@@ -25,6 +26,9 @@ config/
     ├── Organization.yml            # baseline layer: applies to everything
     └── OrganizationGroups.yml
 ```
+
+`Policy.yml` is optional. It sits beside `Datum.yml` but is not part of the hierarchy: Datum builds
+its tree from the sub-folders, so a root file is never merged. See [Capability policy](Capability-Policy).
 
 That is the shape of the repository's own `Example Configuration/` directory, and it is the
 shape the rest of this wiki's examples assume. The `Composites/` folder is optional and is

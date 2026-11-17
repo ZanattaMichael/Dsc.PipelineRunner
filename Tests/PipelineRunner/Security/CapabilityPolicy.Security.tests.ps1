@@ -5,8 +5,9 @@ A capability policy lets the pipeline's owner say what each layer of a configura
 several teams can contribute configuration without each being fully trusted. These tests pin the
 properties that make it worth having:
 
-  * the policy is the pipeline's, not the configuration's: a policy file inside the configuration
-    directory is refused, and a policy that cannot be read exactly is an error, never a guess;
+  * the policy is a file of its own beside Datum.yml (Policy.yml), outside the Datum hierarchy, so
+    no layer can merge into it or override it; a policy file in a sub-folder of the configuration
+    (a layer) is refused; and a policy that cannot be read exactly is an error, never a guess;
   * a layer is decided by where a file is, never by what the file says about itself;
   * a file no layer claims has no capabilities, whatever the policy's Default;
   * least privilege: what several layers contributed to is allowed only if every one of them is;
@@ -24,6 +25,7 @@ Describe "Security: capability policy (preview)" -Tag Unit, Security {
         Import-Module -Name 'powershell-yaml' -ErrorAction Stop
 
         . (Get-FunctionPath 'Import-CapabilityPolicy.ps1').FullName
+        . (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1').FullName
         . (Get-FunctionPath 'Get-PolicyLayer.ps1').FullName
         . (Get-FunctionPath 'Test-PolicyCapability.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
@@ -69,7 +71,83 @@ Layers:
         $script:Policy = Import-CapabilityPolicy -Path (New-PolicyFile)
     }
 
-    Context "The policy file is the pipeline's, and is read exactly or not at all" {
+    Context "Where the policy lives: its own file beside Datum.yml, never merged" {
+
+        BeforeEach {
+            $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path (Join-Path $Root 'Projects/Present') -Force
+            Set-Content -LiteralPath (Join-Path $Root 'Datum.yml') -Value 'ResolutionPrecedence: []'
+        }
+
+        It "Finds Policy.yml at the root of the configuration without being told" {
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value $PolicyYaml
+            Resolve-CapabilityPolicyPath -ConfigurationPath $Root | Should -Be (Join-Path $Root 'Policy.yml')
+        }
+
+        It "Also accepts the .yaml spelling" {
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yaml') -Value $PolicyYaml
+            Resolve-CapabilityPolicyPath -ConfigurationPath $Root | Should -Be (Join-Path $Root 'Policy.yaml')
+        }
+
+        It "Reports no policy when the configuration has none" {
+            Resolve-CapabilityPolicyPath -ConfigurationPath $Root | Should -BeNullOrEmpty
+        }
+
+        It "Does not pick up a Policy.yml that a layer put in its own folder" {
+            Set-Content -LiteralPath (Join-Path $Root 'Projects/Policy.yml') -Value $PolicyYaml
+            Set-Content -LiteralPath (Join-Path $Root 'Projects/Present/Policy.yml') -Value $PolicyYaml
+            Resolve-CapabilityPolicyPath -ConfigurationPath $Root | Should -BeNullOrEmpty
+        }
+
+        It "Lets a policy the pipeline names win over the one in the configuration" {
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value $PolicyYaml
+            $external = New-PolicyFile
+            Resolve-CapabilityPolicyPath -ConfigurationPath $Root -PolicyPath $external | Should -Be $external
+        }
+
+        It "Fails when a policy is required and there is none" {
+            { Resolve-CapabilityPolicyPath -ConfigurationPath $Root -Require } | Should -Throw '*A policy is required*'
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value $PolicyYaml
+            { Resolve-CapabilityPolicyPath -ConfigurationPath $Root -Require } | Should -Not -Throw
+        }
+
+        It "Fails for a named policy file that does not exist, instead of falling back" {
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value $PolicyYaml
+            { Resolve-CapabilityPolicyPath -ConfigurationPath $Root -PolicyPath (Join-Path $TestDrive 'missing.yml') } | Should -Throw '*does not exist*'
+        }
+
+        It "Loads the policy from the root of the configuration" {
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value $PolicyYaml
+            (Import-CapabilityPolicy -Path (Join-Path $Root 'Policy.yml') -ConfigurationPath $Root).Layers.Count | Should -Be 2
+        }
+
+        It "Refuses a policy file in a sub-folder of the configuration: <Folder>" -ForEach @(
+            @{ Folder = 'Projects' }, @{ Folder = 'Projects/Present' }
+        ) {
+            $inside = Join-Path $Root "$Folder/Policy.yml"
+            Set-Content -LiteralPath $inside -Value $PolicyYaml
+            { Import-CapabilityPolicy -Path $inside -ConfigurationPath $Root } | Should -Throw '*sub-folder of the configuration*'
+        }
+
+        It "Does not treat the policy file as a layer file when looking for script blocks" {
+            # Datum never loads a root file, so the marker in a comment of Policy.yml is not a violation.
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value ($PolicyYaml + "`n# a layer without DatumScriptBlocks may not write [x={ ... }=]")
+            { Assert-DatumScriptBlockPolicy -ConfigurationPath $Root -Policy $Policy } | Should -Not -Throw
+        }
+
+        It "Still checks a file named Policy.yml inside a layer's folder" {
+            Set-Content -LiteralPath (Join-Path $Root 'Projects/Present/Policy.yml') -Value "v: '[x={ 1 }=]'"
+            { Assert-DatumScriptBlockPolicy -ConfigurationPath $Root -Policy $Policy } | Should -Throw '*Projects/Present/Policy.yml*'
+        }
+
+        It "Refuses a Datum.yml that declares a store for the policy file, which would let it be merged" {
+            Set-Content -LiteralPath (Join-Path $Root 'Policy.yml') -Value $PolicyYaml
+            Set-Content -LiteralPath (Join-Path $Root 'Datum.yml') -Value "ResolutionPrecedence: [ Policy ]`nDatumStructure:`n  - StoreName: Policy`n    StoreProvider: Datum::File`n    StoreOptions:`n      Path: ./Policy.yml"
+            { Assert-DatumScriptBlockPolicy -ConfigurationPath $Root -Policy $Policy } | Should -Throw '*must stay outside the Datum hierarchy*'
+        }
+    }
+
+    Context "The policy file is read exactly or not at all" {
 
         It "Loads a valid policy" {
             $Policy.Default | Should -Be 'Deny'
@@ -79,16 +157,7 @@ Layers:
             $Policy.Sha256 | Should -Match '^[0-9a-f]{64}$'
         }
 
-        It "Refuses a policy file that is inside the configuration it constrains" {
-            $configuration = Join-Path $TestDrive 'config-with-policy'
-            $null = New-Item -ItemType Directory -Path (Join-Path $configuration 'Projects') -Force
-            $inside = Join-Path $configuration 'Projects/policy.yml'
-            Set-Content -LiteralPath $inside -Value $PolicyYaml
-
-            { Import-CapabilityPolicy -Path $inside -ConfigurationPath $configuration } | Should -Throw '*inside the configuration directory*'
-        }
-
-        It "Accepts a policy file beside, not inside, the configuration" {
+        It "Accepts a policy file kept outside the configuration altogether" {
             $configuration = Join-Path $TestDrive 'config-beside'
             $null = New-Item -ItemType Directory -Path $configuration -Force
             { Import-CapabilityPolicy -Path (New-PolicyFile) -ConfigurationPath $configuration } | Should -Not -Throw

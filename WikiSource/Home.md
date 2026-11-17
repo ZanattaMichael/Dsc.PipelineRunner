@@ -24,6 +24,7 @@ relationships and early termination possible.
 | Choose between DSC v2 and DSC v3 | [Engines](Engines) |
 | Apply configuration to a remote machine | [Remote targets and credentials](Remote-Targets-and-Credentials) |
 | Work out which account the pipeline must run as | [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as) |
+| Limit what each team's part of a configuration may use | [Capability policy (preview)](Capability-Policy) |
 | Fail the build when a resource fails | [Reporting and exit codes](Reporting-and-Exit-Codes) |
 | Work out why something broke | [Troubleshooting](Troubleshooting) |
 | Change the runner itself | [Contributing](Contributing) |
