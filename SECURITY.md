@@ -336,6 +336,16 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   target/credential action, a scalar target or a script that does not parse; an expression that reads
   run-time state is validated and deferred, not evaluated; the resultant configuration it writes and
   returns has secrets redacted; and a Test or Set run returns no RSOP.
+- `Tests/PipelineRunner/Security/CapabilityPolicy.Security.tests.ps1` — the capability policy
+  (preview, `-PolicyPath`, see [docs/capability-policy.md](docs/capability-policy.md)): a policy file
+  inside the configuration is refused and one that cannot be read exactly is an error; a layer is
+  decided by a file's path, a path that climbs out of the configuration belongs to no layer, and an
+  unclaimed file has no capabilities whatever the default; what several layers contributed to is
+  allowed only if every one of them is; a Datum script block in a layer that may not use one stops
+  the compile before Datum loads it and cannot be hidden with YAML; a file that breaks the policy
+  does not start and every violation is named; a Target written as an expression is checked when
+  it is known, against every layer that could have supplied it; and a missing, unreadable or
+  foreign provenance record fails closed.
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and

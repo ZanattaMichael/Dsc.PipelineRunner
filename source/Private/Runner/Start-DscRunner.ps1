@@ -68,6 +68,7 @@ function Start-DscRunner {
         [string] $EngineVersion, # Optional resource version hint that biases 'Auto' engine selection by major version.
         [scriptblock] $EngineAction, # Optional inline engine override; takes precedence over -Engine.
         [scriptblock] $ReportAction, # Optional inline reporter; receives the report document for this file.
+        [hashtable] $Policy, # Optional capability policy (Import-CapabilityPolicy); preview, issue #86 Part B.
 
         # Resolved PipelineRunnerSettings (#57 §2/§3/§4), e.g. AllowExecutionScripts, Reboot,
         # Target. Invoke-DscRunner resolves this once from Datum.yml (pre-compile, since it is
@@ -428,7 +429,23 @@ function Start-DscRunner {
         elseif ($Value -is [System.Collections.IEnumerable]) { foreach ($item in $Value) { & $collectStrings $item } }
     }
 
+    # Capability policy (preview, #86 Part B). $policyProvenance stays $null when no policy is set.
+    $policyProvenance = $null
+    $policyExpressionTargets = @{}
+
     try {
+        # Before anything runs: every policy violation in this file, in one pass. A file that
+        # breaks the policy does not start. This applies to a dry run too; it is validation.
+        if ($Policy) {
+            $policyCheck = Get-RunPolicyViolation -Policy $Policy -FilePath $FilePath -Task @($tasks) -DefaultTargetAction $defaultTargetAction -Engine ([string]$resolvedEngine) -HasEngineAction:([bool]$EngineAction)
+            if ($policyCheck.Violations.Count -gt 0) {
+                throw "Capability policy: $($policyCheck.Violations.Count) violation(s); no resource was run.`n  - $($policyCheck.Violations -join "`n  - ")"
+            }
+            $policyProvenance = $policyCheck.Provenance
+            $policyExpressionTargets = $policyCheck.ExpressionTargets
+            Write-Information "Capability policy: the file complies (policy $(([string]$Policy.Sha256).Substring(0, 12)))." -Tags $infoTag
+        }
+
         if ($Mode -eq 'DryRun' -and -not $EngineAction -and -not (& $actionExists 'Engine' $resolvedEngine)) {
             throw "The engine '$resolvedEngine' does not exist (no Actions/Engine/$resolvedEngine.ps1)."
         }
@@ -722,6 +739,17 @@ function Start-DscRunner {
             }
 
             $targetAction = if ($task.target -and -not [string]::IsNullOrWhiteSpace([string]$task.target.action)) { [string]$task.target.action } else { $defaultTargetAction }
+
+            # Capability policy, at the point of use: the Target that is really about to be used.
+            if ($Policy -and $policyProvenance) {
+                $policyTargetMessage = Test-ResourceTargetPolicy -Policy $Policy -Provenance $policyProvenance -ResourceKey $resourceKey -TargetAction $targetAction -FromExpression:([bool]$policyExpressionTargets[$resourceKey])
+                if ($policyTargetMessage) {
+                    Write-Error "[Start-DscRunner] $policyTargetMessage" -ErrorAction Continue
+                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $policyTargetMessage
+                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $policyTargetMessage)) -Tags $infoTag
+                    continue
+                }
+            }
 
             if ($targetAction -ne 'Local') {
                 try {

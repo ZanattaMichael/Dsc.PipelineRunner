@@ -27,7 +27,9 @@
     This function requires the 'Dsc.PipelineRunner', 'powershell-yaml', 'datum', and 'datum.invokecommand' modules to be installed and available.
 #>
 Function DatumConfigurationScriptBlock {
-    param($OutputPath, $configurationPath, $PipelineRunnerModulePath, [switch]$isTest)
+    # $CapabilityPolicyPath (preview, #86 Part B) is read by Resolve-DscDatumProject from this scope,
+    # like $Datum and $OutputPath: when set, a provenance record is written for each node.
+    param($OutputPath, $configurationPath, $PipelineRunnerModulePath, $CapabilityPolicyPath, [switch]$isTest)
 
     # Prevent the script from running if the DatumConfigurationScriptBlock function is not being run in a separate thread
     if (($MyInvocation.MyCommand.Name -eq 'DatumConfigurationScriptBlock') -and (-not $isTest)) {
