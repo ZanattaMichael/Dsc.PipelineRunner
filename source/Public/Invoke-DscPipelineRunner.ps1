@@ -236,7 +236,7 @@ function Invoke-DscPipelineRunner {
         if ($PSCmdlet.ParameterSetName -eq 'PAT') {
             # AzureDevOpsDsc 2.0 removed the plain-text -PersonalAccessToken parameter. The
             # SecureString parameter is accepted by 1.x and 2.0 alike.
-            $securePATToken = ConvertTo-SecureString -String $PATToken -AsPlainText -Force
+            $securePATToken = Get-PipelineAuthToken -Token $PATToken
             New-AzDoAuthenticationProvider -OrganizationName $AzureDevopsOrganizationName -SecureStringPersonalAccessToken $securePATToken
         }
         else {

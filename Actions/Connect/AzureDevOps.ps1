@@ -23,6 +23,8 @@ A hashtable. Recognized keys:
 .OUTPUTS
 $null (the provider registers an ambient session as a side effect).
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
+    Justification = 'A PATToken supplied as a plain string already arrives as plaintext in the action context; the provider only accepts a SecureString, so the conversion is required and the plaintext is never written to any output stream.')]
 param(
     [hashtable]$Context = @{}
 )
