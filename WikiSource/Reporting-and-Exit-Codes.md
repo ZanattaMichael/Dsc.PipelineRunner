@@ -276,6 +276,7 @@ PipelineRunnerSettings:
   Report:
     State: Drift            # None (default) | Drift | Full
     OnError: Warn           # Warn (default) | Fail - what a failing reporter does to the result
+    Stream: false           # false (default) | true - also send each resource's outcome as it finishes
     Reporters: [ Webhook, JUnit, Summary ]  # extra destinations; the -ReportPath files need no entry
     Webhook:
       Uri: https://reports.example.com/dsc
@@ -333,7 +334,8 @@ A resource's `Get` output is held in memory only while its file is being evaluat
 
 A reporter is an action under `Actions/Report/<Name>.ps1`, or an inline scriptblock passed as
 `Invoke-DscRunner -ReportAction`. It receives a context with `Document` (above), its own
-`Settings` block, `NodeName` and `ReportPath`, once per compiled file.
+`Settings` block, `NodeName`, `ReportPath` and `Event` (`File`), once per compiled file. With
+[`Stream`](#following-a-run-while-it-is-going-stream) it is also called once per resource.
 
 A reporter runs after the file's result has been decided. If it throws, the error is reported
 and the report files and the other reporters are unaffected. What happens to the result is set
@@ -348,7 +350,7 @@ The built-in reporters:
 
 | Reporter | Writes | Settings |
 | --- | --- | --- |
-| `Webhook` | The document as JSON, to an https endpoint. | `Uri`, `Credential`, `Header`, `Scheme`, `TimeoutSeconds`, `MaxAttempts` |
+| `Webhook` | The document as JSON, to an https endpoint. | `Uri`, `Credential`, `Header`, `Scheme`, `TimeoutSeconds`, `MaxAttempts`, `StreamTimeoutSeconds`, `StreamMaxAttempts` |
 | `JUnit` | `<node>.junit.xml`: one test case per resource, for a CI system's "publish test results" step. | `Path` (defaults to `-ReportPath`) |
 | `Summary` | A Markdown summary: appended to the GitHub Actions job summary when there is one, and written to `<node>.summary.md` when there is a directory. | `ListAll` (default: only `FAIL` and `SKIP`), `Path` |
 
@@ -368,6 +370,59 @@ On Azure Pipelines, show the summary with
 - a failed attempt is retried (`MaxAttempts`, default 3; `TimeoutSeconds`, default 30);
 - an error names the host and the HTTP status only: not the token, the URL's path or query, or
   the response body.
+
+### Following a run while it is going (`Stream`)
+
+By default a reporter hears about a file once, when the file is finished. `Stream: true` also
+calls each reporter once per resource, as soon as that resource's outcome is known, so a long run
+can be followed while it is still going. Set it for one reporter with that reporter's own
+`Stream` key, which overrides `Report.Stream`:
+
+```yaml
+PipelineRunnerSettings:
+  Report:
+    Reporters: [ Webhook, JUnit ]
+    Webhook:
+      Uri: https://reports.example.com/dsc
+      Stream: true          # only the webhook receives resource events
+```
+
+For a resource event the reporter's context has `Event` set to `Resource`, and `Document` is a
+resource event document:
+
+| Field | Meaning |
+| --- | --- |
+| `SchemaVersion` | `1.0`, the same contract as the report document. |
+| `Event` | `Resource`. The file's report document has no `Event` field, which is how a receiver tells the two apart. |
+| `NodeName`, `ConfigurationFile`, `Mode`, `Engine`, `StateCapture` | As in the report document. |
+| `Sequence` | 1 for the first event sent for this file, then 2, and so on. |
+| `TotalResources` | How many resources the file has, so a receiver can show progress. |
+| `Result` | The resource, in exactly the shape of an entry in the report document's `Results`, including `State` when state capture is on. |
+
+What to expect:
+
+- **Every outcome is sent**, including a resource that was skipped or that failed before it
+  reached the engine. An event is sent after the resource's `Set`, post-condition and `Get`
+  have finished, not between them.
+- **The file's report document is still sent at the end and is the authoritative record.** If
+  a resource is recorded twice in one file, an event is sent each time and the later one
+  replaces the earlier, as it does in the document.
+- **The same redaction applies.** Messages are scrubbed and captured state is redacted before
+  an event is built, exactly as for the report document.
+- **A reporter that fails on a resource event** is reported once and receives no more resource
+  events for that file, so an unreachable endpoint does not add an error and a timeout to every
+  remaining resource. It is still given the file's report document. No resource result is
+  affected. With `OnError: Fail` the file is marked `ReportFailed`, even if the final document
+  was then delivered, because the stream had a gap.
+- **Reporters run in the runner's process, one after another**, so a slow reporter slows the
+  run. `Webhook` therefore gives a resource event one attempt and a 10 second timeout
+  (`StreamMaxAttempts`, `StreamTimeoutSeconds`), instead of the three attempts and 30 seconds
+  the final document gets. If it resolves a token through a `Credential` action, that action
+  runs for every event.
+- **`JUnit` and `Summary` ignore resource events**: each describes a whole file. A reporter of
+  your own that should do the same returns early when `$Context.Event` is `Resource`. A
+  reporter written before `Stream` existed is unaffected unless `Stream` is turned on for it.
+- A dry run (`-Mode DryRun`) sends resource events too.
 
 ## Dry runs and the resultant configuration (RSOP)
 

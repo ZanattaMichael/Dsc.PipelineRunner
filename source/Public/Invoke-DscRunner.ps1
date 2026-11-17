@@ -79,7 +79,9 @@ Inline engine scriptblock. Takes precedence over -Engine.
 Inline reporter scriptblock. After each compiled file it receives a context hashtable whose
 Document key holds that file's report document (schema version, counts, and one entry per
 resource), in addition to any reporters named in PipelineRunnerSettings.Report.Reporters. A
-reporter that throws is reported as an error and does not change the run's result.
+reporter that throws is reported as an error and does not change the run's result. With
+PipelineRunnerSettings.Report.Stream it is also called once per resource, with the context's
+Event key set to 'Resource' and a resource event document.
 
 .PARAMETER KeepTemporaryDirectory
 Leave any temporary directory the runner created (a clone, or a fallback cache directory)

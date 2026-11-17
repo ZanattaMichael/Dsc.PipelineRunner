@@ -329,7 +329,10 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   host and status in an error. The `JUnit` and `Summary` reporters cannot be made to emit extra XML
   elements, table cells, HTML, links or images by a resource name or message, and cannot write outside
   the report directory. `Report.OnError: Fail` marks a file `ReportFailed` without altering resource
-  results, and `Get()` output is released from memory when its file is finished.
+  results, and `Get()` output is released from memory when its file is finished. Per-resource
+  streaming (`Report.Stream`) is off by default; a resource event carries the same redacted entry
+  as the report document (no declared, `Get()`-only or error-message secret reaches it), and a
+  reporter that fails on an event cannot change a result and is sent no further events for that file.
 - `Tests/PipelineRunner/Security/DryRun.Security.tests.ps1` — a dry run (`-Mode DryRun`) never calls an
   engine, a Target action or a Credential action and never runs an execution script; it still fails a
   resource for an unsafe or malformed expression, an undeclared parameter, an unknown or path-shaped

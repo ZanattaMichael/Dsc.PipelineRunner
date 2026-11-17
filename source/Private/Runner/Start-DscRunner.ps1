@@ -155,6 +155,30 @@ function Start-DscRunner {
         throw "[Start-DscRunner] PipelineRunnerSettings.Report.OnError is '$reportOnError'; expected Warn or Fail."
     }
     $reporterNames = @($reportSettings['Reporters'] | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) -and [string]$_ -ne 'File' } | ForEach-Object { [string]$_ })
+    #   Stream:    false (default) | true - also call each reporter once per resource, as soon
+    #              as that resource's outcome is known, so a long run can be followed while it is
+    #              still going. 'Report.<Name>.Stream' sets it for one reporter. The document a
+    #              reporter gets at the end of the file is unchanged and stays authoritative.
+    $readStreamSetting = {
+        param($Value, [string]$SettingName)
+        if ($Value -is [bool]) { return $Value }
+        if ([string]$Value -in 'true', 'false') { return [bool]::Parse([string]$Value) }
+        throw "[Start-DscRunner] PipelineRunnerSettings.$SettingName is '$Value'; expected true or false."
+    }
+    $reportStream = if ($null -ne $reportSettings['Stream']) { & $readStreamSetting $reportSettings['Stream'] 'Report.Stream' } else { $false }
+
+    # The reporters for this file: the named actions, then the inline one. Built once, so the
+    # per-resource events and the end-of-file document go to the same list.
+    $reporterCalls = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($reporterName in $reporterNames) {
+        $reporterSettings = if ($reportSettings[$reporterName] -is [System.Collections.IDictionary]) { $reportSettings[$reporterName] } else { @{} }
+        $reporterStream = if ($null -ne $reporterSettings['Stream']) { & $readStreamSetting $reporterSettings['Stream'] "Report.$reporterName.Stream" } else { $reportStream }
+        $reporterCalls.Add(@{ Label = $reporterName; Target = @{ Name = $reporterName }; Settings = $reporterSettings; Stream = $reporterStream; StreamFailed = $false })
+    }
+    if ($ReportAction) {
+        $reporterCalls.Add(@{ Label = '(inline)'; Target = @{ ScriptBlock = $ReportAction }; Settings = @{}; Stream = $reportStream; StreamFailed = $false })
+    }
+    $streamState = @{ Sequence = 0; Problem = $null }
     # Per-resource detail that is reported but is not part of the result record (whose shape,
     # and so the CSV's columns, is unchanged): drift, whether Set ran, and captured state.
     $resourceDetails = [System.Collections.Generic.Dictionary[string, hashtable]]::new([System.StringComparer]::Ordinal)
@@ -246,6 +270,67 @@ function Start-DscRunner {
         return ($clean -replace '^::', '\::')
     }
 
+    # Reporting (#85): one resource's entry in the report document - the result record plus what
+    # is reported but is not part of the record. Used for the end-of-file document and for the
+    # per-resource event, so both describe a resource the same way.
+    $newReportEntry = {
+        param($Record)
+        $entry = [ordered]@{}
+        foreach ($column in $Record.PSObject.Properties) { $entry[$column.Name] = $column.Value }
+        $detail = $null
+        $null = $resourceDetails.TryGetValue(('{0}|{1}|{2}' -f $Record.ConfigurationFile, $Record.ResourceType, $Record.InstanceName), [ref]$detail)
+        $entry['Drifted']        = if ($detail) { $detail.Drifted } else { $null }
+        $entry['SetInvoked']     = if ($detail) { $detail.SetInvoked } else { $false }
+        $entry['ForcedByNotify'] = if ($detail) { $detail.ForcedByNotify } else { $false }
+        $entry['State']          = if ($detail) { $detail.State } else { $null }
+        return $entry
+    }
+
+    # Reporting (#85): per-resource streaming. Sends one resource's outcome to every reporter
+    # that asked for it (Report.Stream), as soon as the outcome is recorded. The record's message
+    # went through $safeText and any captured state through ConvertTo-ReportState before either
+    # reached here, exactly as for the end-of-file document.
+    #
+    # Nothing in here may affect the resource or the run: a reporter that fails is reported once
+    # and gets no more events for this file (an unreachable endpoint must not add an error and a
+    # timeout to every remaining resource). It is still offered the end-of-file document.
+    $sendResourceEvent = {
+        param($Record)
+        try {
+            $streamTargets = @($reporterCalls | Where-Object { $_.Stream -and -not $_.StreamFailed })
+            if ($streamTargets.Count -eq 0) { return }
+
+            $streamState.Sequence++
+            $eventDocument = [ordered]@{
+                SchemaVersion     = '1.0'
+                Event             = 'Resource'
+                NodeName          = $nodeName
+                ConfigurationFile = $FilePath
+                Mode              = $Mode
+                Engine            = $resolvedEngine
+                StateCapture      = $reportState
+                Sequence          = $streamState.Sequence
+                TotalResources    = $totalTasks
+                Result            = (& $newReportEntry $Record)
+            }
+            foreach ($streamTarget in $streamTargets) {
+                try {
+                    $streamArguments = $streamTarget.Target
+                    $null = Invoke-Action -Hook Report @streamArguments -Context @{ Event = 'Resource'; Document = $eventDocument; Settings = $streamTarget.Settings; NodeName = $nodeName; ReportPath = $ReportPath }
+                }
+                catch {
+                    $streamTarget.StreamFailed = $true
+                    $streamProblem = "Reporter '$($streamTarget.Label)' failed on a resource event for '$FilePath' and receives no more of them for this file: $((& $safeText $_.Exception.Message))"
+                    if (-not $streamState.Problem) { $streamState.Problem = $streamProblem }
+                    Write-Error "[Start-DscRunner] $streamProblem" -ErrorAction Continue
+                }
+            }
+        }
+        catch {
+            Write-Verbose "[Start-DscRunner] A resource event could not be sent: $((& $safeText $_.Exception.Message))"
+        }
+    }
+
     # Records a single resource outcome, replacing any earlier record for the same tuple so a
     # resource re-observed within a file does not double-count.
     $recordResult = {
@@ -283,6 +368,8 @@ function Start-DscRunner {
             $results.Add($record)
         }
         $resultIndex[$key] = $record
+
+        & $sendResourceEvent $record
     }
 
     # Load the configuration from the YAML or JSON file into the $pipeline variable.
@@ -1058,17 +1145,7 @@ function Start-DscRunner {
         # whether Set ran, whether a notify forced it, and (when state capture is on) its
         # redacted desired and actual state. Reporters receive this document; the CSV and JSON
         # files keep their existing shape.
-        $reportResults = foreach ($record in $results) {
-            $entry = [ordered]@{}
-            foreach ($column in $record.PSObject.Properties) { $entry[$column.Name] = $column.Value }
-            $detail = $null
-            $null = $resourceDetails.TryGetValue(('{0}|{1}|{2}' -f $record.ConfigurationFile, $record.ResourceType, $record.InstanceName), [ref]$detail)
-            $entry['Drifted']        = if ($detail) { $detail.Drifted } else { $null }
-            $entry['SetInvoked']     = if ($detail) { $detail.SetInvoked } else { $false }
-            $entry['ForcedByNotify'] = if ($detail) { $detail.ForcedByNotify } else { $false }
-            $entry['State']          = if ($detail) { $detail.State } else { $null }
-            $entry
-        }
+        $reportResults = foreach ($record in $results) { & $newReportEntry $record }
         $reportContract = [ordered]@{
             SchemaVersion     = '1.0'
             NodeName          = $nodeName
@@ -1171,18 +1248,10 @@ function Start-DscRunner {
         # Reporting (#85): hand the document to each configured reporter. The run's outcome was
         # decided above, so a reporter that fails is reported as its own error and can neither
         # change the result nor stop the remaining reporters or nodes.
-        $reporterCalls = [System.Collections.Generic.List[hashtable]]::new()
-        foreach ($reporterName in $reporterNames) {
-            $reporterSettings = if ($reportSettings[$reporterName] -is [System.Collections.IDictionary]) { $reportSettings[$reporterName] } else { @{} }
-            $reporterCalls.Add(@{ Label = $reporterName; Arguments = @{ Hook = 'Report'; Name = $reporterName; Context = @{ Document = $reportContract; Settings = $reporterSettings; NodeName = $nodeName; ReportPath = $ReportPath } } })
-        }
-        if ($ReportAction) {
-            $reporterCalls.Add(@{ Label = '(inline)'; Arguments = @{ Hook = 'Report'; ScriptBlock = $ReportAction; Context = @{ Document = $reportContract; Settings = @{}; NodeName = $nodeName; ReportPath = $ReportPath } } })
-        }
         foreach ($reporterCall in $reporterCalls) {
             try {
-                $reporterArguments = $reporterCall.Arguments
-                $null = Invoke-Action @reporterArguments
+                $reporterArguments = $reporterCall.Target
+                $null = Invoke-Action -Hook Report @reporterArguments -Context @{ Event = 'File'; Document = $reportContract; Settings = $reporterCall.Settings; NodeName = $nodeName; ReportPath = $ReportPath }
                 Write-Verbose "[Start-DscRunner] Reporter '$($reporterCall.Label)' completed for $FilePath"
             }
             catch {
@@ -1195,6 +1264,12 @@ function Start-DscRunner {
                     $runError = $reporterProblem
                 }
             }
+        }
+        # A resource event that could not be delivered counts as a failed reporter too, even if
+        # the end-of-file document then went through: the stream a consumer followed has a gap.
+        if ($streamState.Problem -and $reportOnError -ieq 'Fail' -and $runStatus -eq 'Completed') {
+            $runStatus = 'ReportFailed'
+            $runError = $streamState.Problem
         }
 
         # The Get() output held for reference()/using() is not needed once the file is finished

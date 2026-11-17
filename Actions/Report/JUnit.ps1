@@ -28,6 +28,10 @@ param(
     [hashtable]$Context = @{}
 )
 
+# With Report.Stream the runner also calls a reporter once per resource. A JUnit file describes a
+# whole file, so a resource event is ignored; the end-of-file document is what gets written.
+if ([string]$Context.Event -eq 'Resource') { return }
+
 $document = $Context.Document
 if ($null -eq $document) { throw "[Actions/Report/JUnit] No report document was supplied." }
 

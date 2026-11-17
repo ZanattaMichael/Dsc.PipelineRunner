@@ -27,10 +27,15 @@ What it guarantees:
     token or the URL's path and query.
   * A failed attempt is retried with a growing pause; the last failure is thrown for the runner
     to report. The runner's result does not depend on this action.
+  * With Report.Stream the runner also calls this action once per resource (Context.Event is
+    'Resource') and the resource event document is posted the same way. A resource event is sent
+    while the run is still going, so by default it gets one attempt and a 10 second timeout
+    (StreamMaxAttempts, StreamTimeoutSeconds): a slow endpoint must not hold up every resource.
 
 .PARAMETER Context
 Hashtable with:
-  Document [IDictionary] - required, the report document.
+  Document [IDictionary] - required, the report document (or, for a resource event, the event document).
+  Event    [string]      - 'File' (default) or 'Resource'.
   Settings [IDictionary] - required:
       Uri            [string] - required, absolute https URL.
       Credential     [map]    - optional Credential-action context; its password is the token.
@@ -38,6 +43,8 @@ Hashtable with:
       Scheme         [string] - word before the token (default 'Bearer'; empty for none).
       TimeoutSeconds [int]    - per attempt (default 30).
       MaxAttempts    [int]    - default 3.
+      StreamTimeoutSeconds [int] - per attempt, for a resource event (default 10).
+      StreamMaxAttempts    [int] - for a resource event (default 1).
 
 .OUTPUTS
 [pscustomobject] Reporter, Host, StatusCode, Attempts.
@@ -69,8 +76,17 @@ $endpointHost = $uri.Host
 
 $timeoutSeconds = if ($settings['TimeoutSeconds']) { [int]$settings['TimeoutSeconds'] } else { 30 }
 $maxAttempts = if ($settings['MaxAttempts']) { [int]$settings['MaxAttempts'] } else { 3 }
+$streamTimeoutSeconds = if ($settings['StreamTimeoutSeconds']) { [int]$settings['StreamTimeoutSeconds'] } else { 10 }
+$streamMaxAttempts = if ($settings['StreamMaxAttempts']) { [int]$settings['StreamMaxAttempts'] } else { 1 }
 if ($timeoutSeconds -lt 1 -or $timeoutSeconds -gt 300) { throw "[Actions/Report/Webhook] 'TimeoutSeconds' must be between 1 and 300." }
 if ($maxAttempts -lt 1 -or $maxAttempts -gt 10) { throw "[Actions/Report/Webhook] 'MaxAttempts' must be between 1 and 10." }
+if ($streamTimeoutSeconds -lt 1 -or $streamTimeoutSeconds -gt 300) { throw "[Actions/Report/Webhook] 'StreamTimeoutSeconds' must be between 1 and 300." }
+if ($streamMaxAttempts -lt 1 -or $streamMaxAttempts -gt 10) { throw "[Actions/Report/Webhook] 'StreamMaxAttempts' must be between 1 and 10." }
+# A resource event is sent while the run is still going; it gets the shorter limits.
+if ([string]$Context.Event -eq 'Resource') {
+    $timeoutSeconds = $streamTimeoutSeconds
+    $maxAttempts = $streamMaxAttempts
+}
 
 $headers = @{ 'User-Agent' = 'Dsc.PipelineRunner' }
 
