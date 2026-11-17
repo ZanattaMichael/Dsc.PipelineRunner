@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-17
+
 ### Fixed
 
 - **Personal access token sign-in against AzureDevOpsDsc 2.0.** `Actions/Connect/AzureDevOps.ps1`
