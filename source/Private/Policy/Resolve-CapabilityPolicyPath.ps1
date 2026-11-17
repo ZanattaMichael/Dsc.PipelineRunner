@@ -26,15 +26,22 @@ function Resolve-CapabilityPolicyPath {
         [switch] $Require
     )
 
+    # The file system is asked directly ([System.IO.File]), not through the provider cmdlets: the
+    # answer decides whether a policy is enforced, so it must be about a real file on disk, and it
+    # must not throw for a configuration path that does not exist on this platform.
+    $currentDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
+
     if (-not [string]::IsNullOrWhiteSpace($PolicyPath)) {
-        if (-not (Test-Path -LiteralPath $PolicyPath -PathType Leaf)) { throw "[Capability policy] The policy file '$PolicyPath' does not exist." }
-        return [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $PolicyPath).ProviderPath)
+        $explicit = [System.IO.Path]::GetFullPath($PolicyPath, $currentDirectory)
+        if (-not [System.IO.File]::Exists($explicit)) { throw "[Capability policy] The policy file '$PolicyPath' does not exist." }
+        return $explicit
     }
 
-    foreach ($name in 'Policy.yml', 'Policy.yaml') {
-        $candidate = [System.IO.Path]::Combine($ConfigurationPath, $name)
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $candidate).ProviderPath)
+    if (-not [string]::IsNullOrWhiteSpace($ConfigurationPath)) {
+        foreach ($name in 'Policy.yml', 'Policy.yaml') {
+            $candidate = $null
+            try { $candidate = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($ConfigurationPath, $name), $currentDirectory) } catch { $candidate = $null }
+            if ($null -ne $candidate -and [System.IO.File]::Exists($candidate)) { return $candidate }
         }
     }
 

@@ -184,10 +184,12 @@ that file.
 A dry run (`-Mode DryRun`) performs the same checks, so a pull-request pipeline can report policy
 violations before the change is merged.
 
-**Targets written as expressions.** `target: { action: $(variables('Hop')) }` has no value until
-the resource is reached. It is checked then, against every layer that contributed **anything** to
-the node, because the value may have come from any of them. Otherwise a team could steer a
-platform resource onto a Target the team may not use by setting a variable.
+**Targets written as expressions.** The runner does not expand an expression in `target.action`:
+`target: { action: $(variables('Hop')) }` stays that literal text, which is not the name of any
+Target. So a team cannot steer a platform resource onto another Target by setting a variable; the
+integration suite pins this. The policy still treats such a resource defensively: it is not judged
+before the run, and when it is reached the text is checked against every layer that contributed
+**anything** to the node, so it is refused unless all of them allow any Target.
 
 ### 4. It fails closed
 

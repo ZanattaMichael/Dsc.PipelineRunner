@@ -494,7 +494,9 @@ resources:
 '@
         $script:ViolatingPolicy = $script:RunPolicy
 
-        # The platform's resource takes its Target from a variable; the team sets that variable.
+        # The platform's resource writes its Target as an expression, and the team sets the
+        # variable it names. The runner does not expand an expression in target.action, so this
+        # cannot steer the resource anywhere; the suite pins that.
         $script:SteeredFile = New-CompiledNode -BaselineYaml @'
 variables:
   Hop: Local
@@ -561,14 +563,18 @@ resources:
         $Calls.Count | Should -BeGreaterThan 0
     }
 
-    It "Refuses, at the point of use, a Target a team steered a platform resource onto" {
+    It "Does not let a team steer a platform resource's Target through a variable" {
         $result = Start-DscRunner -FilePath $SteeredFile -EngineAction (New-RecordingEngine -Calls $Calls) -Policy $SteeredPolicy -RunnerSettings @{ AllowExecutionScripts = $true } -ErrorAction SilentlyContinue
-        # The file starts (the expression has no value before the run) ...
+        # The file starts: an expression is not a Target name the pre-run check can judge ...
         $result.Status | Should -Not -Be 'AbortedByException'
-        # ... the steered resource fails without its Target being contacted ...
+        # ... and when the resource is reached the Target is still the unexpanded text, never the
+        # 'SSH' the team's variable holds. It is refused, checked against every layer that
+        # contributed to the node, without any Target being contacted ...
         $steered = $result.FailedResources | Where-Object InstanceName -EQ 'Platform thing'
         $steered | Should -Not -BeNullOrEmpty
-        $steered.ErrorMessage | Should -Match "uses the Target 'SSH', which is not allowed for layer\(s\) Teams"
+        $steered.ErrorMessage | Should -Match 'Capability policy: resource \[Stub/Thing/Platform thing\] uses the Target'
+        $steered.ErrorMessage | Should -Match 'which is not allowed for layer\(s\) Teams'
+        $steered.ErrorMessage | Should -Not -Match "uses the Target 'SSH'"
         Should -Invoke Invoke-Action -Times 0 -ParameterFilter { $Hook -eq 'Target' }
         @($Calls | Where-Object { $_.Property.Setting -eq 'platform' }).Count | Should -Be 0
         # ... and the rest of the file still runs.
