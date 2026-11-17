@@ -23,6 +23,7 @@ wrong configuration.
 #>
 function Resolve-PipelineParameter {
     [CmdletBinding()]
+    [OutputType([System.Object[]], [System.Object])]
     param (
         [Parameter(Mandatory = $true)]
         [AllowEmptyString()]
@@ -43,5 +44,14 @@ function Resolve-PipelineParameter {
         throw "[Resolve-PipelineParameter] Parameter '$Name' not found in the parameters hashtable."
     }
 
-    return $parameterTable[$Name]
+    $value = $parameterTable[$Name]
+
+    # A list-valued parameter is returned as an object[] behind a unary comma. A plain
+    # `return` unrolls it, which turned a one-entry list parameter into a scalar and an empty
+    # one into $null.
+    if (($value -is [System.Collections.IList]) -and ($value -isnot [System.Collections.IDictionary])) {
+        return , @($value)
+    }
+
+    return $value
 }

@@ -23,6 +23,8 @@ This function is useful when you need to expand strings in an array, such as whe
 function Expand-StringInArray {
     param (
         [Parameter(Mandatory=$true)]
+        # An empty list is a valid value (`tags: []`) and must come back as an empty list.
+        [AllowEmptyCollection()]
         [array]$InputArray
     )
 
@@ -40,14 +42,20 @@ function Expand-StringInArray {
         elseif ($item -is [hashtable]) {
             $expandedArray.Add((Expand-HashTable -InputHashTable $item))
         } 
-        elseif ($item -is [array]) {
-            # `+=` flattened a nested array one level; AddRange keeps that behaviour.
-            $expandedArray.AddRange($item)
+        elseif (($item -is [System.Collections.IList]) -and ($item -isnot [System.Collections.IDictionary])) {
+            # `+=` flattened a nested array one level; AddRange keeps that behaviour. A YAML
+            # configuration nests a List[object] rather than an object[], so both are matched
+            # and a nested list behaves the same whichever format the configuration is in.
+            $expandedArray.AddRange(@($item))
         }
         else {
             $expandedArray.Add($item)
         }
     }
 
-    return $expandedArray
+    # The unary comma stops PowerShell unrolling the result on its way out: a plain
+    # `return $expandedArray` handed the caller a scalar for a one-entry list and $null for
+    # an empty one, so a resource property declared as a list reached the engine as a single
+    # value. The result is always an object[], whatever its length.
+    return , $expandedArray.ToArray()
 }
