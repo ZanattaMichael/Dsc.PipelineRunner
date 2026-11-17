@@ -12,9 +12,11 @@ contributor to a resource when its own result contains a resource of that name.
 The stamp is therefore written by the runner from the layer files' paths. Nothing a contributor
 writes inside a file can change it.
 
-Composite members (resources that only exist after composite expansion) are attributed
-conservatively in this preview: to every layer that instantiated a composite in this node and to
-every layer that owns a composite definition. That can only narrow what they may do.
+Composite members (resources that only exist after composite expansion) are named
+'<instance>::<member>'. A member is attributed to the layers that declared its instance and, in
+this preview, to every layer that owns a composite definition (the expansion does not yet record
+which definition a member came from). That can only narrow what a member may do. A member whose
+instance cannot be identified falls back to every layer that instantiated a composite in the node.
 
 .PARAMETER Datum
 The Datum structure.
@@ -101,7 +103,9 @@ function Get-ResourceProvenance {
     }
 
     # Composites: who instantiated one in this node, and who owns the definitions.
-    $compositeLayers = [System.Collections.Generic.List[string]]::new()
+    $compositeLayers = [System.Collections.Generic.List[string]]::new()     # instance layers + definition layers
+    $definitionLayers = [System.Collections.Generic.List[string]]::new()
+    $instanceLayers = @{}                                                    # instance name -> its layers
     $mergedNames = @{}
     foreach ($resource in @($MergedResource)) {
         $name = & $nameOf $resource
@@ -109,7 +113,8 @@ function Get-ResourceProvenance {
         $type = & $typeOf $resource
         $mergedNames[$name] = $type
         if ($type -match '^Composite/') {
-            foreach ($layer in @($byResource[$name])) { if ($layer -and $layer -notin $compositeLayers) { $compositeLayers.Add($layer) } }
+            $instanceLayers[$name] = @($byResource[$name] | Where-Object { $_ })
+            foreach ($layer in $instanceLayers[$name]) { if ($layer -notin $compositeLayers) { $compositeLayers.Add($layer) } }
         }
     }
     if ($compositeLayers.Count -gt 0) {
@@ -119,6 +124,7 @@ function Get-ResourceProvenance {
         $definitionNames = if ($store -is [System.Collections.IDictionary]) { @($store.Keys) } elseif ($null -ne $store) { @($store.PSObject.Properties.Name) } else { @() }
         foreach ($definitionName in $definitionNames) {
             $layer = Get-PolicyLayer -Policy $Policy -RelativePath "Composites/$definitionName"
+            if ($layer -notin $definitionLayers) { $definitionLayers.Add($layer) }
             if ($layer -notin $compositeLayers) { $compositeLayers.Add($layer) }
         }
     }
@@ -133,7 +139,14 @@ function Get-ResourceProvenance {
             @($byResource[$name])
         }
         elseif ($compositeLayers.Count -gt 0) {
-            @($compositeLayers)       # a composite member
+            # A composite member, named '<instance>::<member>' (nested: '<outer>::<inner>::<member>').
+            $instanceName = if ($name -match '^(.+?)::') { $Matches[1] } else { $null }
+            if ($null -ne $instanceName -and $instanceLayers.ContainsKey($instanceName) -and $instanceLayers[$instanceName].Count -gt 0) {
+                @(@($instanceLayers[$instanceName]) + @($definitionLayers) | Select-Object -Unique)
+            }
+            else {
+                @($compositeLayers)
+            }
         }
         else {
             @('(unclaimed)')          # cannot be attributed: no capabilities

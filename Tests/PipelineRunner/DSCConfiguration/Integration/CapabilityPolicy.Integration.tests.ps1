@@ -97,8 +97,10 @@ resources:
       Setting: platform
 '@
 
-        # The team's node file. It changes 'Shared', adds a resource and instantiates a platform
-        # composite. It also tries to claim a higher layer by writing stamps of its own.
+        # The team's node file. It redeclares the platform's 'Shared' (Datum's merge by name lets
+        # the more specific layer's item replace the other), keeping the privileged Target and
+        # changing a property; adds a resource; and instantiates a platform composite. It also
+        # tries to claim a higher layer by writing stamps of its own.
         $appYaml = @'
 layer: Platform
 provenance:
@@ -110,6 +112,9 @@ resources:
     type: Stub/Thing
     layer: Platform
     provenance: [ Platform ]
+    target:
+      action: SSH
+      computerName: bastion.example.test
     properties:
       Setting: changed by the team
   - name: Team only
@@ -202,10 +207,9 @@ Layers:
         }
 
         It "Attributes a composite member to the layer that instantiated it and the layer that defined it" {
-            $Compiled.resources.name | Should -Contain 'Member' -Because 'the composite must have been expanded'
-            $memberKey = $Record.Resources.Keys | Where-Object { $_ -like 'Stub/Thing/*Member*' } | Select-Object -First 1
-            $memberKey | Should -Not -BeNullOrEmpty
-            @($Record.Resources[$memberKey]) | Sort-Object | Should -Be @('Platform', 'Teams')
+            # A member is named '<instance>::<member>'.
+            $Compiled.resources.name | Should -Contain 'Block::Member' -Because 'the composite must have been expanded'
+            @($Record.Resources['Stub/Thing/Block::Member']) | Sort-Object | Should -Be @('Platform', 'Teams')
         }
 
         It "Has an entry for every resource that will run, and nothing else" {
@@ -235,13 +239,15 @@ Layers:
             $Violations | Should -Not -Match '\[Stub/Thing/Platform only\]'
         }
 
-        It "Refuses that Target on the resource the team changed: least privilege" {
+        It "Refuses that Target on the platform resource the team redeclared: least privilege" {
+            # What will run is the team's version of 'Shared'. It cannot keep the platform's Target.
+            ($Compiled.resources | Where-Object name -EQ 'Shared').properties.Setting | Should -Be 'changed by the team'
             $Violations | Should -Match "\[Stub/Thing/Shared\] uses the Target 'SSH', which is not allowed for layer\(s\) Teams"
         }
 
         It "Lets the team's resources and the composite member use the default Target" {
             $Violations | Should -Not -Match '\[Stub/Thing/Team only\]'
-            $Violations | Should -Not -Match 'Member'
+            $Violations | Should -Not -Match 'Block::Member'
         }
 
         It "Refuses an engine the team may not use, because the team has resources in the file" {

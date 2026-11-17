@@ -127,7 +127,12 @@ never read.
 ### 2. Least privilege
 
 Something several layers contributed to is allowed only if **every one of them** is allowed it.
-So a resource the platform declares and a team overrides runs with the team's permissions.
+So a resource the platform declares and a team redeclares runs with the team's permissions.
+
+With the usual merge rule for `resources` (`UniqueKeyValTuples` on `name`), the more specific
+layer's item **replaces** the other one whole; it is not merged key by key. A team that wants to
+change one property of a platform resource therefore has to restate the resource, and what runs is
+the team's version, held to the team's permissions. It cannot keep the platform's `target`.
 
 One engine runs a whole file, so the engine must be allowed for every layer that has a resource in
 that file.
@@ -163,12 +168,12 @@ the definition's permissions, while the parameters the instantiating team passes
 against that team's permissions. That lets a platform team hand out building blocks that do more
 than the instantiating team could do directly.
 
-**The preview does not implement that yet.** It attributes every composite member to every layer
-that instantiated a composite in the node *and* every layer that owns a composite definition. That
-can only narrow what a member may do, so it is safe, but a platform composite instantiated by a
-team currently gets the team's permissions. Implementing the two identities needs the expansion
-step to record, per member, which definition and which instance it came from, and which values
-were substituted from parameters.
+**The preview does not implement that yet.** A composite member (named `<instance>::<member>` in
+the compiled file) is attributed to the layers that declared its instance *and* to every layer
+that owns a composite definition. That can only narrow what a member may do, so it is safe, but a
+platform composite instantiated by a team currently gets the team's permissions. Implementing the
+two identities needs the expansion step to record, per member, which definition it came from and
+which values were substituted from the instance's parameters.
 
 ## What it does not protect against
 
