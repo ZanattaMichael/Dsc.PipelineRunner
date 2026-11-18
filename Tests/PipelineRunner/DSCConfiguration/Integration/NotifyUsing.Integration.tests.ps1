@@ -222,4 +222,118 @@ Describe "notify/using() gated reads through a real runner pass" -Tag Integratio
         # The declared target is unaffected.
         @($result.Results | Where-Object { $_.InstanceName -eq 'Other' }).Status | Should -Be 'OK'
     }
+
+    Context "An engine that reports the state with Test or Set (as dsc.exe does)" {
+
+        BeforeAll {
+            # Answers Test with the state as well (CurrentState), the way the DscV3 engine does,
+            # and records every call so a test can see that Get was not asked again.
+            function New-StatefulEngine {
+                param(
+                    [System.Collections.Generic.List[object]]$Calls,
+                    [hashtable]$States = @{},
+                    [bool]$InDesiredState = $true
+                )
+
+                return {
+                    param($Context)
+                    $Calls.Add([pscustomobject]@{ Method = $Context.Method; Name = $Context.Name })
+                    $result = @{ InDesiredState = $InDesiredState; Message = "stub-$($Context.Method)" }
+                    if ($Context.Method -in 'Test', 'Set' -and $States.ContainsKey($Context.Name)) {
+                        $result.CurrentState = $States[$Context.Name]
+                    }
+                    if ($Context.Method -eq 'Get' -and $States.ContainsKey($Context.Name)) {
+                        $result.Raw = $States[$Context.Name]
+                    }
+                    return $result
+                }.GetNewClosure()
+            }
+        }
+
+        It "stores the state Test reported for using() and does not call Get" {
+            $json = @'
+{
+  "parameters": {},
+  "variables": {},
+  "resources": [
+    { "type": "Module/Consumer", "name": "Consumer", "properties": { "projectId": "$((using 'Module/Source/Source').Id)" } },
+    { "type": "Module/Source", "name": "Source", "properties": {}, "notify": [ "Module/Consumer/Consumer" ] }
+  ]
+}
+'@
+            $config = New-ConfigFile -Name 'using-current-state.json' -Json $json
+            $calls  = [System.Collections.Generic.List[object]]::new()
+            $engine = New-StatefulEngine -Calls $calls -States @{
+                Source   = [pscustomobject]@{ Id = 'proj-0815' }
+                Consumer = [pscustomobject]@{ Id = 'unused' }
+            }
+
+            $result = Start-DscRunner -FilePath $config -EngineAction $engine
+
+            $result.FailCount | Should -Be 0
+            @($calls | Where-Object { $_.Method -eq 'Get' }).Count | Should -Be 0
+            @($calls | Where-Object { $_.Method -eq 'Test' }).Count | Should -Be 2
+        }
+
+        It "still calls Get for a resource the engine reported no state for" {
+            $json = @'
+{
+  "parameters": {},
+  "variables": {},
+  "resources": [
+    { "type": "Module/Source", "name": "Source", "properties": {} }
+  ]
+}
+'@
+            $config = New-ConfigFile -Name 'no-current-state.json' -Json $json
+            $calls  = [System.Collections.Generic.List[object]]::new()
+            $engine = New-StatefulEngine -Calls $calls
+
+            $null = Start-DscRunner -FilePath $config -EngineAction $engine
+
+            @($calls | Where-Object { $_.Method -eq 'Get' }).Count | Should -Be 1
+        }
+
+        It "still calls Get when a postExecutionScript ran after the engine reported" {
+            $json = @'
+{
+  "parameters": {},
+  "variables": {},
+  "resources": [
+    { "type": "Module/Source", "name": "Source", "properties": {}, "postExecutionScript": "$null = 1" }
+  ]
+}
+'@
+            $config = New-ConfigFile -Name 'post-script-current-state.json' -Json $json
+            $calls  = [System.Collections.Generic.List[object]]::new()
+            $engine = New-StatefulEngine -Calls $calls -States @{ Source = [pscustomobject]@{ Id = 'x' } }
+
+            $null = Start-DscRunner -FilePath $config -EngineAction $engine -RunnerSettings @{ AllowExecutionScripts = $true }
+
+            @($calls | Where-Object { $_.Method -eq 'Get' }).Count | Should -Be 1
+        }
+
+        It "says in each returned record whether the resource drifted and whether Set ran" {
+            $json = @'
+{
+  "parameters": {},
+  "variables": {},
+  "resources": [
+    { "type": "Module/Source", "name": "Source", "properties": {} }
+  ]
+}
+'@
+            $config = New-ConfigFile -Name 'drift-in-result.json' -Json $json
+            $calls  = [System.Collections.Generic.List[object]]::new()
+            $engine = New-StatefulEngine -Calls $calls -InDesiredState $false -States @{ Source = [pscustomobject]@{ Id = 'x' } }
+
+            $result = Start-DscRunner -FilePath $config -Mode Set -EngineAction $engine
+
+            $record = @($result.Results)[0]
+            $record.Status     | Should -Be 'OK'
+            $record.Drifted    | Should -BeTrue
+            $record.SetInvoked | Should -BeTrue
+            @($calls | ForEach-Object { $_.Method }) | Should -Be @('Test', 'Set')
+        }
+    }
 }

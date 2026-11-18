@@ -19,8 +19,8 @@ Behavior:
 A hashtable with keys: Method ('Test'|'Set'|'Get'), ModuleName, Name, Property.
 
 .OUTPUTS
-An object exposing InDesiredState, RebootRequired, Message and Raw (normalized by the
-runner into a [DscMethodResult]).
+An object exposing InDesiredState, RebootRequired, Message, Raw and CurrentState (normalized
+by the runner into a [DscMethodResult]).
 #>
 [CmdletBinding()]
 param(
@@ -204,7 +204,31 @@ if ($null -ne $Context.Session -and $null -ne $Context.Session.PSSession) {
     $remoteSession = $Context.Session.PSSession
     Write-Verbose "[Actions/Engine/DscV3] Using remote PSSession for [$resourceType]."
 }
-$run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson -Session $remoteSession
+# Discovery: point dsc at this resource's manifest alone, so a call does not also start the
+# PowerShell discover extension and read every directory on PATH (Resolve-DscV3ResourcePath
+# explains when it does and does not). Only for a local call: a remote target has its own
+# dsc and its own manifests. If dsc cannot find the resource or its executable that way, the
+# type goes back to full discovery for the rest of the run and the call is made again; a
+# dsc reports either before the resource runs, so this never runs a Set twice.
+$narrowed = $null
+if ($null -eq $remoteSession -and (Get-Command -Name Resolve-DscV3ResourcePath -ErrorAction SilentlyContinue)) {
+    $narrowed = Resolve-DscV3ResourcePath -ResourceType $resourceType
+}
+if ($null -ne $narrowed) {
+    $narrowedEnvironment = @{
+        DSC_RESOURCE_PATH = $narrowed.ResourcePath
+        PATH              = '{0}{1}{2}' -f $narrowed.ExecutableDirectory, [System.IO.Path]::PathSeparator, $env:PATH
+    }
+    $run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson -Environment $narrowedEnvironment
+    if ($run.ExitCode -ne 0 -and ([string]$run.ErrorOutput -match "Resource not found: |Executable '[^']*' not found with working directory")) {
+        Write-Verbose "[Actions/Engine/DscV3] dsc could not run [$resourceType] from its own manifest; using full discovery for it."
+        Clear-DscV3ResourcePath -ResourceType $resourceType
+        $run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson
+    }
+}
+else {
+    $run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson -Session $remoteSession
+}
 
 # dsc writes its result to standard output and its trace, warning and error lines to standard
 # error. On failure both are worth reporting (the reason is on standard error). On success only
@@ -270,9 +294,27 @@ if ($null -ne $parsed) {
     }
 }
 
+# The state after the method, in the shape 'dsc resource get' returns ({ actualState }), so
+# the runner can store it for reference() and using() without a separate 'get' call: test
+# reports actualState, set reports afterState. $null when the output does not carry it (a
+# group or adapter result, for example), and the runner then calls 'get' as before.
+$currentState = $null
+if ($null -ne $parsed) {
+    if ($Context.Method -eq 'Get') {
+        $currentState = $parsed
+    }
+    elseif ($Context.Method -eq 'Test' -and $null -ne $parsed.PSObject.Properties['actualState']) {
+        $currentState = [pscustomobject]@{ actualState = $parsed.actualState }
+    }
+    elseif ($Context.Method -eq 'Set' -and $null -ne $parsed.PSObject.Properties['afterState']) {
+        $currentState = [pscustomobject]@{ actualState = $parsed.afterState }
+    }
+}
+
 return [pscustomobject]@{
     InDesiredState = $inDesiredState
     RebootRequired = $rebootRequired
     Message        = $message
     Raw            = $parsed
+    CurrentState   = $currentState
 }

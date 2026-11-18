@@ -74,5 +74,6 @@ function ConvertTo-DscMethodResult {
         RebootRequired = [bool]$rebootValue
         Message        = [string]$messageValue
         Raw            = $rawValue
+        CurrentState   = (& $get $InputObject 'CurrentState')
     }
 }

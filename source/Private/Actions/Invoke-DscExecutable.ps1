@@ -29,6 +29,12 @@ instance JSON this way (with `--file -`) rather than as an `--input` argument, s
 credential inside that JSON never appears on the process command line, where any local user
 can read it from the process table.
 
+.PARAMETER Environment
+Optional environment variables for the local executable, as name = value. Each is set for the
+call only and put back afterwards (a variable that did not exist is removed again). The DscV3
+engine uses this to point dsc's resource discovery at one resource's manifest
+(DSC_RESOURCE_PATH, see Resolve-DscV3ResourcePath). Ignored for a remote -Session.
+
 .OUTPUTS
 [hashtable] @{ ExitCode = <int>; Output = <string>; ErrorOutput = <string> }
 
@@ -57,7 +63,9 @@ function Invoke-DscExecutable {
 
         [AllowNull()]
         [AllowEmptyString()]
-        [string]$StandardInput = $null
+        [string]$StandardInput = $null,
+
+        [hashtable]$Environment = $null
     )
 
     # A [string] parameter can never hold $null, so "no standard input" is tracked by whether
@@ -90,13 +98,29 @@ function Invoke-DscExecutable {
         }
     }
 
-    if ($null -ne $standardInputText) {
-        $output = $standardInputText | & $Executable @Arguments 2>&1
+    # A child process inherits this process's environment, so a variable for the call is set
+    # here and put back in the finally, whatever the call does.
+    $previousEnvironment = @{}
+    if ($null -ne $Environment) {
+        foreach ($name in $Environment.Keys) {
+            $previousEnvironment[$name] = [System.Environment]::GetEnvironmentVariable($name)
+            [System.Environment]::SetEnvironmentVariable($name, [string]$Environment[$name])
+        }
     }
-    else {
-        $output = & $Executable @Arguments 2>&1
+    try {
+        if ($null -ne $standardInputText) {
+            $output = $standardInputText | & $Executable @Arguments 2>&1
+        }
+        else {
+            $output = & $Executable @Arguments 2>&1
+        }
+        $exitCode = $LASTEXITCODE
     }
-    $exitCode = $LASTEXITCODE
+    finally {
+        foreach ($name in $previousEnvironment.Keys) {
+            [System.Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name])
+        }
+    }
 
     # Standard error arrives as ErrorRecord objects when it is redirected with 2>&1; everything
     # else is standard output. Keep them apart (see .OUTPUTS).

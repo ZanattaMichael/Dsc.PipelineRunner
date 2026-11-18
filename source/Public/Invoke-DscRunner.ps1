@@ -281,6 +281,12 @@ function Invoke-DscRunner {
 
     }
     finally {
+        # The DscV3 engine's per-type discovery answers and the manifest copies they made.
+        # (Tests that load the entry point on its own may not load this helper.)
+        if (Get-Command -Name Clear-DscV3ResourcePath -ErrorAction SilentlyContinue) {
+            Clear-DscV3ResourcePath
+        }
+
         if ($KeepTemporaryDirectory) {
             Write-Verbose "[Invoke-DscRunner] -KeepTemporaryDirectory was supplied; leaving any temporary directories in place."
         }
