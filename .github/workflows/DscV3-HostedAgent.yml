@@ -82,9 +82,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/Install-DscV3.ps1 -Verbose
 
-      - name: Report dsc version
+      - name: Report dsc version and the Windows resources
         shell: pwsh
-        run: dsc --version
+        run: |
+          dsc --version
+          dsc resource list 'Microsoft.Windows/*'
 
       - name: Run DSC v3 engine smoke test
         shell: pwsh
@@ -97,7 +99,7 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/Measure-DscV3Calls.ps1 -Property @{ family = 'Windows' }
-          ./scripts/Measure-DscV3Calls.ps1 -ResourceType 'Microsoft.Windows/Registry' -Property @{ keyPath = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; valueName = 'ProductName' }
+          ./scripts/Measure-DscV3Calls.ps1 -Verbose -ResourceType 'Microsoft.Windows/Registry' -Property @{ keyPath = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; valueName = 'ProductName' }
 
   # Validate the hosted-agent container image builds and its dsc bootstrap works.
   dsc-agent-image:
