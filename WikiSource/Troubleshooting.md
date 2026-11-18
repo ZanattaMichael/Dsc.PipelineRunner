@@ -156,6 +156,28 @@ two: `A dependsOn B` plus `B notify A`.
 
 ---
 
+## A DSC v3 run is slow, or uses the wrong provider
+
+### Every resource takes seconds, and the work itself is instant
+
+Each `dsc` call runs resource discovery, which on Windows starts a second PowerShell. The runner
+narrows that away for most resources and reuses the list between runs; if your version predates
+that, upgrade. See [DSC v3 performance](DSC-v3-Performance).
+
+### A resource behaves as though a different provider ran it
+
+Run again with `PIPELINERUNNER_DSC_FULL_DISCOVERY=1`, which makes every call discover the way
+dsc does on its own. If the outcome changes, the narrowing picked the wrong manifest for that
+type: please open an issue naming the type. If it does not change, the narrowing is not involved.
+
+### A resource installed during the run is not found
+
+The saved resource list is keyed on the timestamps of the directories on `PATH` and
+`PSModulePath`, which catches almost every install, but a module version added beside an
+existing one may not change any of them. Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE=0` for pipelines
+that install the resources they then use, or
+`PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS=0` to list every run while keeping the narrowing.
+
 ## A resource fails
 
 ### `[parameters] Parameter 'X' not found in the parameters hashtable`

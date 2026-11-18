@@ -94,6 +94,13 @@ a verified channel still runs as fully-trusted code.
 - **Pin the revision** — pass `-ConfigurationRevision`, ideally a full commit SHA, so a push
   to the tracked branch cannot change what a run applies between review and execution.
 - **Least privilege** on the agent identity and on any managed-node credentials.
+- **The saved DSC v3 resource list** (`docs/dsc-v3.md`) names the manifests a later run will
+  copy, and a manifest decides which executable `dsc` runs. It is written under the account the
+  runner runs as, readable and writable only by that account, and a directory other users can
+  write to is refused — so it is worth exactly as much trust as that account's own `PATH`. On a
+  self-hosted agent where pipelines of differing trust run as one account, set
+  `PIPELINERUNNER_DSC_DISCOVERY_CACHE=0`, as that account can already decide what a later run
+  executes by other means.
 
 When the configuration source is a remote URL, `Build-DatumConfiguration` emits a
 `Write-Warning` at the start of compilation restating this requirement, so it is visible in

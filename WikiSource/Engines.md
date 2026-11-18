@@ -94,6 +94,9 @@ as; see [The identity the runner runs as](Remote-Targets-and-Credentials#the-ide
 Drives Microsoft's cross-platform DSC v3 CLI. This is what makes hosted Linux and macOS agents
 useful, since `Invoke-DscResource` is Windows-first.
 
+How many of those processes a run starts, and what the runner does to start fewer of them, is
+[DSC v3 performance](DSC-v3-Performance).
+
 Each method becomes one process invocation:
 
 ```

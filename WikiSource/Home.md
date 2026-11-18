@@ -22,6 +22,7 @@ relationships and early termination possible.
 | Understand exactly what happens per resource, in order | [Execution lifecycle](Execution-Lifecycle) |
 | Add or override a validation rule | [Pipeline rules](Pipeline-Rules) |
 | Choose between DSC v2 and DSC v3 | [Engines](Engines) |
+| Make a DSC v3 run faster, or understand the processes it starts | [DSC v3 performance](DSC-v3-Performance) |
 | Apply configuration to a remote machine | [Remote targets and credentials](Remote-Targets-and-Credentials) |
 | Work out which account the pipeline must run as | [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as) |
 | Limit what each team's part of a configuration may use | [Capability policy (preview)](Capability-Policy) |
