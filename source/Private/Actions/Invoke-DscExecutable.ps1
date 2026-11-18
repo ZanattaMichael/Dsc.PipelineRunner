@@ -118,7 +118,15 @@ function Invoke-DscExecutable {
     }
     finally {
         foreach ($name in $previousEnvironment.Keys) {
-            [System.Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name])
+            # PowerShell passes $null to a [string] .NET parameter as '', which leaves the
+            # variable set to an empty value instead of removing it - and an empty
+            # DSC_RESOURCE_PATH makes every later dsc call find no resources at all.
+            if ($null -eq $previousEnvironment[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+            else {
+                [System.Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name])
+            }
         }
     }
 
