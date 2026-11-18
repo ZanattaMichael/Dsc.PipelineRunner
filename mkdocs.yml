@@ -1,9 +1,13 @@
 # The documentation site (GitHub Pages): https://zanattamichael.github.io/Dsc.PipelineRunner/
 #
 # The source folder is assembled from README.md, docs/, WikiSource/, the generated command
-# reference, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md and assets/ by tools/build-site.js; the
-# Pages workflow builds and publishes it, and the documentation-site gate builds it in strict
-# mode on every pull request, so a broken link fails the build. See docs/documentation-site.md.
+# reference, the example folders, every other README.md, CONTRIBUTING.md, SECURITY.md,
+# CHANGELOG.md and assets/ by tools/build-site.js, which also writes the navigation
+# (site-src/.nav.yml, inherited below) and the Resources page from what it finds, so a new document
+# gets onto the site by adding the file. The Pages workflow builds and publishes the site, and the
+# documentation-site gate builds it in strict mode on every pull request, so a broken link fails the
+# build. See docs/documentation-site.md.
+INHERIT: site-src/.nav.yml
 site_name: Dsc.PipelineRunner
 site_description: Desired State Configuration in any CI/CD pipeline.
 site_url: https://zanattamichael.github.io/Dsc.PipelineRunner/
@@ -25,10 +29,6 @@ validation:
     anchors: warn
     absolute_links: warn
     unrecognized_links: warn
-
-# The generated command pages are reached from the command reference, not from the navigation.
-not_in_nav: |
-  wiki/Command-*.md
 
 theme:
   name: material
@@ -66,6 +66,10 @@ theme:
 extra_css:
   - assets/site.css
 
+# Reveals sections as they scroll into view; does nothing for readers who ask for reduced motion.
+extra_javascript:
+  - assets/site.js
+
 extra:
   social:
     - icon: fontawesome/brands/github
@@ -85,44 +89,3 @@ markdown_extensions:
   - admonition
   - pymdownx.highlight
   - pymdownx.superfences
-
-nav:
-  - Home: index.md
-  - Getting started:
-      - Getting started: wiki/Getting-Started.md
-      - Configuration repository layout: wiki/Configuration-Repository-Layout.md
-      - Hosted Linux agent with DSC v3: guides/hosted-agent-dsc-v3.md
-      - Azure DevOps self-hosted agent: guides/azure-devops-self-hosted-agent.md
-  - Guides:
-      - Resource features: guides/resource-features.md
-      - notify and using(): guides/notify-and-using.md
-      - DSC v3 support: guides/dsc-v3.md
-      - Capability policy (preview): guides/capability-policy.md
-      - Trust model and security boundary: guides/trust-model.md
-      - Responding to a vulnerability report: guides/security-response-process.md
-      - Design notes and plans:
-          - Composite resources: guides/composite-resources.md
-          - DSC v3 configuration functions: guides/dsc-v3-config-functions.md
-          - Lifecycle scripting and reboot handling: guides/lifecycle-scripting-and-reboot-handling.md
-          - Remote-target execution and credentials: guides/remote-target-credential-handling.md
-          - Azure DevOps decoupling and DSC v3: guides/DECOUPLING_PLAN.md
-  - Reference (wiki):
-      - Overview: wiki/index.md
-      - PipelineRunnerSettings: wiki/PipelineRunnerSettings.md
-      - Resource properties: wiki/Resource-Properties.md
-      - Composite resources: wiki/Composite-Resources.md
-      - Function language: wiki/Function-Language.md
-      - Execution lifecycle: wiki/Execution-Lifecycle.md
-      - Pipeline rules: wiki/Pipeline-Rules.md
-      - Engines: wiki/Engines.md
-      - Remote targets and credentials: wiki/Remote-Targets-and-Credentials.md
-      - Capability policy (preview): wiki/Capability-Policy.md
-      - Reporting and exit codes: wiki/Reporting-and-Exit-Codes.md
-      - Troubleshooting: wiki/Troubleshooting.md
-      - Command reference: wiki/Command-Reference.md
-  - Project:
-      - Contributing: contributing.md
-      - Contributing to the wiki: wiki/Contributing.md
-      - Security policy: security.md
-      - Changelog: changelog.md
-      - Documentation site: guides/documentation-site.md

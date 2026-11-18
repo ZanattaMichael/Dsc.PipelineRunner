@@ -1,11 +1,16 @@
-/* The documentation site's colours: the blue of the logo tile (#0e66b5 to #249ee2) and its mint
-   check mark (#9ff3d0). mkdocs.yml selects these through primary: custom / accent: custom. */
+/* The documentation site's stylesheet (mkdocs.yml, extra_css). Colours: the blue of the logo
+   tile (#0e66b5 to #249ee2) and its mint check mark (#9ff3d0). mkdocs.yml selects them through
+   primary: custom / accent: custom. The motion rules at the end only apply to readers who have
+   not asked for reduced motion: everyone else gets the finished state with no animation. */
 :root {
   --md-primary-fg-color: #0e66b5;
   --md-primary-fg-color--light: #249ee2;
   --md-primary-fg-color--dark: #0a4f8c;
   --md-accent-fg-color: #0b8f6b;
   --md-accent-fg-color--transparent: rgba(11, 143, 107, 0.1);
+  --site-title-color: #0f172a;
+  --site-title-accent: #0b5cad;
+  --site-tagline-color: #475569;
 }
 
 [data-md-color-scheme="slate"] {
@@ -15,28 +20,63 @@
   --md-accent-fg-color: #9ff3d0;
   --md-accent-fg-color--transparent: rgba(159, 243, 208, 0.12);
   --md-typeset-a-color: #5cc2f2;
+  --site-title-color: #f8fafc;
+  --site-title-accent: #5cc2f2;
+  --site-tagline-color: #94a3b8;
 }
 
-/* The README header: one image for each colour scheme (tools/build-site.js writes both; the
-   README itself uses a <picture> that follows the operating system, which the site's own toggle
-   would contradict). */
-.md-typeset h1.site-header {
-  margin: 0 0 1.5em;
-  line-height: 0;
+/* The home page hero (tools/build-site.js writes it in place of the README's <picture> header):
+   the logo motif as inline SVG and the wordmark in the header artwork's colours for each scheme. */
+.md-typeset .site-hero {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin: 0 0 1.5rem;
 }
 
-.md-typeset .site-header img {
+.md-typeset .site-hero__logo {
+  flex: none;
+  height: 7.5rem;
+  width: 7.5rem;
+}
+
+.md-typeset .site-hero__text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.md-typeset h1.site-hero__title {
+  color: var(--site-title-color);
+  font-size: 2.6em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.md-typeset .site-hero__title span {
+  color: var(--site-title-accent);
+}
+
+.md-typeset .site-hero__tagline {
+  color: var(--site-tagline-color);
+  font-size: 1.15em;
+  margin: 0.3em 0 0;
+}
+
+/* The finished drawing: what every reader sees, animated or not. */
+.site-hero__layer,
+.site-hero__merge,
+.site-hero__check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+/* An animation with a still for reduced motion (a <picture> tools/build-site.js writes). */
+.md-typeset .site-animation img {
   display: block;
-  height: auto;
-  max-height: 120px;
-  max-width: 100%;
-  width: auto;
-}
-
-/* More specific than the image rule above, which would otherwise keep both visible. */
-[data-md-color-scheme="default"] .md-typeset .only-dark,
-[data-md-color-scheme="slate"] .md-typeset .only-light {
-  display: none;
+  margin: 0 auto;
 }
 
 /* Badges on the home page sit on one line each, as on GitHub. */
@@ -45,13 +85,110 @@
   vertical-align: middle;
 }
 
-/* The how-it-works animation and other illustrations never overflow a phone. */
+/* Illustrations never overflow a phone. */
 .md-typeset img {
-  max-width: 100%;
   height: auto;
+  max-width: 100%;
 }
 
 /* Settings and property tables are wide: let them use the room. */
 .md-typeset table:not([class]) {
   font-size: 0.72rem;
+}
+
+/* Motion. Nothing below runs for a reader whose system asks for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  /* The hero draws itself once: the tile appears, the three layers draw in and merge into one
+     line, and the check mark completes it. Each path is normalised to a length of 1 (pathLength),
+     so the dash offset runs from 1 (nothing drawn) to 0 (drawn). */
+  .site-hero__tile {
+    animation: site-hero-tile 0.5s ease-out both;
+    transform-origin: 128px 128px;
+  }
+
+  .site-hero__layer {
+    animation: site-hero-draw 0.7s ease-out both;
+    stroke-dashoffset: 1;
+  }
+
+  .site-hero__layer:nth-child(1) { animation-delay: 0.3s; }
+  .site-hero__layer:nth-child(2) { animation-delay: 0.45s; }
+  .site-hero__layer:nth-child(3) { animation-delay: 0.6s; }
+
+  .site-hero__merge {
+    animation: site-hero-draw 0.3s ease-out 1.15s both;
+    stroke-dashoffset: 1;
+  }
+
+  .site-hero__dots circle {
+    animation: site-hero-fade 0.3s ease-out both;
+    opacity: 0;
+  }
+
+  .site-hero__dots circle:nth-child(1) { animation-delay: 0.25s; }
+  .site-hero__dots circle:nth-child(2) { animation-delay: 0.4s; }
+  .site-hero__dots circle:nth-child(3) { animation-delay: 0.55s; }
+
+  .site-hero__check {
+    animation: site-hero-draw 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) 1.45s both;
+    stroke-dashoffset: 1;
+  }
+
+  .site-hero__text {
+    animation: site-hero-rise 0.6s ease-out 0.4s both;
+  }
+
+  /* Sections reveal as they scroll into view (assets/site.js adds the classes, so without
+     JavaScript nothing is ever hidden). */
+  .site-reveal .md-typeset .reveal {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+  }
+
+  .site-reveal .md-typeset .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* The palette toggle fades between light and dark instead of snapping. */
+  body,
+  .md-main,
+  .md-content,
+  .md-sidebar,
+  .md-nav,
+  .md-footer,
+  .md-footer-meta,
+  .md-typeset pre,
+  .md-typeset code,
+  .md-typeset table:not([class]),
+  .md-typeset blockquote,
+  .md-typeset .admonition {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
+}
+
+@media print {
+  .md-typeset .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@keyframes site-hero-tile {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes site-hero-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes site-hero-fade {
+  to { opacity: 1; }
+}
+
+@keyframes site-hero-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }

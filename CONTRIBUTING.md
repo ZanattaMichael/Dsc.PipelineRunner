@@ -79,14 +79,16 @@ well — otherwise the hosted gate stays green and the self-hosted jobs fail wit
 
 ## Documentation site
 
-The README, `docs/` and `WikiSource/` are published as one site,
-<https://zanattamichael.github.io/Dsc.PipelineRunner/>, by `.github/workflows/Pages.yml` on every
-push to `main` that touches them. `tools/build-site.js` assembles the site source and rewrites the
-links, and `mkdocs build --strict` renders it with Material for MkDocs (`mkdocs.yml`), so a broken
-link fails the build. [docs/documentation-site.md](docs/documentation-site.md) describes how it is
-built, how to build it locally, and the one-time repository setting it needs (**Settings > Pages >
-Source: GitHub Actions**); the wiki is still published to the GitHub wiki by the Release workflow,
-unchanged.
+The README, `docs/`, `WikiSource/`, the example folders and the rest of the repository's
+documentation are published as one site, <https://zanattamichael.github.io/Dsc.PipelineRunner/>,
+by `.github/workflows/Pages.yml` on every push to `main` that touches them. A new document gets
+onto the site by adding the file: `tools/build-site.js` discovers it, writes the navigation and the
+Resources page, and rewrites the links; `mkdocs build --strict` renders the site with Material for
+MkDocs (`mkdocs.yml`), so a broken link fails the build, and `node --test tools/build-site.test.js`
+fails if a documentation file exists that the site does not carry.
+[docs/documentation-site.md](docs/documentation-site.md) describes how it is built, how to build it
+locally, and the one-time repository setting it needs (**Settings > Pages > Source: GitHub
+Actions**); the wiki is still published to the GitHub wiki by the Release workflow, unchanged.
 
 ## Releasing
 
