@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
+  made (`dsc resource list`, about three seconds on a hosted Windows agent) is saved under the
+  user's own cache directory, keyed on the `dsc` executable, `PATH`, `PSModulePath` and the
+  times of the directories they name. A run with the same key reads it instead, so a pipeline
+  that tests, sets and tests again pays for discovery once. A manifest that has changed since,
+  or a narrowed call dsc cannot find, makes the next run list again.
+  `PIPELINERUNNER_DSC_DISCOVERY_CACHE=0` turns it off. See
+  [DSC v3 support](docs/dsc-v3.md#the-resource-list-saved-between-runs).
 - **The saved DSC v3 resource list notices more, keeps less, and is trusted less.** Three
   follow-ups to #102: the fingerprint now covers each module directory inside a `PSModulePath`
   directory, so installing a second version of a module already there (which moves
@@ -21,14 +29,6 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
-  made (`dsc resource list`, about three seconds on a hosted Windows agent) is saved under the
-  user's own cache directory, keyed on the `dsc` executable, `PATH`, `PSModulePath` and the
-  times of the directories they name. A run with the same key reads it instead, so a pipeline
-  that tests, sets and tests again pays for discovery once. A manifest that has changed since,
-  or a narrowed call dsc cannot find, makes the next run list again.
-  `PIPELINERUNNER_DSC_DISCOVERY_CACHE=0` turns it off. See
-  [DSC v3 support](docs/dsc-v3.md#the-resource-list-saved-between-runs).
 - **DSC v3 runs start far fewer processes.** Every `dsc resource` call used to run dsc's full
   resource discovery, which in dsc 3.3 starts a second PowerShell for the
   `Microsoft.PowerShell/Discover` extension, even for a native resource. On a hosted Windows
