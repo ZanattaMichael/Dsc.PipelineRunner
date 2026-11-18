@@ -301,7 +301,9 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         }
 
         It "Removes a saved list nothing will read again when it writes a new one" {
-            $stale = Join-Path $script:CacheDirectory 'bbbb.json'
+            # Named as a real fingerprint is, because pruning only touches this module's own
+            # files: the short names this context mocks are not ones it would delete.
+            $stale = Join-Path $script:CacheDirectory ('{0}.json' -f ('b' * 64))
             $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
             Set-Content -LiteralPath $stale -Value '{"resources":[]}'
             [System.IO.File]::SetLastWriteTimeUtc($stale, [datetime]::UtcNow.AddHours(-48))
