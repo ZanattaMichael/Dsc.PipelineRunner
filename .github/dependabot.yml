@@ -23,3 +23,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: "docker"
+
+  # Material for MkDocs, which builds the documentation site (tools/site-requirements.txt).
+  - package-ecosystem: pip
+    directory: /tools
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "docs"

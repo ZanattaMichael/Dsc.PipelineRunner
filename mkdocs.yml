@@ -1,0 +1,91 @@
+# The documentation site (GitHub Pages): https://zanattamichael.github.io/Dsc.PipelineRunner/
+#
+# The source folder is assembled from README.md, docs/, WikiSource/, the generated command
+# reference, the example folders, every other README.md, CONTRIBUTING.md, SECURITY.md,
+# CHANGELOG.md and assets/ by tools/build-site.js, which also writes the navigation
+# (site-src/.nav.yml, inherited below) and the Resources page from what it finds, so a new document
+# gets onto the site by adding the file. The Pages workflow builds and publishes the site, and the
+# documentation-site gate builds it in strict mode on every pull request, so a broken link fails the
+# build. See docs/documentation-site.md.
+INHERIT: site-src/.nav.yml
+site_name: Dsc.PipelineRunner
+site_description: Desired State Configuration in any CI/CD pipeline.
+site_url: https://zanattamichael.github.io/Dsc.PipelineRunner/
+repo_url: https://github.com/ZanattaMichael/Dsc.PipelineRunner
+repo_name: ZanattaMichael/Dsc.PipelineRunner
+edit_uri: ''
+docs_dir: site-src
+site_dir: site
+strict: true
+
+# A warning on any of these fails a strict build.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/logo-512.png
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  palette:
+    # The colours themselves are in assets/site.css: the blue of the logo tile and its mint check mark.
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+extra_css:
+  - assets/site.css
+
+# Reveals sections as they scroll into view; does nothing for readers who ask for reduced motion.
+extra_javascript:
+  - assets/site.js
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ZanattaMichael/Dsc.PipelineRunner
+      name: Dsc.PipelineRunner on GitHub
+    - icon: fontawesome/solid/cube
+      link: https://www.powershellgallery.com/packages/Dsc.PipelineRunner
+      name: Dsc.PipelineRunner on the PowerShell Gallery
+
+plugins:
+  - search
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
