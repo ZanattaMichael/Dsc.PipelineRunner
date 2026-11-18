@@ -172,11 +172,12 @@ type: please open an issue naming the type. If it does not change, the narrowing
 
 ### A resource installed during the run is not found
 
-The saved resource list is keyed on the timestamps of the directories on `PATH` and
-`PSModulePath`, which catches almost every install, but a module version added beside an
-existing one may not change any of them. Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE=0` for pipelines
-that install the resources they then use, or
-`PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS=0` to list every run while keeping the narrowing.
+The saved resource list is keyed on the `dsc` executable, `PATH`, `PSModulePath`, the times of
+the directories those name and the times of the module directories inside them, so an install
+makes the next run list again. If you hit a case it misses, set
+`PIPELINERUNNER_DSC_DISCOVERY_CACHE=0` for that pipeline, or
+`PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS=0` to list every run while keeping the narrowing —
+and please report it, because the keying is meant to cover every install.
 
 ## A resource fails
 

@@ -52,9 +52,11 @@ yourself also leaves discovery alone — that choice is yours.
 
 A pipeline usually runs the runner more than once — plan, apply, plan again — and each run paid
 for that one listing. The list is saved under your own account and a later run reads it, so only
-the first run of the day pays. It is keyed on the `dsc` executable, `PATH`, `PSModulePath` and the
-timestamps of the directories those name, so installing or removing a resource makes the next run
-list again, and it is checked against the manifest it is about to use before anything is copied.
+the first run of the day pays. It is keyed on the `dsc` executable, `PATH`, `PSModulePath`, the
+timestamps of the directories those name and of the module directories inside them, so installing
+or removing a resource — or a second version of one already there — makes the next run list
+again. Before anything is copied the list is checked against the manifest it names: that the file
+is unchanged, and that it is somewhere dsc searches.
 
 ## Switches
 
