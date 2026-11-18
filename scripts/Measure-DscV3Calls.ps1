@@ -7,7 +7,8 @@ Runs Actions/Engine/DscV3.ps1 - the real engine code, no mocks - the way the run
 script the module runs for each call. Each resource method is timed several times, first with
 PIPELINERUNNER_DSC_FULL_DISCOVERY=1 (every call runs dsc's full resource discovery, including
 the PowerShell discover extension), then with the narrowing on (the first call lists the
-resource once; the rest are told where its manifest is). The timings are printed as a table
+resources once and saves the list; the rest are told where its manifest is), then as a later
+run that reads the saved list, so its first call does not list either. The timings are printed as a table
 and, on GitHub Actions, written to the job summary.
 
 It also checks what the narrowing must not change: the same InDesiredState from both, and a
@@ -69,9 +70,17 @@ $median = {
 $rows = [System.Collections.Generic.List[object]]::new()
 $verdicts = @{}
 $saved = $env:PIPELINERUNNER_DSC_FULL_DISCOVERY
+$savedCache = $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE
 try {
-    foreach ($mode in 'full', 'narrowed') {
+    # full: every call discovers everything. narrowed: the first call of a run lists every
+    # resource once (nothing saved yet). saved: a later run, which reads the list the narrowed
+    # run saved, so even its first call skips the full discovery.
+    foreach ($mode in 'full', 'narrowed', 'saved') {
         $env:PIPELINERUNNER_DSC_FULL_DISCOVERY = if ($mode -eq 'full') { '1' } else { $null }
+        if ($mode -eq 'narrowed') {
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE = $null
+            Remove-DscV3PersistedListing
+        }
         Clear-DscV3ResourcePath
         foreach ($method in 'Test', 'Get') {
             $times = foreach ($i in 1..$Repeat) {
@@ -100,13 +109,14 @@ try {
 }
 finally {
     $env:PIPELINERUNNER_DSC_FULL_DISCOVERY = $saved
+    $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE = $savedCache
     Clear-DscV3ResourcePath
 }
 
 $rows | Format-Table -AutoSize | Out-Host
 
-if ($verdicts['full'] -ne $verdicts['narrowed']) {
-    throw "[Measure-DscV3Calls] Full discovery said InDesiredState=$($verdicts['full']) and narrowed discovery said $($verdicts['narrowed'])."
+if ($verdicts['full'] -ne $verdicts['narrowed'] -or $verdicts['full'] -ne $verdicts['saved']) {
+    throw "[Measure-DscV3Calls] Full discovery said InDesiredState=$($verdicts['full']), narrowed discovery $($verdicts['narrowed']) and the saved list $($verdicts['saved'])."
 }
 
 if ($env:GITHUB_STEP_SUMMARY) {

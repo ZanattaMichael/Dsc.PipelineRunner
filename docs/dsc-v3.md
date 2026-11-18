@@ -143,6 +143,45 @@ narrowed is already back on full discovery by the time its `set` runs.
 
 Set `PIPELINERUNNER_DSC_FULL_DISCOVERY=1` to turn the narrowing off.
 
+### The resource list saved between runs
+
+The one full discovery a run still makes costs about three seconds on a hosted Windows agent,
+and more on the agent's first dsc call. A pipeline that runs the runner several times (a `Test`,
+then a `Set`, then a `Test` to prove it converged) would pay it each time. So the list is saved
+and a later run reads it instead of running `dsc resource list`.
+
+- **Where:** `%LOCALAPPDATA%\Dsc.PipelineRunner\dsc-discovery` on Windows, and
+  `$XDG_CACHE_HOME/Dsc.PipelineRunner/dsc-discovery` (or `~/.cache/...`) on Linux and macOS,
+  created readable and writable only by you (mode 0700). An existing directory that other users
+  can write to is not used. Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH` to use another one.
+- **What it is keyed on:** the `dsc` executable (path, size and time), `PATH`, `PSModulePath`,
+  and the last-write time of every directory those two name. Installing, upgrading or removing a
+  resource or a module changes one of those times, so the saved list is not used after it.
+- **What is checked when it is used:** the size and time of the manifest it is about to copy. If
+  that file has gone or changed, the list is dropped and dsc lists again. If dsc then cannot find
+  the narrowed resource after all, the saved list is removed as well as the type going back to
+  full discovery.
+- **How long it lasts:** 24 hours. Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS` to change that
+  (`0` never uses a saved list).
+
+Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE=0` to stop saving the list. Each run then makes its own
+full discovery, once, as before. Deleting the directory is always safe.
+
+### Every switch, in one place
+
+| Variable | Default | Effect |
+|---|---|---|
+| `PIPELINERUNNER_DSC_FULL_DISCOVERY` | unset | `1` or `true`: every call runs dsc's full discovery. Turns the narrowing and the saved list off together. |
+| `PIPELINERUNNER_DSC_DISCOVERY_CACHE` | unset | `0` or `false`: keep the narrowing, but list once per run and save nothing. |
+| `PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH` | `%LOCALAPPDATA%\Dsc.PipelineRunner\dsc-discovery`, or `$XDG_CACHE_HOME`/`~/.cache/Dsc.PipelineRunner/dsc-discovery` | Where saved lists are kept. A directory other users can write to is refused. |
+| `PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS` | `24` | How long a saved list may be used. `0` never uses one. |
+| `DSC_RESOURCE_PATH` | unset | dsc's own variable. When you set it, the runner narrows nothing: where dsc looks is your choice. |
+
+A run that installs the resources it then uses, or an agent where pipelines of differing trust
+share one account, is the case for turning the saved list off; see
+[the trust model](trust-model.md#operational-controls). A throw-away container needs no switch:
+there is nothing to reuse, and the narrowing still applies.
+
 ## CI proof
 
 `scripts/Test-DscV3ConfigDocument.ps1` (run by the **DSC v3 engine on Ubuntu** job) builds a

@@ -27,7 +27,9 @@ PIPELINERUNNER_DSC_FULL_DISCOVERY to 1 or true to turn this off.
 
 The listing is cached per executable and PATH, and the answer per type, for the life of the
 process, so the full discovery runs once per run; Clear-DscV3ResourcePath removes the copies and
-the cache.
+the cache. The listing is also saved on disk for later runs (see Get-DscV3ResourceListing), so
+a run whose dsc, PATH and PSModulePath have not changed since the last one skips the full
+discovery altogether.
 
 .PARAMETER ResourceType
 The DSC v3 type, for example 'Microsoft.Windows/Registry'.
@@ -70,30 +72,31 @@ function Resolve-DscV3ResourcePath {
     try {
         # One unfiltered list per executable and PATH: `dsc resource list <type>` is itself a
         # full discovery, so listing per type would pay the cost being removed once per type.
+        # The list is also kept on disk between runs (Get-DscV3ResourceListing).
         $listingKey = '{0}|{1}' -f $Executable, $env:PATH
         if (-not $store.Listings.ContainsKey($listingKey)) {
-            $store.Listings[$listingKey] = $null
-            $listed = Invoke-DscExecutable -Executable $Executable -Arguments @('resource', 'list', '--output-format', 'json')
-            if ($listed.ExitCode -ne 0) {
-                Write-Verbose "[Resolve-DscV3ResourcePath] 'dsc resource list' exited $($listed.ExitCode); using full discovery."
-            }
-            else {
-                # One JSON object per line, one line per resource.
-                $index = @{}
-                foreach ($line in ([string]$listed.Output -split "`r?`n")) {
-                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
-                    $item = $line | ConvertFrom-Json
-                    $itemType = [string]$item.type
-                    if (-not $index.ContainsKey($itemType)) { $index[$itemType] = [System.Collections.Generic.List[object]]::new() }
-                    $index[$itemType].Add($item)
-                }
-                $store.Listings[$listingKey] = $index
-            }
+            $store.Listings[$listingKey] = Get-DscV3ResourceListing -Executable $Executable
         }
         $listing = $store.Listings[$listingKey]
 
+        # A list read from disk is checked against the manifest it names: if that file has
+        # gone or changed since, the list is stale, so it is dropped and dsc lists again.
+        if ($null -ne $listing -and $listing.FromDisk -and $listing.Index.ContainsKey($ResourceType)) {
+            $stale = @($listing.Index[$ResourceType] | Where-Object {
+                    $item = $_
+                    $file = [System.IO.FileInfo]::new([string]$item.path)
+                    -not $file.Exists -or [string]$file.LastWriteTimeUtc.Ticks -ne [string]$item.manifestTicks -or [string]$file.Length -ne [string]$item.manifestLength
+                })
+            if ($stale.Count -gt 0) {
+                Write-Verbose "[Resolve-DscV3ResourcePath] The saved resource list is out of date for '$ResourceType'; listing again."
+                Remove-DscV3PersistedListing -Executable $Executable
+                $listing = Get-DscV3ResourceListing -Executable $Executable -Refresh
+                $store.Listings[$listingKey] = $listing
+            }
+        }
+
         if ($null -ne $listing) {
-            $entries = @(if ($listing.ContainsKey($ResourceType)) { $listing[$ResourceType] })
+            $entries = @(if ($listing.Index.ContainsKey($ResourceType)) { $listing.Index[$ResourceType] })
 
             if ($entries.Count -ne 1) {
                 Write-Verbose "[Resolve-DscV3ResourcePath] dsc lists $($entries.Count) resources of type '$ResourceType'; using full discovery."
@@ -173,17 +176,12 @@ function New-DscV3StagingRoot {
     }
     $null = [System.IO.Directory]::CreateDirectory($root)
 
-    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Unix) {
-        if ([System.IO.File].GetMethods() | Where-Object { $_.Name -eq 'SetUnixFileMode' -and $_.GetParameters()[0].ParameterType -eq [string] }) {
-            [System.IO.File]::SetUnixFileMode($root, [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
-        }
-        else {
-            & chmod 700 $root
-            if ($LASTEXITCODE -ne 0) {
-                Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-                throw "Could not restrict the staging directory '$root' to its owner."
-            }
-        }
+    try {
+        Set-DscV3OwnerOnly -Path $root
+    }
+    catch {
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        throw
     }
     return $root
 }
@@ -243,6 +241,8 @@ function Clear-DscV3ResourcePath {
 
     if ($PSBoundParameters.ContainsKey('ResourceType')) {
         $store.FullDiscovery[$ResourceType] = $true
+        # The saved list led to a manifest dsc could not use, so the next run lists again.
+        Remove-DscV3PersistedListing
         return
     }
 
@@ -253,4 +253,262 @@ function Clear-DscV3ResourcePath {
         Remove-Item -LiteralPath $store.Root -Recurse -Force -ErrorAction SilentlyContinue
     }
     $store.Root = $null
+}
+
+<#
+.SYNOPSIS
+Restricts a directory to its owner (mode 0700) on Linux and macOS. Does nothing on Windows,
+where the per-user profile and temp directories are already private.
+#>
+function Set-DscV3OwnerOnly {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Unix) {
+        return
+    }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Restrict to its owner')) {
+        return
+    }
+    if ([System.IO.File].GetMethods() | Where-Object { $_.Name -eq 'SetUnixFileMode' -and $_.GetParameters()[0].ParameterType -eq [string] }) {
+        [System.IO.File]::SetUnixFileMode($Path, [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+    }
+    else {
+        & chmod 700 $Path
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not restrict '$Path' to its owner."
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+Where saved resource lists are kept, created owner-only; $null when there is no safe place.
+
+.DESCRIPTION
+A saved list decides which manifest is copied, and a manifest decides which executable dsc
+runs, so the directory is the user's own: under LOCALAPPDATA on Windows, and under
+XDG_CACHE_HOME or ~/.cache elsewhere, mode 0700. An existing directory that its group or
+other users can write to is not used. PIPELINERUNNER_DSC_DISCOVERY_CACHE set to 0 or false
+turns saving off, and PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH names another directory.
+#>
+function Get-DscV3DiscoveryCacheDirectory {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    if ([string]$env:PIPELINERUNNER_DSC_DISCOVERY_CACHE -in '0', 'false') {
+        return $null
+    }
+
+    $directory = [string]$env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH
+    if ([string]::IsNullOrEmpty($directory)) {
+        $isUnix = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Unix
+        $base = if (-not $isUnix) { $env:LOCALAPPDATA }
+        elseif (-not [string]::IsNullOrEmpty($env:XDG_CACHE_HOME)) { $env:XDG_CACHE_HOME }
+        elseif (-not [string]::IsNullOrEmpty($HOME)) { Join-Path -Path $HOME -ChildPath '.cache' }
+        if ([string]::IsNullOrEmpty($base)) {
+            return $null
+        }
+        $directory = Join-Path -Path (Join-Path -Path $base -ChildPath 'Dsc.PipelineRunner') -ChildPath 'dsc-discovery'
+    }
+
+    try {
+        if (-not [System.IO.Directory]::Exists($directory)) {
+            $null = [System.IO.Directory]::CreateDirectory($directory)
+            Set-DscV3OwnerOnly -Path $directory
+        }
+        elseif ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Unix -and
+            ([System.IO.File].GetMethods() | Where-Object { $_.Name -eq 'GetUnixFileMode' -and $_.GetParameters()[0].ParameterType -eq [string] })) {
+            $mode = [System.IO.File]::GetUnixFileMode($directory)
+            $shared = [System.IO.UnixFileMode]'GroupWrite, OtherWrite'
+            if (($mode -band $shared) -ne 0) {
+                Write-Verbose "[Get-DscV3DiscoveryCacheDirectory] '$directory' can be written by other users; not saving the resource list."
+                return $null
+            }
+        }
+    }
+    catch {
+        Write-Verbose "[Get-DscV3DiscoveryCacheDirectory] Could not prepare '$directory': $($_.Exception.Message); not saving the resource list."
+        return $null
+    }
+    return $directory
+}
+
+<#
+.SYNOPSIS
+A fingerprint of everything dsc's full discovery depends on, or $null when dsc is not found.
+
+.DESCRIPTION
+dsc finds manifests in the directories on PATH, and its PowerShell discover extension finds
+resources in the module directories on PSModulePath. The fingerprint covers the dsc
+executable (path, size and time), both variables, and the last-write time of every directory
+they name. Installing or removing a resource adds or removes a file or folder in one of those
+directories, which changes that directory's time, so the saved list is not used after it.
+#>
+function Get-DscV3DiscoveryFingerprint {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$Executable = 'dsc'
+    )
+
+    $command = Get-Command -Name $Executable -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+    if ($null -eq $command) {
+        return $null
+    }
+    $exe = [System.IO.FileInfo]::new($command.Source)
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add('Dsc.PipelineRunner discovery 1')
+    $parts.Add(('{0}|{1}|{2}' -f $exe.FullName, $exe.Length, $exe.LastWriteTimeUtc.Ticks))
+    foreach ($variable in 'PATH', 'PSModulePath') {
+        $value = [string][System.Environment]::GetEnvironmentVariable($variable)
+        $parts.Add("$variable=$value")
+        foreach ($directory in ($value -split [regex]::Escape([string][System.IO.Path]::PathSeparator))) {
+            if (-not [string]::IsNullOrWhiteSpace($directory) -and [System.IO.Directory]::Exists($directory)) {
+                $parts.Add(('{0}|{1}' -f $directory, [System.IO.Directory]::GetLastWriteTimeUtc($directory).Ticks))
+            }
+        }
+    }
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes(($parts -join "`n")))
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+}
+
+<#
+.SYNOPSIS
+dsc's full resource list, indexed by type: from disk when a run with the same fingerprint saved
+it, otherwise from one `dsc resource list`, which is then saved.
+
+.DESCRIPTION
+`dsc resource list` is a full discovery: on a hosted Windows agent about three seconds, most
+of it the PowerShell discover extension. Every Invoke-DscRunner pays it once, so a pipeline
+that runs the runner several times (a test, then a set, then a test) pays it each time. The
+list is saved to Get-DscV3DiscoveryCacheDirectory under the fingerprint of what discovery
+depends on (Get-DscV3DiscoveryFingerprint), with each manifest's size and time, and a later
+run with the same fingerprint reads it instead. Resolve-DscV3ResourcePath checks the manifest
+it is about to use against the saved size and time, and lists again when they differ. A list
+older than PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS (default 24) is not used.
+
+.PARAMETER Refresh
+Ignore a saved list and run `dsc resource list`.
+
+.OUTPUTS
+$null when dsc could not list, or @{ Index = @{ <type> = List[object] }; FromDisk = <bool> }.
+Each entry has type, kind, path, requireAdapter, manifestTicks and manifestLength.
+#>
+function Get-DscV3ResourceListing {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [string]$Executable = 'dsc',
+
+        [switch]$Refresh
+    )
+
+    $file = $null
+    $directory = Get-DscV3DiscoveryCacheDirectory
+    if ($directory) {
+        $fingerprint = Get-DscV3DiscoveryFingerprint -Executable $Executable
+        if ($fingerprint) {
+            $file = Join-Path -Path $directory -ChildPath "$fingerprint.json"
+        }
+    }
+
+    $hours = 24
+    if (-not [string]::IsNullOrEmpty($env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS)) {
+        $parsedHours = 0
+        if ([int]::TryParse([string]$env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS, [ref]$parsedHours) -and $parsedHours -ge 0) {
+            $hours = $parsedHours
+        }
+    }
+
+    if ($file -and -not $Refresh -and [System.IO.File]::Exists($file)) {
+        $age = [datetime]::UtcNow - [System.IO.File]::GetLastWriteTimeUtc($file)
+        if ($age.TotalHours -lt $hours) {
+            try {
+                $saved = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+                $index = @{}
+                foreach ($item in @($saved.resources)) {
+                    $itemType = [string]$item.type
+                    if (-not $index.ContainsKey($itemType)) { $index[$itemType] = [System.Collections.Generic.List[object]]::new() }
+                    $index[$itemType].Add($item)
+                }
+                Write-Verbose "[Get-DscV3ResourceListing] Using the resource list saved at $file."
+                return @{ Index = $index; FromDisk = $true }
+            }
+            catch {
+                Write-Verbose "[Get-DscV3ResourceListing] Could not read '$file': $($_.Exception.Message); listing again."
+            }
+        }
+    }
+
+    $listed = Invoke-DscExecutable -Executable $Executable -Arguments @('resource', 'list', '--output-format', 'json')
+    if ($listed.ExitCode -ne 0) {
+        Write-Verbose "[Get-DscV3ResourceListing] 'dsc resource list' exited $($listed.ExitCode); using full discovery."
+        return $null
+    }
+
+    # One JSON object per line, one line per resource. Only what the narrowing reads is kept.
+    $index = @{}
+    $resources = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in ([string]$listed.Output -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $item = $line | ConvertFrom-Json
+        $manifest = [System.IO.FileInfo]::new([string]$item.path)
+        $entry = [pscustomobject]@{
+            type           = [string]$item.type
+            kind           = [string]$item.kind
+            path           = [string]$item.path
+            requireAdapter = [string]$item.requireAdapter
+            manifestTicks  = if ($manifest.Exists) { [string]$manifest.LastWriteTimeUtc.Ticks } else { '' }
+            manifestLength = if ($manifest.Exists) { [string]$manifest.Length } else { '' }
+        }
+        $resources.Add($entry)
+        if (-not $index.ContainsKey($entry.type)) { $index[$entry.type] = [System.Collections.Generic.List[object]]::new() }
+        $index[$entry.type].Add($entry)
+    }
+
+    if ($file) {
+        try {
+            # Written beside the final name and moved over it, so a reader never sees half a file.
+            $partial = '{0}.{1}.tmp' -f $file, [guid]::NewGuid().ToString('N')
+            Set-Content -LiteralPath $partial -Value (@{ resources = $resources } | ConvertTo-Json -Depth 4 -Compress) -Encoding utf8
+            Move-Item -LiteralPath $partial -Destination $file -Force
+        }
+        catch {
+            Write-Verbose "[Get-DscV3ResourceListing] Could not save the resource list to '$file': $($_.Exception.Message)."
+            Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return @{ Index = $index; FromDisk = $false }
+}
+
+<#
+.SYNOPSIS
+Removes the saved resource list for the current fingerprint, so the next run lists again.
+#>
+function Remove-DscV3PersistedListing {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string]$Executable = 'dsc'
+    )
+
+    $directory = Get-DscV3DiscoveryCacheDirectory
+    if (-not $directory) { return }
+    $fingerprint = Get-DscV3DiscoveryFingerprint -Executable $Executable
+    if (-not $fingerprint) { return }
+    $file = Join-Path -Path $directory -ChildPath "$fingerprint.json"
+    if ([System.IO.File]::Exists($file) -and $PSCmdlet.ShouldProcess($file, 'Remove the saved resource list')) {
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    }
 }

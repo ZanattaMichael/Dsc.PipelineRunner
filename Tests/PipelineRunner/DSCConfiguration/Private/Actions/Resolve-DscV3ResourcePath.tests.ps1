@@ -25,14 +25,18 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         Clear-DscV3ResourcePath
         $script:SavedResourcePath = $env:DSC_RESOURCE_PATH
         $script:SavedFullDiscovery = $env:PIPELINERUNNER_DSC_FULL_DISCOVERY
+        $script:SavedDiscoveryCache = $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE
         $env:DSC_RESOURCE_PATH = $null
         $env:PIPELINERUNNER_DSC_FULL_DISCOVERY = $null
+        # These tests count dsc calls within one run; the saved list has its own context below.
+        $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE = '0'
     }
 
     AfterEach {
         Clear-DscV3ResourcePath
         $env:DSC_RESOURCE_PATH = $script:SavedResourcePath
         $env:PIPELINERUNNER_DSC_FULL_DISCOVERY = $script:SavedFullDiscovery
+        $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE = $script:SavedDiscoveryCache
     }
 
     It "Copies a command resource's manifest, and only it, into a directory of its own" {
@@ -185,6 +189,109 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         }
     }
 
+    Context "The resource list saved between runs" {
+        BeforeEach {
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE = $null
+            $script:SavedCachePath = $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH
+            $script:SavedCacheHours = $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS
+            $script:CacheDirectory = Join-Path $TestDrive ('cache-{0}' -f [guid]::NewGuid().ToString('N'))
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH = $script:CacheDirectory
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS = $null
+            $script:Fingerprint = 'aaaa'
+            Mock -CommandName Get-DscV3DiscoveryFingerprint -MockWith { $script:Fingerprint }
+            Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
+            # A new run: the process-wide store starts empty, the directory on disk does not.
+            $script:NewRun = { Clear-DscV3ResourcePath }
+        }
+
+        AfterEach {
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH = $script:SavedCachePath
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS = $script:SavedCacheHours
+        }
+
+        It "Lets a later run narrow without running dsc's full discovery" {
+            $first = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            & $script:NewRun
+            $second = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            $second.ExecutableDirectory | Should -Be $first.ExecutableDirectory
+            @(Get-ChildItem -LiteralPath $second.ResourcePath).Name | Should -Be @('registry.dsc.resource.json')
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+            Test-Path -LiteralPath (Join-Path $script:CacheDirectory 'aaaa.json') | Should -BeTrue
+        }
+
+        It "Lists again when what discovery depends on has changed" {
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            & $script:NewRun
+            $script:Fingerprint = 'bbbb'
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 2 -Scope It
+        }
+
+        It "Lists again when the manifest it names has changed since" {
+            $manifest = Join-Path $script:ResourceDirectory 'changing.dsc.resource.json'
+            Set-Content -LiteralPath $manifest -Value '{"type":"Mod/Changing","get":{"executable":"changing"}}'
+            Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Mod/Changing' $manifest }
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Mod/Changing'
+            & $script:NewRun
+            Set-Content -LiteralPath $manifest -Value '{"type":"Mod/Changing","get":{"executable":"changed","args":["now"]}}'
+
+            $resolved = Resolve-DscV3ResourcePath -ResourceType 'Mod/Changing'
+
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 2 -Scope It
+            Get-Content -LiteralPath (Join-Path $resolved.ResourcePath 'changing.dsc.resource.json') -Raw | Should -Match 'changed'
+        }
+
+        It "Lists again when the saved list is older than PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS" {
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            & $script:NewRun
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS = '0'
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 2 -Scope It
+        }
+
+        It "Is removed when a type has to go back to full discovery" {
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            Clear-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            Test-Path -LiteralPath (Join-Path $script:CacheDirectory 'aaaa.json') | Should -BeFalse
+        }
+
+        It "Is not saved when PIPELINERUNNER_DSC_DISCOVERY_CACHE is 0" {
+            $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE = '0'
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            Test-Path -LiteralPath $script:CacheDirectory | Should -BeFalse
+        }
+
+        It "Is not saved where other users could write" -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Unix) {
+            $null = New-Item -ItemType Directory -Path $script:CacheDirectory
+            & chmod 777 $script:CacheDirectory
+
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            @(Get-ChildItem -LiteralPath $script:CacheDirectory).Count | Should -Be 0
+        }
+
+        It "Creates its directory for its owner only (mode 0700) on Linux" -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Unix) {
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            (& stat -c '%a' $script:CacheDirectory) | Should -Be '700'
+        }
+
+        It "Reads a corrupt saved list as no list" {
+            $null = New-Item -ItemType Directory -Path $script:CacheDirectory
+            Set-Content -LiteralPath (Join-Path $script:CacheDirectory 'aaaa.json') -Value '{ not json'
+
+            $resolved = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            $resolved | Should -Not -BeNullOrEmpty
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+        }
+    }
+
     It "Removes the copied manifests when cleared" {
         Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
 
@@ -192,6 +299,50 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         Clear-DscV3ResourcePath
 
         Test-Path -LiteralPath $resolved.ResourcePath | Should -BeFalse
+    }
+}
+
+Describe "Get-DscV3DiscoveryFingerprint" -Tag Unit, Actions, Engine {
+
+    BeforeAll {
+        . (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1').FullName
+    }
+
+    BeforeEach {
+        $script:SavedPath = $env:PATH
+        $script:Directory = Join-Path $TestDrive ('path-{0}' -f [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:Directory
+        $script:Shell = (Get-Process -Id $PID).Path
+        $env:PATH = '{0}{1}{2}' -f $script:Directory, [System.IO.Path]::PathSeparator, (Split-Path -Path $script:Shell -Parent)
+    }
+
+    AfterEach {
+        $env:PATH = $script:SavedPath
+    }
+
+    It "Is the same while nothing changes" {
+        Get-DscV3DiscoveryFingerprint -Executable $script:Shell | Should -Be (Get-DscV3DiscoveryFingerprint -Executable $script:Shell)
+    }
+
+    It "Changes when a manifest is added to a directory on PATH" {
+        $before = Get-DscV3DiscoveryFingerprint -Executable $script:Shell
+        Set-Content -LiteralPath (Join-Path $script:Directory 'new.dsc.resource.json') -Value '{}'
+        # Adding a file moves the directory's time; set it ahead as well, so the test does not
+        # depend on how finely a file system records that time.
+        [System.IO.Directory]::SetLastWriteTimeUtc($script:Directory, [datetime]::UtcNow.AddMinutes(1))
+
+        Get-DscV3DiscoveryFingerprint -Executable $script:Shell | Should -Not -Be $before
+    }
+
+    It "Changes when PATH changes" {
+        $before = Get-DscV3DiscoveryFingerprint -Executable $script:Shell
+        $env:PATH = '{0}{1}{2}' -f $env:PATH, [System.IO.Path]::PathSeparator, $TestDrive
+
+        Get-DscV3DiscoveryFingerprint -Executable $script:Shell | Should -Not -Be $before
+    }
+
+    It "Is null when the executable is not found" {
+        Get-DscV3DiscoveryFingerprint -Executable 'no-such-dsc-executable' | Should -BeNullOrEmpty
     }
 }
 
