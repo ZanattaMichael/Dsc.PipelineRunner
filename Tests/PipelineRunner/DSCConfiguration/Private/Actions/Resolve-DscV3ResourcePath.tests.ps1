@@ -43,8 +43,40 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         $resolved.ExecutableDirectory | Should -Be $script:ResourceDirectory
         @(Get-ChildItem -LiteralPath $resolved.ResourcePath).Name | Should -Be @('registry.dsc.resource.json')
         Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It -ParameterFilter {
-            $Arguments[0] -eq 'resource' -and $Arguments[1] -eq 'list' -and $Arguments[2] -eq 'Microsoft.Windows/Registry'
+            ($Arguments -join ' ') -eq 'resource list --output-format json'
         }
+    }
+
+    It "Runs the full discovery once per run, however many types are asked for" {
+        $other = Join-Path $script:ResourceDirectory 'other.dsc.resource.json'
+        Set-Content -LiteralPath $other -Value '{"type":"Mod/Other","get":{"executable":"other"}}'
+        Mock -CommandName Invoke-DscExecutable -MockWith {
+            $a = & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath
+            $b = & $script:Listed 'Mod/Other' $other
+            @{ ExitCode = 0; Output = ($a.Output + "`n" + $b.Output); ErrorOutput = '' }
+        }
+
+        $first = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+        $second = Resolve-DscV3ResourcePath -ResourceType 'Mod/Other'
+
+        $first.ResourcePath | Should -Not -Be $second.ResourcePath
+        @(Get-ChildItem -LiteralPath $second.ResourcePath).Name | Should -Be @('other.dsc.resource.json')
+        Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+    }
+
+    It "Leaves a type dsc lists more than once to full discovery" {
+        Mock -CommandName Invoke-DscExecutable -MockWith {
+            $a = & $script:Listed 'Mod/Res' $script:ManifestPath
+            @{ ExitCode = 0; Output = ($a.Output + "`n" + $a.Output); ErrorOutput = '' }
+        }
+
+        Resolve-DscV3ResourcePath -ResourceType 'Mod/Res' | Should -BeNullOrEmpty
+    }
+
+    It "Leaves a type dsc does not list to full discovery" {
+        Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
+
+        Resolve-DscV3ResourcePath -ResourceType 'Mod/Missing' | Should -BeNullOrEmpty
     }
 
     It "Runs the full discovery once per type" {
@@ -109,6 +141,50 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
     }
 
+    It "Catches a manifest that names a sibling script in another letter case" {
+        $scripted = Join-Path $script:ResourceDirectory 'cased.dsc.resource.json'
+        Set-Content -LiteralPath $scripted -Value '{"type":"Mod/Cased","get":{"executable":"pwsh","args":["-File","Setup.PS1"]}}'
+        Set-Content -LiteralPath (Join-Path $script:ResourceDirectory 'setup.ps1') -Value ''
+        Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Mod/Cased' $scripted }
+
+        Resolve-DscV3ResourcePath -ResourceType 'Mod/Cased' | Should -BeNullOrEmpty
+    }
+
+    Context "The staging directory" {
+        It "Is rooted at a name that does not carry the process id and differs per run" {
+            Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
+
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            $firstRoot = (Get-DscV3ResourcePathStore).Root
+            Clear-DscV3ResourcePath
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            $secondRoot = (Get-DscV3ResourcePathStore).Root
+
+            (Split-Path $firstRoot -Leaf) | Should -Match '^Dsc\.PipelineRunner-dsc-[0-9a-f]{32}$'
+            (Split-Path $firstRoot -Leaf) | Should -Not -Match ('-{0}$' -f $PID)
+            $secondRoot | Should -Not -Be $firstRoot
+        }
+
+        It "Is not used, and discovery stays full, when the directory already exists" {
+            $existing = Join-Path $TestDrive 'planted'
+            $null = New-Item -ItemType Directory -Path $existing
+            Mock -CommandName Get-DscV3StagingRootPath -MockWith { $existing }
+            Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
+
+            Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry' | Should -BeNullOrEmpty
+            @(Get-ChildItem -LiteralPath $existing).Count | Should -Be 0
+        }
+
+        It "Is restricted to its owner (mode 0700) on Linux" -Skip:([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Unix) {
+            Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
+
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            $root = (Get-DscV3ResourcePathStore).Root
+
+            (& stat -c '%a' $root) | Should -Be '700'
+        }
+    }
+
     It "Removes the copied manifests when cleared" {
         Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
 
@@ -147,5 +223,26 @@ Describe "Invoke-DscExecutable -Environment" -Tag Unit, Actions, Engine {
             -Environment @{ PIPELINERUNNER_TEST_MARKER = 'during' }
 
         Test-Path -LiteralPath 'Env:PIPELINERUNNER_TEST_MARKER' | Should -BeFalse
+    }
+}
+
+Describe "The module provides the discovery functions the engine guards on" -Tag Unit, Actions, Engine {
+
+    # The engine and Invoke-DscRunner call these behind Get-Command -ErrorAction SilentlyContinue,
+    # so a packaging slip would silently turn the narrowing off. ModuleBuilder compiles every
+    # file under source/Private into the module; check each function is defined there once.
+    BeforeDiscovery {
+        $names = 'Resolve-DscV3ResourcePath', 'Clear-DscV3ResourcePath'
+    }
+
+    It "Defines <_> once under source/Private" -ForEach $names {
+        $name = $_
+        $repoRoot = $PSScriptRoot
+        1..5 | ForEach-Object { $repoRoot = Split-Path -Path $repoRoot -Parent }
+        $definitions = foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'source/Private') -Recurse -File -Filter '*.ps1')) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
+            $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
+        }
+        @($definitions).Count | Should -Be 1
     }
 }

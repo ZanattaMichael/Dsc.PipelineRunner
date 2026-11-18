@@ -117,9 +117,11 @@ manifests and runs every *discover extension* it finds. dsc 3.3 ships one,
 that costs seconds per call. A single-resource apply used to spend more than 20 seconds of its
 time in it.
 
-So the engine runs the full discovery once per resource type and run (`dsc resource list
-<type>`). When the type is a plain command resource, it copies that one manifest into a
-directory of its own. Every later call for the type then runs with `DSC_RESOURCE_PATH` set to
+So the engine runs the full discovery once per run (one `dsc resource list`, indexed by type,
+however many types the configuration uses). When a type is a plain command resource, it copies
+that one manifest into a directory of its own, under an unguessable staging directory in the
+temp directory (a random name, created fresh and, on Linux and macOS, readable only by you, so
+no other local user can swap a manifest, which decides what dsc runs). Every later call for the type then runs with `DSC_RESOURCE_PATH` set to
 that directory, and the resource's own directory first on `PATH` so its executable is still
 found. dsc then discovers one manifest and starts nothing else.
 
@@ -132,10 +134,12 @@ A type keeps full discovery on every call when it is:
 - a type `dsc resource list` lists more than once, or cannot list.
 
 It also keeps full discovery when a call to a remote target is made (the target has its own
-dsc), and when you set `DSC_RESOURCE_PATH` yourself. If dsc reports `Resource not found` or a
-missing executable for a narrowed call, the type goes back to full discovery for the rest of
-the run and the call is made again. Both are reported before the resource runs, so a `set` is
-never repeated.
+dsc), and when you set `DSC_RESOURCE_PATH` yourself. If dsc's own error line says
+`Resource not found` or a missing executable for a narrowed `test` or `get` that printed no
+result, the type goes back to full discovery for the rest of the run and the call is made again.
+A `set` is never made again: dsc forwards a resource's standard error, so a resource that fails
+part-way could print the same words. The runner tests before it sets, so a type that cannot be
+narrowed is already back on full discovery by the time its `set` runs.
 
 Set `PIPELINERUNNER_DSC_FULL_DISCOVERY=1` to turn the narrowing off.
 

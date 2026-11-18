@@ -10,9 +10,11 @@ All notable changes to this project will be documented in this file.
   resource discovery, which in dsc 3.3 starts a second PowerShell for the
   `Microsoft.PowerShell/Discover` extension, even for a native resource. On a hosted Windows
   agent that was seconds per call, and the runner made two or three calls per resource. Now the
-  `DscV3` engine runs the full discovery once per resource type and run, and calls dsc for a plain
+  `DscV3` engine runs the full discovery once per run, and calls dsc for a plain
   command resource with `DSC_RESOURCE_PATH` pointing at that resource's manifest alone
-  (`Resolve-DscV3ResourcePath`). Adapted resources, adapters, groups, remote targets and an
+  (`Resolve-DscV3ResourcePath`), copied into an unguessable, owner-only staging directory in the temp
+  directory. A narrowed `test` or `get` that dsc reports as not found (its own error line, no result) is
+  repeated once with full discovery; a `set` never is. Adapted resources, adapters, groups, remote targets and an
   operator's own `DSC_RESOURCE_PATH` keep full discovery; `PIPELINERUNNER_DSC_FULL_DISCOVERY=1`
   turns the narrowing off. See [DSC v3 support](docs/dsc-v3.md#resource-discovery).
 - **No `get` after `test` or `set` when the engine already reported the state.** An engine

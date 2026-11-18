@@ -208,8 +208,12 @@ if ($null -ne $Context.Session -and $null -ne $Context.Session.PSSession) {
 # PowerShell discover extension and read every directory on PATH (Resolve-DscV3ResourcePath
 # explains when it does and does not). Only for a local call: a remote target has its own
 # dsc and its own manifests. If dsc cannot find the resource or its executable that way, the
-# type goes back to full discovery for the rest of the run and the call is made again; a
-# dsc reports either before the resource runs, so this never runs a Set twice.
+# type goes back to full discovery for the rest of the run and the call is made again. Only a
+# test or a get is made again, and only when the failure is dsc's own error line with nothing
+# on standard output: dsc forwards a resource's standard error, so the same words from a
+# resource that failed part-way could not be told apart reliably, and repeating a set is not
+# safe. The runner always tests before it sets, so a type that cannot be narrowed has gone back
+# to full discovery by the time its set runs.
 $narrowed = $null
 if ($null -eq $remoteSession -and (Get-Command -Name Resolve-DscV3ResourcePath -ErrorAction SilentlyContinue)) {
     $narrowed = Resolve-DscV3ResourcePath -ResourceType $resourceType
@@ -220,7 +224,15 @@ if ($null -ne $narrowed) {
         PATH              = '{0}{1}{2}' -f $narrowed.ExecutableDirectory, [System.IO.Path]::PathSeparator, $env:PATH
     }
     $run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson -Environment $narrowedEnvironment
-    if ($run.ExitCode -ne 0 -and ([string]$run.ErrorOutput -match "Resource not found: |Executable '[^']*' not found with working directory")) {
+    $dscCouldNotFind = $false
+    if ($run.ExitCode -ne 0 -and $verb -ne 'set' -and [string]::IsNullOrWhiteSpace([string]$run.Output)) {
+        # dsc 3.3 writes its own errors as '<UTC timestamp> ERROR <message>', coloured with ANSI
+        # escapes even when redirected, for example
+        # '2026-11-18T19:31:07.253875Z ERROR Resource not found: Microsoft.Windows/Registry'.
+        $plainError = [string]$run.ErrorOutput -replace '\x1b\[[0-9;]*m', ''
+        $dscCouldNotFind = $plainError -match "(?m)^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+ERROR\s+(?:Resource not found: \S+|Executable '[^']*' not found with working directory.*)\s*$"
+    }
+    if ($dscCouldNotFind) {
         Write-Verbose "[Actions/Engine/DscV3] dsc could not run [$resourceType] from its own manifest; using full discovery for it."
         Clear-DscV3ResourcePath -ResourceType $resourceType
         $run = Invoke-DscExecutable -Arguments $arguments -StandardInput $inputJson
