@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 650 120" width="650" height="120" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -10 676 140" width="676" height="140" role="img" aria-labelledby="t d">
   <title id="t">Dsc.PipelineRunner</title>
   <desc id="d">Desired State Configuration in any CI/CD pipeline</desc>
+  <!-- A white panel with a light border, so the banner reads on any background. -->
+  <rect x="-11" y="-9" width="674" height="138" rx="24" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
   <svg x="0" y="0" width="120" height="120" viewBox="0 0 256 256">
   
   

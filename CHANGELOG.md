@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-18
+
 ### Changed
 
 - **The saved DSC v3 resource list notices more, keeps less, and is trusted less.** Three
