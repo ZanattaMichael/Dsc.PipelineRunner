@@ -1,0 +1,58 @@
+# Builds the documentation site on every pull request, so a broken link in README.md, docs/,
+# WikiSource/ or the other pages fails the pull request rather than the Pages deployment.
+#
+# The site is assembled by tools/build-site.js (unit-tested here first) and built by mkdocs in
+# strict mode (mkdocs.yml). Pages.yml publishes the same build on pushes to main. See
+# docs/documentation-site.md.
+name: Documentation site (build gate)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-site:
+    name: Build documentation site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Material for MkDocs
+        run: pip install --quiet --requirement tools/site-requirements.txt
+
+      - name: Unit tests of the site builder
+        run: node --test tools/build-site.test.js
+
+      - name: Build the wiki content (for the command reference)
+        shell: pwsh
+        run: ./scripts/Build-WikiContent.ps1 -SourcePath $PWD -OutputPath ./output/WikiContent
+
+      - name: Assemble and build the site
+        run: |
+          node tools/build-site.js --wiki-content output/WikiContent
+          mkdocs build --strict
+
+      - name: Upload the site
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-site
+          path: site
+          if-no-files-found: error

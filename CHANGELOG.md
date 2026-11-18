@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Documentation site.** The README, the guides under `docs/`, the wiki pages under `WikiSource/`
+  and the generated command reference are published as one searchable site at
+  <https://zanattamichael.github.io/Dsc.PipelineRunner/>, built with Material for MkDocs from a
+  source that `tools/build-site.js` assembles (links rewritten, the light/dark header following the
+  site's own toggle). `.github/workflows/Pages.yml` publishes it on pushes to `main`;
+  `.github/workflows/Docs-Site.yml` builds it in strict mode on every pull request, so a broken link
+  fails the pull request. The one-time repository setting it needs (Settings > Pages > Source:
+  GitHub Actions) is described in `docs/documentation-site.md`. The wiki is still published to the
+  GitHub wiki by the Release workflow, unchanged.
+
 ## [1.3.1] - 2026-11-17
 
 ### Fixed

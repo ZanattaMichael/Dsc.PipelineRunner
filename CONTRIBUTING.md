@@ -59,6 +59,8 @@ Every push and pull request runs these GitHub Actions workflows:
 | `.github/workflows/DscV2-SelfHosted.yml` | **DSC v2 Self-Hosted Agent** | Drives a real class-based resource through `Invoke-DscResource` on a Windows self-hosted runner. |
 | `.github/workflows/AzureDevOps-SelfHosted.yml` | **Azure DevOps Real Lifecycle Self-Hosted** | End-to-end Azure DevOps lifecycle against a real organization, DSC v2 engine. |
 | `.github/workflows/AzureDevOpsV3-SelfHosted.yml` | **Azure DevOps Real Lifecycle DSC v3 Self-Hosted** | The same lifecycle through the DSC v3 engine. |
+| `.github/workflows/Wiki.yml` | **Build wiki content** | Compiles `WikiSource/` and the command reference, so wiki drift fails the pull request. |
+| `.github/workflows/Docs-Site.yml` | **Build documentation site** | Unit-tests `tools/build-site.js` and builds the documentation site in strict mode, so a broken link fails the pull request. |
 
 A pull request should be green on all of the above before it is reviewed.
 
@@ -74,6 +76,17 @@ This split matters when you touch anything `Start-DscRunner` calls. The integrat
 module**, so a new helper in that call chain has to be added to each suite's `BeforeAll` as
 well — otherwise the hosted gate stays green and the self-hosted jobs fail with
 `CommandNotFoundException`.
+
+## Documentation site
+
+The README, `docs/` and `WikiSource/` are published as one site,
+<https://zanattamichael.github.io/Dsc.PipelineRunner/>, by `.github/workflows/Pages.yml` on every
+push to `main` that touches them. `tools/build-site.js` assembles the site source and rewrites the
+links, and `mkdocs build --strict` renders it with Material for MkDocs (`mkdocs.yml`), so a broken
+link fails the build. [docs/documentation-site.md](docs/documentation-site.md) describes how it is
+built, how to build it locally, and the one-time repository setting it needs (**Settings > Pages >
+Source: GitHub Actions**); the wiki is still published to the GitHub wiki by the Release workflow,
+unchanged.
 
 ## Releasing
 

@@ -17,3 +17,6 @@ internal-tests/
 
 TestItems/*
 WorkDirectory/*
+# The documentation site (tools/build-site.js and mkdocs build): assembled source and output.
+site-src/
+site/

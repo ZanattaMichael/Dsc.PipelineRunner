@@ -1,0 +1,128 @@
+# The documentation site (GitHub Pages): https://zanattamichael.github.io/Dsc.PipelineRunner/
+#
+# The source folder is assembled from README.md, docs/, WikiSource/, the generated command
+# reference, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md and assets/ by tools/build-site.js; the
+# Pages workflow builds and publishes it, and the documentation-site gate builds it in strict
+# mode on every pull request, so a broken link fails the build. See docs/documentation-site.md.
+site_name: Dsc.PipelineRunner
+site_description: Desired State Configuration in any CI/CD pipeline.
+site_url: https://zanattamichael.github.io/Dsc.PipelineRunner/
+repo_url: https://github.com/ZanattaMichael/Dsc.PipelineRunner
+repo_name: ZanattaMichael/Dsc.PipelineRunner
+edit_uri: ''
+docs_dir: site-src
+site_dir: site
+strict: true
+
+# A warning on any of these fails a strict build.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+# The generated command pages are reached from the command reference, not from the navigation.
+not_in_nav: |
+  wiki/Command-*.md
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/logo-512.png
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  palette:
+    # The colours themselves are in assets/site.css: the blue of the logo tile and its mint check mark.
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+extra_css:
+  - assets/site.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ZanattaMichael/Dsc.PipelineRunner
+      name: Dsc.PipelineRunner on GitHub
+    - icon: fontawesome/solid/cube
+      link: https://www.powershellgallery.com/packages/Dsc.PipelineRunner
+      name: Dsc.PipelineRunner on the PowerShell Gallery
+
+plugins:
+  - search
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Getting started: wiki/Getting-Started.md
+      - Configuration repository layout: wiki/Configuration-Repository-Layout.md
+      - Hosted Linux agent with DSC v3: guides/hosted-agent-dsc-v3.md
+      - Azure DevOps self-hosted agent: guides/azure-devops-self-hosted-agent.md
+  - Guides:
+      - Resource features: guides/resource-features.md
+      - notify and using(): guides/notify-and-using.md
+      - DSC v3 support: guides/dsc-v3.md
+      - Capability policy (preview): guides/capability-policy.md
+      - Trust model and security boundary: guides/trust-model.md
+      - Responding to a vulnerability report: guides/security-response-process.md
+      - Design notes and plans:
+          - Composite resources: guides/composite-resources.md
+          - DSC v3 configuration functions: guides/dsc-v3-config-functions.md
+          - Lifecycle scripting and reboot handling: guides/lifecycle-scripting-and-reboot-handling.md
+          - Remote-target execution and credentials: guides/remote-target-credential-handling.md
+          - Azure DevOps decoupling and DSC v3: guides/DECOUPLING_PLAN.md
+  - Reference (wiki):
+      - Overview: wiki/index.md
+      - PipelineRunnerSettings: wiki/PipelineRunnerSettings.md
+      - Resource properties: wiki/Resource-Properties.md
+      - Composite resources: wiki/Composite-Resources.md
+      - Function language: wiki/Function-Language.md
+      - Execution lifecycle: wiki/Execution-Lifecycle.md
+      - Pipeline rules: wiki/Pipeline-Rules.md
+      - Engines: wiki/Engines.md
+      - Remote targets and credentials: wiki/Remote-Targets-and-Credentials.md
+      - Capability policy (preview): wiki/Capability-Policy.md
+      - Reporting and exit codes: wiki/Reporting-and-Exit-Codes.md
+      - Troubleshooting: wiki/Troubleshooting.md
+      - Command reference: wiki/Command-Reference.md
+  - Project:
+      - Contributing: contributing.md
+      - Contributing to the wiki: wiki/Contributing.md
+      - Security policy: security.md
+      - Changelog: changelog.md
+      - Documentation site: guides/documentation-site.md

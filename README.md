@@ -21,6 +21,9 @@
 [![Build provenance](https://img.shields.io/badge/provenance-attested-success?logo=github)](https://github.com/ZanattaMichael/Dsc.PipelineRunner/attestations)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025e8c?logo=dependabot)](.github/dependabot.yml)
 
+**Documentation:** this README, the guides and the wiki are published as one searchable site at
+<https://zanattamichael.github.io/Dsc.PipelineRunner/>.
+
 ## Overview
 
 `Dsc.PipelineRunner` is a platform-agnostic DSC pipeline runner designed to execute DSC configurations within any CI/CD pipeline (GitHub Actions, GitLab, Jenkins, Azure DevOps, and more). It utilizes Datum to merge configuration stubs into larger pieces of configuration, which are then parsed and applied by the runner.
@@ -636,3 +639,4 @@ annotated tag and starts the Release workflow on it. See [CONTRIBUTING.md](CONTR
 | Trust model and security policy | [docs/trust-model.md](docs/trust-model.md), [SECURITY.md](SECURITY.md) |
 | Capability policy (preview): what each layer of a configuration may use | [docs/capability-policy.md](docs/capability-policy.md), [worked example](Example%20Policy%20Configuration) |
 | Contributing and releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| All of the above as one searchable site | <https://zanattamichael.github.io/Dsc.PipelineRunner/> ([how it is built](docs/documentation-site.md)) |

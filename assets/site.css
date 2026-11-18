@@ -1,0 +1,57 @@
+/* The documentation site's colours: the blue of the logo tile (#0e66b5 to #249ee2) and its mint
+   check mark (#9ff3d0). mkdocs.yml selects these through primary: custom / accent: custom. */
+:root {
+  --md-primary-fg-color: #0e66b5;
+  --md-primary-fg-color--light: #249ee2;
+  --md-primary-fg-color--dark: #0a4f8c;
+  --md-accent-fg-color: #0b8f6b;
+  --md-accent-fg-color--transparent: rgba(11, 143, 107, 0.1);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #0e66b5;
+  --md-primary-fg-color--light: #5cc2f2;
+  --md-primary-fg-color--dark: #0a4f8c;
+  --md-accent-fg-color: #9ff3d0;
+  --md-accent-fg-color--transparent: rgba(159, 243, 208, 0.12);
+  --md-typeset-a-color: #5cc2f2;
+}
+
+/* The README header: one image for each colour scheme (tools/build-site.js writes both; the
+   README itself uses a <picture> that follows the operating system, which the site's own toggle
+   would contradict). */
+.md-typeset h1.site-header {
+  margin: 0 0 1.5em;
+  line-height: 0;
+}
+
+.md-typeset .site-header img {
+  display: block;
+  height: auto;
+  max-height: 120px;
+  max-width: 100%;
+  width: auto;
+}
+
+/* More specific than the image rule above, which would otherwise keep both visible. */
+[data-md-color-scheme="default"] .md-typeset .only-dark,
+[data-md-color-scheme="slate"] .md-typeset .only-light {
+  display: none;
+}
+
+/* Badges on the home page sit on one line each, as on GitHub. */
+.md-typeset p > a > img[src*="badge"],
+.md-typeset p > a > img[src*="shields.io"] {
+  vertical-align: middle;
+}
+
+/* The how-it-works animation and other illustrations never overflow a phone. */
+.md-typeset img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Settings and property tables are wide: let them use the room. */
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+}

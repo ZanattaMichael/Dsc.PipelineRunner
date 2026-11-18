@@ -1,0 +1,84 @@
+# Publishes the documentation site to GitHub Pages: README.md (the home page), docs/ (the guides),
+# WikiSource/ (the wiki pages) with the generated command reference, CONTRIBUTING.md, SECURITY.md,
+# CHANGELOG.md and assets/, assembled by tools/build-site.js and built by mkdocs (mkdocs.yml).
+# See docs/documentation-site.md.
+#
+# One-time setup: in the repository's Settings > Pages, set Source to "GitHub Actions". Until
+# then the deploy job fails with a message that says so, and the site stays as it was.
+#
+# The wiki content is compiled here only to put the command reference on the site; the wiki
+# itself is still published by the Release workflow, and gated per pull request by Wiki.yml.
+name: Pages
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - README.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+      - CHANGELOG.md
+      - docs/**
+      - WikiSource/**
+      - assets/**
+      - source/Public/**
+      - scripts/Build-WikiContent.ps1
+      - mkdocs.yml
+      - tools/build-site.js
+      - tools/site-requirements.txt
+      - .github/workflows/Pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a queued one is not cancelled: the newest push still gets published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Material for MkDocs
+        run: pip install --quiet --requirement tools/site-requirements.txt
+
+      - name: Build the wiki content (for the command reference)
+        shell: pwsh
+        run: ./scripts/Build-WikiContent.ps1 -SourcePath $PWD -OutputPath ./output/WikiContent
+
+      - name: Assemble and build the site
+        run: |
+          node tools/build-site.js --wiki-content output/WikiContent
+          mkdocs build --strict
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
