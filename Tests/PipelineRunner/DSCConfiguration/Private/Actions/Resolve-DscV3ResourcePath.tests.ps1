@@ -200,6 +200,11 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
             $script:Fingerprint = 'aaaa'
             Mock -CommandName Get-DscV3DiscoveryFingerprint -MockWith { $script:Fingerprint }
             Mock -CommandName Invoke-DscExecutable -MockWith { & $script:Listed 'Microsoft.Windows/Registry' $script:ManifestPath }
+            # A list read from disk is only acted on when the manifest it names is somewhere
+            # dsc looks, which for a command resource is a directory on PATH. The fixture puts
+            # the resource directory there, as an installed resource would be.
+            $script:SavedListPath = $env:PATH
+            $env:PATH = '{0}{1}{2}' -f $script:ResourceDirectory, [System.IO.Path]::PathSeparator, $env:PATH
             # A new run: the process-wide store starts empty, the directory on disk does not.
             $script:NewRun = { Clear-DscV3ResourcePath }
         }
@@ -207,6 +212,7 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
         AfterEach {
             $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH = $script:SavedCachePath
             $env:PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS = $script:SavedCacheHours
+            $env:PATH = $script:SavedListPath
         }
 
         It "Lets a later run narrow without running dsc's full discovery" {
@@ -281,6 +287,33 @@ Describe "Resolve-DscV3ResourcePath Function Tests" -Tag Unit, Actions, Engine {
             (& stat -c '%a' $script:CacheDirectory) | Should -Be '700'
         }
 
+        It "Lists again when the saved list names a manifest dsc would not find" {
+            # The saved file says which manifest to copy, and a manifest says which executable
+            # dsc runs. One pointing outside dsc's own search path is not acted on: dsc is
+            # asked again, and this run narrows from what it says.
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            & $script:NewRun
+            $env:PATH = $script:SavedListPath
+
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 2 -Scope It
+        }
+
+        It "Removes a saved list nothing will read again when it writes a new one" {
+            $stale = Join-Path $script:CacheDirectory 'bbbb.json'
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+            Set-Content -LiteralPath $stale -Value '{"resources":[]}'
+            [System.IO.File]::SetLastWriteTimeUtc($stale, [datetime]::UtcNow.AddHours(-48))
+            & $script:NewRun
+            $script:Fingerprint = 'cccc'
+
+            $null = Resolve-DscV3ResourcePath -ResourceType 'Microsoft.Windows/Registry'
+
+            Test-Path -LiteralPath $stale | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $script:CacheDirectory 'cccc.json') | Should -BeTrue
+        }
+
         It "Reads a corrupt saved list as no list" {
             $null = New-Item -ItemType Directory -Path $script:CacheDirectory
             Set-Content -LiteralPath (Join-Path $script:CacheDirectory 'aaaa.json') -Value '{ not json'
@@ -334,6 +367,26 @@ Describe "Get-DscV3DiscoveryFingerprint" -Tag Unit, Actions, Engine {
         Get-DscV3DiscoveryFingerprint -Executable $script:Shell | Should -Not -Be $before
     }
 
+    It "Changes when a module version is added beside one already there" {
+        # PSModulePath names the Modules directory, and adding Modules/Foo/2.0.0 moves only
+        # Foo's time. The fingerprint covers each module directory for exactly this case.
+        $modules = Join-Path $TestDrive ('modules-{0}' -f [guid]::NewGuid().ToString('N'))
+        $module = Join-Path $modules 'Foo'
+        $null = New-Item -ItemType Directory -Path (Join-Path $module '1.0.0') -Force
+        $savedModulePath = $env:PSModulePath
+        try {
+            $env:PSModulePath = $modules
+            $before = Get-DscV3DiscoveryFingerprint -Executable $script:Shell
+            $null = New-Item -ItemType Directory -Path (Join-Path $module '2.0.0') -Force
+            [System.IO.Directory]::SetLastWriteTimeUtc($module, [datetime]::UtcNow.AddMinutes(1))
+
+            Get-DscV3DiscoveryFingerprint -Executable $script:Shell | Should -Not -Be $before
+        }
+        finally {
+            $env:PSModulePath = $savedModulePath
+        }
+    }
+
     It "Changes when PATH changes" {
         $before = Get-DscV3DiscoveryFingerprint -Executable $script:Shell
         $env:PATH = '{0}{1}{2}' -f $env:PATH, [System.IO.Path]::PathSeparator, $TestDrive
@@ -343,6 +396,133 @@ Describe "Get-DscV3DiscoveryFingerprint" -Tag Unit, Actions, Engine {
 
     It "Is null when the executable is not found" {
         Get-DscV3DiscoveryFingerprint -Executable 'no-such-dsc-executable' | Should -BeNullOrEmpty
+    }
+}
+
+Describe "Remove-DscV3StaleListing" -Tag Unit, Actions, Engine {
+
+    BeforeAll {
+        . (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1').FullName
+        $script:Hex = { param([int]$Length) -join (1..$Length | ForEach-Object { '0123456789abcdef'[(Get-Random -Maximum 16)] }) }
+    }
+
+    BeforeEach {
+        $script:Directory = Join-Path $TestDrive ('prune-{0}' -f [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:Directory
+        $script:Age = {
+            param([string]$Path, [double]$Hours)
+            Set-Content -LiteralPath $Path -Value '{}'
+            [System.IO.File]::SetLastWriteTimeUtc($Path, [datetime]::UtcNow.AddHours(-$Hours))
+            $Path
+        }
+        $script:Listing = { Join-Path $script:Directory ('{0}.json' -f (& $script:Hex 64)) }
+    }
+
+    It "Removes a saved list nothing will read again" {
+        $old = & $script:Age (& $script:Listing) 48
+
+        Remove-DscV3StaleListing -Directory $script:Directory -Hours 24
+
+        Test-Path -LiteralPath $old | Should -BeFalse
+    }
+
+    It "Keeps one that is still within the age limit" {
+        $recent = & $script:Age (& $script:Listing) 1
+
+        Remove-DscV3StaleListing -Directory $script:Directory -Hours 24
+
+        Test-Path -LiteralPath $recent | Should -BeTrue
+    }
+
+    It "Keeps the file just written, whatever its recorded time" {
+        $mine = & $script:Age (& $script:Listing) 48
+
+        Remove-DscV3StaleListing -Directory $script:Directory -Keep $mine -Hours 24
+
+        Test-Path -LiteralPath $mine | Should -BeTrue
+    }
+
+    It "Removes a temporary file an interrupted write left behind" {
+        $partial = & $script:Age (Join-Path $script:Directory ('{0}.json.{1}.tmp' -f (& $script:Hex 64), (& $script:Hex 32))) 48
+
+        Remove-DscV3StaleListing -Directory $script:Directory -Hours 24
+
+        Test-Path -LiteralPath $partial | Should -BeFalse
+    }
+
+    It "Leaves a file that is not one of ours" {
+        $foreign = & $script:Age (Join-Path $script:Directory 'notes.txt') 48
+
+        Remove-DscV3StaleListing -Directory $script:Directory -Hours 24
+
+        Test-Path -LiteralPath $foreign | Should -BeTrue
+    }
+
+    It "Keeps a day's worth when the age limit is 0, which means a list is never used" {
+        $old = & $script:Age (& $script:Listing) 48
+        $recent = & $script:Age (& $script:Listing) 1
+
+        Remove-DscV3StaleListing -Directory $script:Directory -Hours 0
+
+        Test-Path -LiteralPath $old | Should -BeFalse
+        Test-Path -LiteralPath $recent | Should -BeTrue
+    }
+
+    It "Says nothing and does nothing when the directory is not there" {
+        { Remove-DscV3StaleListing -Directory (Join-Path $script:Directory 'missing') -Hours 24 } | Should -Not -Throw
+    }
+}
+
+Describe "Test-DscV3ManifestLocation" -Tag Unit, Actions, Engine {
+
+    BeforeAll {
+        . (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1').FullName
+    }
+
+    BeforeEach {
+        $script:SavedPath = $env:PATH
+        $script:SavedModulePath = $env:PSModulePath
+        $script:Root = Join-Path $TestDrive ('where-{0}' -f [guid]::NewGuid().ToString('N'))
+        $script:OnPath = Join-Path $script:Root 'bin'
+        $script:Modules = Join-Path $script:Root 'Modules'
+        $script:Elsewhere = Join-Path $script:Root 'elsewhere'
+        # A directory whose name begins with one on PATH, which must not count as inside it.
+        $script:LookAlike = Join-Path $script:Root 'bin-other'
+        foreach ($directory in $script:OnPath, (Join-Path $script:Modules 'Foo'), $script:Elsewhere, $script:LookAlike) {
+            $null = New-Item -ItemType Directory -Path $directory -Force
+        }
+        $script:Shell = (Get-Process -Id $PID).Path
+        $env:PATH = '{0}{1}{2}' -f $script:OnPath, [System.IO.Path]::PathSeparator, (Split-Path -Path $script:Shell -Parent)
+        $env:PSModulePath = $script:Modules
+    }
+
+    AfterEach {
+        $env:PATH = $script:SavedPath
+        $env:PSModulePath = $script:SavedModulePath
+    }
+
+    It "Accepts a manifest in a directory on PATH" {
+        Test-DscV3ManifestLocation -Path (Join-Path $script:OnPath 'x.dsc.resource.json') -Executable $script:Shell | Should -BeTrue
+    }
+
+    It "Accepts a manifest under a directory on PSModulePath" {
+        Test-DscV3ManifestLocation -Path (Join-Path $script:Modules 'Foo/x.dsc.resource.json') -Executable $script:Shell | Should -BeTrue
+    }
+
+    It "Accepts a manifest beside the executable itself" {
+        Test-DscV3ManifestLocation -Path (Join-Path (Split-Path -Path $script:Shell -Parent) 'x.dsc.resource.json') -Executable $script:Shell | Should -BeTrue
+    }
+
+    It "Refuses a manifest dsc would not find" {
+        Test-DscV3ManifestLocation -Path (Join-Path $script:Elsewhere 'x.dsc.resource.json') -Executable $script:Shell | Should -BeFalse
+    }
+
+    It "Refuses a directory that merely starts with one on PATH" {
+        Test-DscV3ManifestLocation -Path (Join-Path $script:LookAlike 'x.dsc.resource.json') -Executable $script:Shell | Should -BeFalse
+    }
+
+    It "Resolves a path that walks back out of a directory before deciding" {
+        Test-DscV3ManifestLocation -Path (Join-Path $script:Elsewhere '../bin/x.dsc.resource.json') -Executable $script:Shell | Should -BeTrue
     }
 }
 

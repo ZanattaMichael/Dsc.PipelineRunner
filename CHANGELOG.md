@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **The saved DSC v3 resource list notices more, keeps less, and is trusted less.** Three
+  follow-ups to #102: the fingerprint now covers each module directory inside a `PSModulePath`
+  directory, so installing a second version of a module already there (which moves
+  `Modules/<module>`'s time but not `Modules`') makes the next run list again; writing a list
+  removes the ones past the age limit and any temporary file an interrupted write left behind,
+  so the cache directory no longer grows as `PATH` and installed modules change; and a list read
+  from disk is only acted on when the manifest it names is somewhere dsc searches (a directory
+  on `PATH` or `PSModulePath`, or beside `dsc`), because that file decides which manifest is
+  copied and a manifest decides which executable dsc runs. A manifest elsewhere is not an error:
+  the list is dropped and dsc is asked again.
+
+### Changed
+
 - **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
   made (`dsc resource list`, about three seconds on a hosted Windows agent) is saved under the
   user's own cache directory, keyed on the `dsc` executable, `PATH`, `PSModulePath` and the

@@ -155,12 +155,20 @@ and a later run reads it instead of running `dsc resource list`.
   created readable and writable only by you (mode 0700). An existing directory that other users
   can write to is not used. Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE_PATH` to use another one.
 - **What it is keyed on:** the `dsc` executable (path, size and time), `PATH`, `PSModulePath`,
-  and the last-write time of every directory those two name. Installing, upgrading or removing a
-  resource or a module changes one of those times, so the saved list is not used after it.
-- **What is checked when it is used:** the size and time of the manifest it is about to copy. If
-  that file has gone or changed, the list is dropped and dsc lists again. If dsc then cannot find
-  the narrowed resource after all, the saved list is removed as well as the type going back to
-  full discovery.
+  the last-write time of every directory those two name, and the name and time of each module
+  directory inside the `PSModulePath` ones. Installing, upgrading or removing a resource or a
+  module changes one of those times, so the saved list is not used after it. The module level is
+  there because installing a second version of a module already present adds
+  `Modules/<module>/<version>`, which moves `<module>`'s time but not the `Modules` directory's.
+- **What is checked when it is used:** the size and time of the manifest it is about to copy,
+  and that the manifest is somewhere dsc searches — a directory on `PATH` or `PSModulePath`, or
+  beside `dsc` itself. If the file has gone or changed, or sits anywhere else, the list is
+  dropped and dsc lists again, because the saved file decides which manifest is copied and a
+  manifest decides which executable dsc runs. If dsc then cannot find the narrowed resource
+  after all, the saved list is removed as well as the type going back to full discovery.
+- **What it costs on disk:** one small file per fingerprint. Writing a new list removes the ones
+  past the age limit, and any temporary file an interrupted write left behind, so the directory
+  does not grow as `PATH` and installed modules change.
 - **How long it lasts:** 24 hours. Set `PIPELINERUNNER_DSC_DISCOVERY_CACHE_HOURS` to change that
   (`0` never uses a saved list).
 

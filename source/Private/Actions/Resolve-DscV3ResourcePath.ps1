@@ -80,15 +80,26 @@ function Resolve-DscV3ResourcePath {
         $listing = $store.Listings[$listingKey]
 
         # A list read from disk is checked against the manifest it names: if that file has
-        # gone or changed since, the list is stale, so it is dropped and dsc lists again.
+        # gone or changed since, or sits somewhere dsc would not look, the list is not used -
+        # it is dropped and dsc lists again. The second check matters because the saved file
+        # says which manifest to copy, and a manifest says which executable dsc runs: a list
+        # that points outside dsc's own search path is not one this run should act on, and
+        # what dsc itself reports is taken instead.
         if ($null -ne $listing -and $listing.FromDisk -and $listing.Index.ContainsKey($ResourceType)) {
-            $stale = @($listing.Index[$ResourceType] | Where-Object {
-                    $item = $_
-                    $file = [System.IO.FileInfo]::new([string]$item.path)
-                    -not $file.Exists -or [string]$file.LastWriteTimeUtc.Ticks -ne [string]$item.manifestTicks -or [string]$file.Length -ne [string]$item.manifestLength
-                })
-            if ($stale.Count -gt 0) {
-                Write-Verbose "[Resolve-DscV3ResourcePath] The saved resource list is out of date for '$ResourceType'; listing again."
+            $reason = $null
+            foreach ($item in $listing.Index[$ResourceType]) {
+                $file = [System.IO.FileInfo]::new([string]$item.path)
+                if (-not $file.Exists -or [string]$file.LastWriteTimeUtc.Ticks -ne [string]$item.manifestTicks -or [string]$file.Length -ne [string]$item.manifestLength) {
+                    $reason = 'the manifest it names has gone or changed'
+                    break
+                }
+                if (-not (Test-DscV3ManifestLocation -Path $file.FullName -Executable $Executable)) {
+                    $reason = "the manifest it names is outside the directories dsc searches ($($file.FullName))"
+                    break
+                }
+            }
+            if ($reason) {
+                Write-Verbose "[Resolve-DscV3ResourcePath] Not using the saved resource list for '$ResourceType': $reason; listing again."
                 Remove-DscV3PersistedListing -Executable $Executable
                 $listing = Get-DscV3ResourceListing -Executable $Executable -Refresh
                 $store.Listings[$listingKey] = $listing
@@ -345,9 +356,12 @@ A fingerprint of everything dsc's full discovery depends on, or $null when dsc i
 .DESCRIPTION
 dsc finds manifests in the directories on PATH, and its PowerShell discover extension finds
 resources in the module directories on PSModulePath. The fingerprint covers the dsc
-executable (path, size and time), both variables, and the last-write time of every directory
-they name. Installing or removing a resource adds or removes a file or folder in one of those
-directories, which changes that directory's time, so the saved list is not used after it.
+executable (path, size and time), both variables, the last-write time of every directory they
+name, and - for PSModulePath only - the name and time of each module directory inside them.
+Installing or removing a resource adds or removes a file or folder in one of those places,
+which changes a time the fingerprint covers, so the saved list is not used after it. The
+module level matters because installing a second version of a module that is already there
+adds Modules/<module>/<version>, which moves <module>'s time but not the Modules directory's.
 #>
 function Get-DscV3DiscoveryFingerprint {
     [CmdletBinding()]
@@ -368,8 +382,29 @@ function Get-DscV3DiscoveryFingerprint {
         $value = [string][System.Environment]::GetEnvironmentVariable($variable)
         $parts.Add("$variable=$value")
         foreach ($directory in ($value -split [regex]::Escape([string][System.IO.Path]::PathSeparator))) {
-            if (-not [string]::IsNullOrWhiteSpace($directory) -and [System.IO.Directory]::Exists($directory)) {
-                $parts.Add(('{0}|{1}' -f $directory, [System.IO.Directory]::GetLastWriteTimeUtc($directory).Ticks))
+            if ([string]::IsNullOrWhiteSpace($directory) -or -not [System.IO.Directory]::Exists($directory)) {
+                continue
+            }
+            $parts.Add(('{0}|{1}' -f $directory, [System.IO.Directory]::GetLastWriteTimeUtc($directory).Ticks))
+
+            # A manifest sits directly in a directory on PATH, so that directory's own time
+            # moves when one is added or removed. A module does not: PSModulePath names the
+            # Modules directory, and installing a second version of a module already there
+            # adds Modules/<module>/<version>, which moves only <module>'s time. So each
+            # module directory counts too - one level, by name and time, not a walk of the
+            # tree.
+            if ($variable -ne 'PSModulePath') {
+                continue
+            }
+            try {
+                foreach ($module in ([System.IO.Directory]::GetDirectories($directory) | Sort-Object)) {
+                    $parts.Add(('{0}|{1}' -f $module, [System.IO.Directory]::GetLastWriteTimeUtc($module).Ticks))
+                }
+            }
+            catch {
+                # A directory that cannot be read now is one dsc cannot read either; the name
+                # and time already recorded are enough to notice it changing.
+                $parts.Add(('{0}|unreadable' -f $directory))
             }
         }
     }
@@ -479,9 +514,9 @@ function Get-DscV3ResourceListing {
     }
 
     if ($file) {
+        $partial = '{0}.{1}.tmp' -f $file, [guid]::NewGuid().ToString('N')
         try {
             # Written beside the final name and moved over it, so a reader never sees half a file.
-            $partial = '{0}.{1}.tmp' -f $file, [guid]::NewGuid().ToString('N')
             Set-Content -LiteralPath $partial -Value (@{ resources = $resources } | ConvertTo-Json -Depth 4 -Compress) -Encoding utf8
             Move-Item -LiteralPath $partial -Destination $file -Force
         }
@@ -489,8 +524,134 @@ function Get-DscV3ResourceListing {
             Write-Verbose "[Get-DscV3ResourceListing] Could not save the resource list to '$file': $($_.Exception.Message)."
             Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
         }
+        Remove-DscV3StaleListing -Directory (Split-Path -Path $file -Parent) -Keep $file -Hours $hours
     }
     return @{ Index = $index; FromDisk = $false }
+}
+
+<#
+.SYNOPSIS
+Is this manifest somewhere dsc looks: a directory on PATH, beside dsc itself, or under a
+directory on PSModulePath?
+
+.DESCRIPTION
+Only a list read from disk is checked this way. A fresh list came from dsc a moment ago, so
+wherever it points is where dsc found it; a saved one is a file from an earlier run, and it
+decides which manifest the engine copies and therefore which executable dsc runs. Requiring
+the manifest to be somewhere dsc searches keeps a saved list from sending the engine
+anywhere dsc would not have gone by itself. A manifest that is genuinely somewhere else
+still works: the saved list is dropped, dsc lists again, and this run narrows from that.
+
+.PARAMETER Path
+The manifest's full path.
+
+.PARAMETER Executable
+The dsc executable, whose own directory counts as one dsc looks in.
+#>
+function Test-DscV3ManifestLocation {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [string]$Executable = 'dsc'
+    )
+
+    $roots = [System.Collections.Generic.List[string]]::new()
+    foreach ($variable in 'PATH', 'PSModulePath', 'DSC_RESOURCE_PATH') {
+        $value = [string][System.Environment]::GetEnvironmentVariable($variable)
+        foreach ($directory in ($value -split [regex]::Escape([string][System.IO.Path]::PathSeparator))) {
+            if (-not [string]::IsNullOrWhiteSpace($directory)) { $roots.Add($directory) }
+        }
+    }
+    $command = Get-Command -Name $Executable -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+    if ($command) { $roots.Add((Split-Path -Path $command.Source -Parent)) }
+
+    $comparison = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Unix) {
+        [System.StringComparison]::Ordinal
+    }
+    else {
+        [System.StringComparison]::OrdinalIgnoreCase
+    }
+    $full = $null
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+    }
+    catch {
+        return $false
+    }
+
+    foreach ($root in $roots) {
+        $rootFull = $null
+        try {
+            $rootFull = [System.IO.Path]::GetFullPath($root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        }
+        catch {
+            continue
+        }
+        if ([string]::IsNullOrEmpty($rootFull)) { continue }
+        # Under the directory, not merely sharing its first characters: /usr/bin-other is not
+        # inside /usr/bin.
+        $prefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+        if ($full.StartsWith($prefix, $comparison)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+Removes saved lists no run will use again, so the cache directory does not grow for ever.
+
+.DESCRIPTION
+A list is saved under the fingerprint of what discovery depends on, and a new fingerprint
+means a new file: a PATH change, an installed module, a touched directory. Nothing ever reads
+the old one again, so after a list is written the ones past their useful age are deleted,
+along with any temporary file an interrupted write left behind. Only this module's own files
+are considered: <64 hex characters>.json and its .tmp files.
+
+.PARAMETER Directory
+The cache directory.
+
+.PARAMETER Keep
+The file just written, which is never removed however the clock behaves.
+
+.PARAMETER Hours
+How long a saved list may be used. 0 means a list is never used, in which case a day's worth
+is still kept, so that turning the age limit off does not turn pruning into deleting
+everything another run may be part-way through reading.
+#>
+function Remove-DscV3StaleListing {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Directory,
+
+        [string]$Keep,
+
+        [int]$Hours = 24
+    )
+
+    $window = if ($Hours -gt 0) { $Hours } else { 24 }
+    $cutoff = [datetime]::UtcNow.AddHours(-$window)
+    try {
+        $files = @(Get-ChildItem -LiteralPath $Directory -File -ErrorAction Stop |
+                Where-Object { $_.Name -match '^[0-9a-f]{64}\.json(\.[0-9a-f]{32}\.tmp)?$' })
+    }
+    catch {
+        Write-Verbose "[Remove-DscV3StaleListing] Could not read '$Directory': $($_.Exception.Message)."
+        return
+    }
+
+    foreach ($file in $files) {
+        if ($Keep -and $file.FullName -eq $Keep) { continue }
+        if ($file.LastWriteTimeUtc -ge $cutoff) { continue }
+        if ($PSCmdlet.ShouldProcess($file.FullName, 'Remove the saved resource list')) {
+            Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 <#
