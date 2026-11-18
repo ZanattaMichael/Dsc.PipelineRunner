@@ -4,8 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-18
-
 ### Changed
 
 - **The saved DSC v3 resource list notices more, keeps less, and is trusted less.** Three
@@ -18,6 +16,8 @@ All notable changes to this project will be documented in this file.
   on `PATH` or `PSModulePath`, or beside `dsc`), because that file decides which manifest is
   copied and a manifest decides which executable dsc runs. A manifest elsewhere is not an error:
   the list is dropped and dsc is asked again.
+
+## [1.4.0] - 2026-11-18
 
 ### Changed
 
