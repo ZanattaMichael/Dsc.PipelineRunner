@@ -97,6 +97,52 @@ them apart — only `dsc resource list` can. That is why `ConvertTo-DscV3Configu
 accepts `-AvailableResourceType`, and why the `DscV3` engine surfaces a clear error when a type
 is not a DSC v3 identifier instead of leaving you with an opaque non-zero exit from `dsc.exe`.
 
+## How many dsc processes a run starts
+
+The engine runs one `dsc resource <verb>` process per engine call. For each resource the runner
+calls `test`, and in `Set` mode `set` when the resource has drifted. It does not call `get`
+afterwards: `test` reports `actualState` and `set` reports `afterState`, and the runner stores
+that, in the shape `dsc resource get` returns (`{ actualState: ... }`), for `reference()`,
+`using()` and the report. It still calls `get` when the resource has a `postExecutionScript`
+(which may change the resource after the engine reported), when a `set` failed, and when the
+output carries no state (a group or an adapter result, for example).
+
+### Resource discovery
+
+Every `dsc` call starts with resource discovery. dsc reads every directory on `PATH` for
+manifests and runs every *discover extension* it finds. dsc 3.3 ships one,
+`Microsoft.PowerShell/Discover`, which starts a second PowerShell to look through
+`PSModulePath`. It runs on every call, including a call to a native resource such as
+`Microsoft.Windows/Registry` that PowerShell has nothing to do with. On a hosted Windows agent
+that costs seconds per call. A single-resource apply used to spend more than 20 seconds of its
+time in it.
+
+So the engine runs the full discovery once per run (one `dsc resource list`, indexed by type,
+however many types the configuration uses). When a type is a plain command resource, it copies
+that one manifest into a directory of its own, under an unguessable staging directory in the
+temp directory (a random name, created fresh and, on Linux and macOS, readable only by you, so
+no other local user can swap a manifest, which decides what dsc runs). Every later call for the type then runs with `DSC_RESOURCE_PATH` set to
+that directory, and the resource's own directory first on `PATH` so its executable is still
+found. dsc then discovers one manifest and starts nothing else.
+
+A type keeps full discovery on every call when it is:
+
+- an adapted resource (`requireAdapter` is set, such as a PowerShell class resource behind
+  `Microsoft.DSC/PowerShell`), an adapter or a group;
+- a resource whose manifest names a script beside it, which dsc runs from the manifest's own
+  directory;
+- a type `dsc resource list` lists more than once, or cannot list.
+
+It also keeps full discovery when a call to a remote target is made (the target has its own
+dsc), and when you set `DSC_RESOURCE_PATH` yourself. If dsc's own error line says
+`Resource not found` or a missing executable for a narrowed `test` or `get` that printed no
+result, the type goes back to full discovery for the rest of the run and the call is made again.
+A `set` is never made again: dsc forwards a resource's standard error, so a resource that fails
+part-way could print the same words. The runner tests before it sets, so a type that cannot be
+narrowed is already back on full discovery by the time its `set` runs.
+
+Set `PIPELINERUNNER_DSC_FULL_DISCOVERY=1` to turn the narrowing off.
+
 ## CI proof
 
 `scripts/Test-DscV3ConfigDocument.ps1` (run by the **DSC v3 engine on Ubuntu** job) builds a

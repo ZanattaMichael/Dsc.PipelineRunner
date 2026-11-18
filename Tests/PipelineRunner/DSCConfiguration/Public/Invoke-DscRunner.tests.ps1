@@ -20,6 +20,7 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
             (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
             (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
+            (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1')
         ) | ForEach-Object { . $_.FullName }
 
         . (Get-FunctionPath 'Invoke-DscRunner.ps1').FullName

@@ -17,10 +17,16 @@ Fields:
   Raw            - [object] The engine's untouched output (Invoke-DscResource object,
                             parsed dsc.exe JSON, ...). Stored verbatim in the runner's
                             references table so downstream expansion is unchanged.
+  CurrentState   - [object] Optional. The resource's state after the method ran, in the
+                            same shape the engine's 'Get' returns. An engine whose Test and
+                            Set already report the state (dsc.exe does) sets it, and the
+                            runner then stores it instead of calling 'Get' again. $null
+                            means the engine does not know, and the runner calls 'Get'.
 #>
 class DscMethodResult {
     [bool]   $InDesiredState
     [bool]   $RebootRequired
     [string] $Message
     [object] $Raw
+    [object] $CurrentState
 }

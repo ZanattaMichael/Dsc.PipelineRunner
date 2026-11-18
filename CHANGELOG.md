@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **DSC v3 runs start far fewer processes.** Every `dsc resource` call used to run dsc's full
+  resource discovery, which in dsc 3.3 starts a second PowerShell for the
+  `Microsoft.PowerShell/Discover` extension, even for a native resource. On a hosted Windows
+  agent that was seconds per call, and the runner made two or three calls per resource. Now the
+  `DscV3` engine runs the full discovery once per run, and calls dsc for a plain
+  command resource with `DSC_RESOURCE_PATH` pointing at that resource's manifest alone
+  (`Resolve-DscV3ResourcePath`), copied into an unguessable, owner-only staging directory in the temp
+  directory. A narrowed `test` or `get` that dsc reports as not found (its own error line, no result) is
+  repeated once with full discovery; a `set` never is. Adapted resources, adapters, groups, remote targets and an
+  operator's own `DSC_RESOURCE_PATH` keep full discovery; `PIPELINERUNNER_DSC_FULL_DISCOVERY=1`
+  turns the narrowing off. See [DSC v3 support](docs/dsc-v3.md#resource-discovery).
+- **No `get` after `test` or `set` when the engine already reported the state.** An engine
+  result may carry `CurrentState` (a new, optional `[DscMethodResult]` field); the `DscV3` engine
+  fills it from `test`'s `actualState` and `set`'s `afterState`, in the shape `dsc resource get`
+  returns, and the runner stores it for `reference()`, `using()` and the report instead of calling
+  `get`. A resource with a `postExecutionScript`, a failed `set`, and an engine that reports no
+  state (`DscV2` and custom engines today) still get the `get` call.
+- **Each returned result record says `Drifted` and `SetInvoked`.** The objects `Start-DscRunner`
+  and `Invoke-DscRunner` return now carry the two values the report document has had since #85,
+  so a caller that runs `Set` learns what changed from that one run instead of running `Test`
+  first. The CSV and JSON files `Start-DscRunner` writes under `-ReportPath` keep their columns.
+
 ### Added
 
 - **Documentation site.** The README, the guides under `docs/`, the wiki pages under `WikiSource/`,

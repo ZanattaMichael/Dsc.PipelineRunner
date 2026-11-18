@@ -950,18 +950,32 @@ function Start-DscRunner {
                 & $sbPostExecutionScript
             }
 
-            # Execute the 'Get' method to retrieve the current state of the resource.
-            # A failed 'Get' should not abort the run; record $null and continue.
-            try {
-                $getResult = Invoke-EngineAction -Method 'Get' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
-                # Store the engine's raw current-state output so downstream reference
-                # expansion sees exactly the same shape it did before the engine seam.
-                $output_var = $getResult.Raw
-                Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$logKey]"
+            # The resource's current state, for reference(), using() and the report. An engine
+            # whose Test or Set already reported it (dsc.exe does, in the shape its 'Get'
+            # returns) hands it over as CurrentState, and a separate 'Get' would only ask the
+            # same question again - one more engine call per resource, which for DSC v3 is one
+            # more dsc process. A postExecutionScript may have changed the resource after the
+            # engine reported, and a Set that failed may have changed part of it after the Test
+            # that $result still holds, so in either case 'Get' still runs.
+            $setFailed = $setInvoked -and $resourceStatus -eq 'FAIL'
+            if ($null -ne $result.CurrentState -and $null -eq $task.postExecutionScript -and -not $setFailed) {
+                $output_var = $result.CurrentState
+                Write-Verbose "Took the current state from the '$(if ($setInvoked) { 'Set' } else { 'Test' })' result for DSC resource: [$logKey]"
             }
-            catch {
-                Write-Error "[Start-DscRunner] 'Get' method failed for resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
-                $output_var = $null
+            else {
+                # Execute the 'Get' method to retrieve the current state of the resource.
+                # A failed 'Get' should not abort the run; record $null and continue.
+                try {
+                    $getResult = Invoke-EngineAction -Method 'Get' -ModuleName $module -Name $resourceType -Property $Property @engineArgs
+                    # Store the engine's raw current-state output so downstream reference
+                    # expansion sees exactly the same shape it did before the engine seam.
+                    $output_var = $getResult.Raw
+                    Write-Verbose "Retrieved current state with 'Get' method for DSC resource: [$logKey]"
+                }
+                catch {
+                    Write-Error "[Start-DscRunner] 'Get' method failed for resource [$logKey]: $((& $safeText $_.Exception.Message))" -ErrorAction Continue
+                    $output_var = $null
+                }
             }
 
             # Store the output of the 'Get' operation in a reference table for later use
@@ -1231,6 +1245,17 @@ function Start-DscRunner {
         if (-not $outcomeIsClean) {
             Write-Verbose "[Start-DscRunner] Run completed with failures or interruption (status: $runStatus)."
         }
+    }
+
+    # Each returned record also says whether the resource had drifted and whether Set ran, so a
+    # caller that applies (Set) learns what changed from this one run instead of running Test
+    # first to find out. Added after the CSV and JSON files are written, so their columns are
+    # unchanged; the report document has carried the same two values since #85.
+    foreach ($record in $results) {
+        $detail = $null
+        $null = $resourceDetails.TryGetValue(('{0}|{1}|{2}' -f $record.ConfigurationFile, $record.ResourceType, $record.InstanceName), [ref]$detail)
+        $record | Add-Member -NotePropertyName Drifted -NotePropertyValue $(if ($detail) { [bool]$detail.Drifted } else { $null }) -Force
+        $record | Add-Member -NotePropertyName SetInvoked -NotePropertyValue $(if ($detail) { [bool]$detail.SetInvoked } else { $false }) -Force
     }
 
     # Emit the structured run result so callers (Invoke-DscRunner / Invoke-DscPipelineRunner)

@@ -327,4 +327,162 @@ Describe "Actions/Engine/DscV3 Tests" -Tag Unit, Engine {
             Remove-Variable -Name DscV3CapturedSession -Scope Global -ErrorAction SilentlyContinue
         }
     }
+
+    Context "The state after the method, so the runner needs no separate get" {
+
+        It "Returns test's actualState in the shape get returns" {
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 0; Output = '{"desiredState":{"a":1},"actualState":{"a":2},"inDesiredState":false,"differingProperties":["a"]}' }
+            }
+
+            $result = & $script:DscV3Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+            $result.CurrentState.actualState.a | Should -Be 2
+        }
+
+        It "Returns set's afterState in the shape get returns" {
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 0; Output = '{"beforeState":{"a":2},"afterState":{"a":1},"changedProperties":["a"]}' }
+            }
+
+            $result = & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+            $result.CurrentState.actualState.a | Should -Be 1
+        }
+
+        It "Returns no state when the output does not carry one" {
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
+            }
+
+            $result = & $script:DscV3Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+            $result.CurrentState | Should -BeNullOrEmpty
+        }
+    }
+
+    Context "Discovery narrowed to the resource's own manifest" {
+
+        BeforeAll {
+            . (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1').FullName
+        }
+
+        It "Calls dsc with DSC_RESOURCE_PATH and the resource's directory first on PATH" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            $Global:DscV3Environment = $null
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                param($Arguments, $Executable, $Session, $StandardInput, $Environment)
+                $Global:DscV3Environment = $Environment
+                return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
+            }
+
+            $null = & $script:DscV3Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+            $Global:DscV3Environment.DSC_RESOURCE_PATH | Should -Be 'staged-dir'
+            $Global:DscV3Environment.PATH | Should -BeLike ('resource-dir{0}*' -f [System.IO.Path]::PathSeparator)
+            Remove-Variable -Name DscV3Environment -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "Goes back to full discovery, once, when dsc cannot find the resource that way" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            Mock -CommandName Clear-DscV3ResourcePath
+            Mock -CommandName Invoke-DscExecutable -ParameterFilter { $null -ne $Environment } -MockWith {
+                return @{ ExitCode = 7; Output = ''; ErrorOutput = "`e[2m2026-11-18T19:31:07.253875Z`e[0m `e[31mERROR`e[0m Resource not found: Mod/Res" }
+            }
+            Mock -CommandName Invoke-DscExecutable -ParameterFilter { $null -eq $Environment } -MockWith {
+                return @{ ExitCode = 0; Output = '{"inDesiredState":true}' }
+            }
+
+            $result = & $script:DscV3Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+            $result.InDesiredState | Should -BeTrue
+            Assert-MockCalled -CommandName Clear-DscV3ResourcePath -Exactly 1 -Scope It -ParameterFilter { $ResourceType -eq 'Mod/Res' }
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 2 -Scope It
+        }
+
+        It "Does not call dsc again when the resource itself failed" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 2; Output = ''; ErrorOutput = 'ERROR the file was not found on the disk' }
+            }
+
+            { & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} } } | Should -Throw '*exit 2*'
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+        }
+
+        It "Does not call dsc again when the phrase is a resource's forwarded stderr, not dsc's own error line" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            Mock -CommandName Clear-DscV3ResourcePath
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 2; Output = ''; ErrorOutput = "the resource wrote: Resource not found: Mod/Res`n2026-11-18T19:31:07.253875Z ERROR Command: Resource 'Mod/Res' failed" }
+            }
+
+            { & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} } } | Should -Throw '*exit 2*'
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+            Assert-MockCalled -CommandName Clear-DscV3ResourcePath -Exactly 0 -Scope It
+        }
+
+        It "Never calls a set again, even when dsc's own not-found line is reported" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            Mock -CommandName Clear-DscV3ResourcePath
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 7; Output = ''; ErrorOutput = '2026-11-18T19:31:07.253875Z ERROR Resource not found: Mod/Res' }
+            }
+
+            { & $script:DscV3Path -Context @{ Method = 'Set'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} } } | Should -Throw '*exit 7*'
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+        }
+
+        It "Does not call dsc again when the failing call carried a result on standard output" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            Mock -CommandName Clear-DscV3ResourcePath
+            Mock -CommandName Invoke-DscExecutable -MockWith {
+                return @{ ExitCode = 7; Output = '{"inDesiredState":false}'; ErrorOutput = '2026-11-18T19:31:07.253875Z ERROR Resource not found: Mod/Res' }
+            }
+
+            { & $script:DscV3Path -Context @{ Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} } } | Should -Throw '*exit 7*'
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 1 -Scope It
+        }
+
+        It "Goes back to full discovery, once, when dsc cannot find the resource's executable" {
+            Mock -CommandName Resolve-DscV3ResourcePath -MockWith {
+                [pscustomobject]@{ ResourcePath = 'staged-dir'; ExecutableDirectory = 'resource-dir' }
+            }
+            Mock -CommandName Clear-DscV3ResourcePath
+            Mock -CommandName Invoke-DscExecutable -ParameterFilter { $null -ne $Environment } -MockWith {
+                return @{ ExitCode = 7; Output = ''; ErrorOutput = "2026-11-18T19:31:07.253875Z ERROR Executable 'registry' not found with working directory 'C:\\x'" }
+            }
+            Mock -CommandName Invoke-DscExecutable -ParameterFilter { $null -eq $Environment } -MockWith {
+                return @{ ExitCode = 0; Output = '{"actualState":{}}' }
+            }
+
+            $null = & $script:DscV3Path -Context @{ Method = 'Get'; ModuleName = 'Mod'; Name = 'Res'; Property = @{} }
+
+            Assert-MockCalled -CommandName Invoke-DscExecutable -Exactly 2 -Scope It
+        }
+
+        It "Never narrows a call to a remote target" {
+            Mock -CommandName Resolve-DscV3ResourcePath
+            Mock -CommandName Invoke-DscExecutable -MockWith { return @{ ExitCode = 0; Output = '{"inDesiredState":true}' } }
+
+            $null = & $script:DscV3Path -Context @{
+                Method = 'Test'; ModuleName = 'Mod'; Name = 'Res'; Property = @{}
+                Session = [pscustomobject]@{ PSSession = [pscustomobject]@{ Marker = 'remote' } }
+            }
+
+            Assert-MockCalled -CommandName Resolve-DscV3ResourcePath -Exactly 0 -Scope It
+        }
+    }
 }

@@ -63,6 +63,44 @@ jobs:
         shell: pwsh
         run: ./scripts/Test-DscV3ConfigDocument.ps1 -Verbose
 
+      # How long one dsc call takes with full and with narrowed resource discovery (see
+      # docs/dsc-v3.md#resource-discovery). The table goes to the job summary.
+      - name: Time dsc calls through the engine
+        shell: pwsh
+        run: ./scripts/Measure-DscV3Calls.ps1 -Property @{ family = 'Linux' }
+
+  dsc-v3-windows:
+    name: DSC v3 engine on Windows
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Bootstrap DSC v3 (dsc)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/Install-DscV3.ps1 -Verbose
+
+      - name: Report dsc version and the Windows resources
+        shell: pwsh
+        run: |
+          dsc --version
+          dsc resource list 'Microsoft.Windows/*'
+
+      - name: Run DSC v3 engine smoke test
+        shell: pwsh
+        run: ./scripts/Test-DscV3Smoke.ps1 -Verbose
+
+      # On a hosted Windows agent the PowerShell discover extension that every full discovery
+      # starts costs seconds, which is what the narrowing removes. Microsoft.Windows/Registry
+      # is the native resource a Windows configuration uses most; the key is only read.
+      - name: Time dsc calls through the engine
+        shell: pwsh
+        run: |
+          ./scripts/Measure-DscV3Calls.ps1 -Property @{ family = 'Windows' }
+          ./scripts/Measure-DscV3Calls.ps1 -Verbose -ResourceType 'Microsoft.Windows/Registry' -Property @{ keyPath = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; valueName = 'ProductName' }
+
   # Validate the hosted-agent container image builds and its dsc bootstrap works.
   dsc-agent-image:
     name: Build DSC v3 agent image
