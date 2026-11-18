@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-18
+
 ### Changed
 
 - **DSC v3 runs start far fewer processes.** Every `dsc resource` call used to run dsc's full
