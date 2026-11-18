@@ -160,13 +160,16 @@ ours), and on Linux and macOS the directory is restricted to its owner (mode 070
 temp directory is per-user already.
 #>
 function New-DscV3StagingRoot {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param()
 
     $root = Get-DscV3StagingRootPath
     if ([System.IO.Directory]::Exists($root) -or [System.IO.File]::Exists($root)) {
         throw "The staging directory '$root' already exists; refusing to use it."
+    }
+    if (-not $PSCmdlet.ShouldProcess($root, 'Create the staging directory')) {
+        return $null
     }
     $null = [System.IO.Directory]::CreateDirectory($root)
 
