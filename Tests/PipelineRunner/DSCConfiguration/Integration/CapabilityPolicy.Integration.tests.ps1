@@ -1141,14 +1141,6 @@ Layers:
             }.GetNewClosure()
         }
 
-        $plainTeamYaml = @'
-resources:
-  - name: Team thing
-    type: Stub/Thing
-    properties:
-      Setting: team
-'@
-
         # The platform's resource names its Target with an expression and the team sets the
         # variable. The runner never expands anything in a 'target' block, so the action stays
         # that literal text - but the computer beside it is a real host name, and at the point of
@@ -1206,7 +1198,13 @@ resources:
 '@
         $script:TeamRebootPolicy = $script:UsePolicy
 
-        $script:PlatformRebootFile = New-UseNode -TeamYaml $plainTeamYaml -BaselineYaml @'
+        # Only the platform's remote resource. A Local resource in the same node would be
+        # evaluated first, drift, ask for a reboot after Set, and stop the rest of the file -
+        # the runner cannot restart its own host mid-run - so the remote resource would never be
+        # reached and nothing would be restarted.
+        $script:PlatformRebootFile = New-UseNode -TeamYaml @'
+resources: []
+'@ -BaselineYaml @'
 resources:
   - name: Platform thing
     type: Stub/Thing
@@ -1237,13 +1235,34 @@ resources:
         Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Credential' } -MockWith {
             return [System.Management.Automation.PSCredential]::new('dummy', (ConvertTo-SecureString 'dummy' -AsPlainText -Force))
         }
-        # Nothing in this suite may restart anything; the mock is how that is proved.
-        Mock -CommandName Restart-Computer
+        # Restarting a machine is the one thing this suite must observe without doing. It cannot
+        # be observed by mocking the real cmdlet: PowerShell 7 on Linux has no -ComputerName,
+        # -Wait or -Force on Restart-Computer at all, so the runner's call fails to bind before a
+        # mock body would run ("A parameter cannot be found that matches parameter name 'Force'").
+        # A stand-in function with the runner's own parameter set shadows the cmdlet on every
+        # platform, and records what it was asked to restart. The list is global because the
+        # function is called from inside Start-DscRunner, which Pester's scopes do not share a
+        # $script: with.
+        function Restart-Computer {
+            [CmdletBinding()]
+            param(
+                [string] $ComputerName,
+                [switch] $Wait,
+                [switch] $Force,
+                [System.Management.Automation.PSCredential] $Credential
+            )
+            $Global:PipelineRunnerRestartCalls.Add([string]$ComputerName)
+        }
     }
 
     BeforeEach {
         $script:StopTaskProcessing = $false
         $script:Calls = [System.Collections.Generic.List[object]]::new()
+        $Global:PipelineRunnerRestartCalls = [System.Collections.Generic.List[object]]::new()
+    }
+
+    AfterAll {
+        Remove-Variable -Name PipelineRunnerRestartCalls -Scope Global -ErrorAction SilentlyContinue
     }
 
     It "Refuses the machine a run-time Target would have reached, against every contributing layer" {
@@ -1276,18 +1295,18 @@ resources:
         $refused | Should -Not -BeNullOrEmpty
         $refused.ErrorMessage | Should -Match 'uses a restart of its remote Target, which is not allowed for layer\(s\) Teams'
         $refused.ErrorMessage | Should -Match 'has already been applied' -Because 'the operator has to know the machine is mid-change'
-        Should -Invoke Restart-Computer -Times 0
+        $Global:PipelineRunnerRestartCalls | Should -BeNullOrEmpty
         $Calls | Should -Contain 'Set' -Because 'the Set itself was allowed; only the restart was not'
     }
 
     It "Restarts it for a layer that has the capability" {
         $result = Start-DscRunner -FilePath $PlatformRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet) -Policy $PlatformRebootPolicy -ErrorAction SilentlyContinue
         ($result.FailedResources | Where-Object InstanceName -EQ 'Platform thing') | Should -BeNullOrEmpty
-        Should -Invoke Restart-Computer -Times 1 -ParameterFilter { $ComputerName -eq 'dc01.corp.example.test' }
+        @($Global:PipelineRunnerRestartCalls) | Should -Be @('dc01.corp.example.test')
     }
 
     It "Restarts it as it always has when no policy is supplied" {
         $null = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet) -ErrorAction SilentlyContinue
-        Should -Invoke Restart-Computer -Times 1 -ParameterFilter { $ComputerName -eq 'web01.app.example.test' }
+        @($Global:PipelineRunnerRestartCalls) | Should -Be @('web01.app.example.test')
     }
 }
