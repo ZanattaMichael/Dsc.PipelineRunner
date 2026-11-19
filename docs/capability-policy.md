@@ -281,8 +281,10 @@ only knowable at run time.
 
 ### 4. It fails closed
 
-- No provenance record, an unreadable one, or one written under a different policy: the file does
-  not start.
+- No provenance record, an unreadable one, one written under a different policy, or one written
+  for another node: the file does not start. The record is found beside the compiled file by name,
+  so it must also say which node it is for; moving or renaming a compiled file cannot make another
+  node's record stand in for it.
 - A resource in the compiled file that is not in the record has no capabilities.
 - A policy file in a sub-folder of the configuration is refused.
 - With `-RequirePolicy`, a configuration without a policy does not run.

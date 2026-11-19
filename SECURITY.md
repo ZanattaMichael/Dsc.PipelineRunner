@@ -191,9 +191,9 @@ denied until the policy grants it.
 Enforcement is in three places: a raw-text scan of the layer files before Datum loads anything;
 every knowable violation before the first resource of a compiled file runs, reported in one pass;
 and again at the point of use, immediately before a target is contacted, a credential is resolved
-or a machine is restarted. It fails closed — a missing, unreadable or foreign provenance record, a
-file no layer claims, a resource not in the record, and `-RequirePolicy` without a policy all stop
-the run. `Get-DscCapabilityPolicyReport` describes what a policy permits without compiling or
+or a machine is restarted. It fails closed — a provenance record that is missing, unreadable, from
+another policy or written for another node, a file no layer claims, a resource not in the record,
+and `-RequirePolicy` without a policy all stop the run. `Get-DscCapabilityPolicyReport` describes what a policy permits without compiling or
 running anything.
 
 What a policy does **not** do: it is not a sandbox for the compile step (the Datum merge still runs

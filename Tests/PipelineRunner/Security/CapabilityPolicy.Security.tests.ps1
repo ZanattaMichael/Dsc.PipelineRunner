@@ -15,7 +15,7 @@ properties that make it worth having:
   * a file that breaks the policy does not start, and every violation is named in one pass;
   * a Target written as an expression is checked when it is known, against every layer that
     could have supplied its value;
-  * a missing provenance record, or one from another policy, fails closed;
+  * a missing provenance record, one from another policy, or one written for another node, fails closed;
   * what a resource may *be* is governed too: a resource type, the machine a remote Target may
     reach, the Credential actions a layer may resolve, a 'notify' that forces another layer's
     resource to re-apply, and restarting a remote target - each denied by default under
@@ -77,13 +77,16 @@ Layers:
 
         # A compiled file with its provenance record, as the compile step leaves them.
         function New-CompiledFile {
-            param([hashtable] $Resources, [string[]] $ContributingLayers = @('Platform', 'Teams'), [string] $Sha256 = $script:Policy.Sha256)
+            param([hashtable] $Resources, [string[]] $ContributingLayers = @('Platform', 'Teams'), [string] $Sha256 = $script:Policy.Sha256, [string] $Node = 'Node')
             $directory = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -ItemType Directory -Path $directory
             if ($null -ne $Resources) {
                 @{
                     SchemaVersion      = '1.0'
                     PolicySha256       = $Sha256
+                    # The record says which node it is about, so it cannot be made to stand in
+                    # for another file by being renamed or copied beside one.
+                    Node               = $Node
                     ContributingLayers = $ContributingLayers
                     # As the compile writes it: each precedence entry with the layer it mapped to.
                     # A violation message names the files of the layer that refused, so a reader
@@ -401,6 +404,19 @@ Layers:
         It "Fails closed on a provenance record written under another policy" {
             $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Platform') } -Sha256 ('0' * 64)
             (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @() -DefaultTargetAction 'Local' -Engine 'DscV2').Violations | Should -Match 'different policy'
+        }
+
+        It "Fails closed on a provenance record written for another node" {
+            $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Platform') } -Node 'SomeOtherNode'
+            $result = Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @() -DefaultTargetAction 'Local' -Engine 'DscV2'
+            ($result.Violations -join "`n") | Should -Match "is for node 'SomeOtherNode', not for 'Node'"
+            $result.Provenance | Should -BeNullOrEmpty
+        }
+
+        It "Fails closed on a provenance record that does not say which node it is for" {
+            $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Platform') } -Node ''
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @() -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -Match "is for node '\(none\)'"
         }
 
         It "Fails closed on a provenance record that cannot be read" {

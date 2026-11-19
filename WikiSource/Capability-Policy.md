@@ -214,6 +214,7 @@ The design, the reasoning and the follow-up list are in
 | --- | --- |
 | `There is no provenance record for '<file>'` | The file was compiled without the policy (for example by an earlier run into a cache directory). Compile and run in the same invocation. |
 | `was written under a different policy` | The compiled files in the cache directory come from another version of the policy. Clear the cache directory. |
+| `is for node '<other>', not for '<node>'` | The provenance record beside the compiled file was written for a different node, so it is not this file's record. A compiled file was renamed, or a record was copied from another output directory. Compile the configuration again instead. |
 | `… not allowed for layer(s) (unclaimed)` | The file is in a folder no layer's `Paths` match. Add the folder to a layer. |
 | `The policy file is in a sub-folder of the configuration` | The policy must be at the root, beside `Datum.yml`, or outside the configuration. |
 | `A policy is required for this run` | `-RequirePolicy` was given and there is no `Policy.yml` and no `-PolicyPath`. |

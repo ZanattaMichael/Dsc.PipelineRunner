@@ -27,8 +27,10 @@ uses: the runner expands expressions in a resource's *properties* only, never in
 or its credential blocks. An expression-looking computer name or Credential action is therefore
 matched as the literal text it is, which no hostname or action pattern will allow.
 
-Fails closed: no provenance record, an unreadable one, or one written under a different policy is
-itself a violation.
+Fails closed: no provenance record, an unreadable one, one written under a different policy, or one
+written for a different node is itself a violation. The record is located beside the compiled file
+by name, so it must also name the node it is for: that is what stops another node's record from
+standing in for this file's.
 
 .PARAMETER Policy
 The policy from Import-CapabilityPolicy.
@@ -89,6 +91,18 @@ function Get-RunPolicyViolation {
         if ($null -ne $provenance -and [string]$provenance['PolicySha256'] -ne [string]$Policy.Sha256) {
             $violations.Add("The provenance record '$([System.IO.Path]::GetFileName($recordPath))' was written under a different policy than the one supplied for this run. Compile and run with the same policy file.")
             $provenance = $null
+        }
+        # The record is found by name, so it must also say which node it is about: a record that
+        # names another node is not this file's record, however it came to sit beside it (a
+        # compiled file renamed after the compile, a record copied from another output folder).
+        # Every record this module writes carries Node, so a missing one is not one of ours.
+        if ($null -ne $provenance) {
+            $expectedNode = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
+            if ([string]$provenance['Node'] -ne $expectedNode) {
+                $recordedNode = if ([string]::IsNullOrWhiteSpace([string]$provenance['Node'])) { '(none)' } else { [string]$provenance['Node'] }
+                $violations.Add("The provenance record '$([System.IO.Path]::GetFileName($recordPath))' is for node '$recordedNode', not for '$expectedNode'. A policy can only be enforced on the file the record was written for; compile the configuration again rather than moving or renaming compiled files.")
+                $provenance = $null
+            }
         }
     }
     if ($null -eq $provenance) {

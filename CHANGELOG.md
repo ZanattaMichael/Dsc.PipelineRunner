@@ -70,6 +70,13 @@ All notable changes to this project will be documented in this file.
   expand expressions anywhere inside a `target` block, so that was a literal host name rather than
   a lookup. Both the example's README and `docs/capability-policy.md` now say so, and the
   integration suite makes each refusal the README claims.
+- **A provenance record must say which node it is for.** The record is found beside the compiled
+  file by name, and the runner's node name *is* that file's name, so the two never diverged on
+  their own — but a compiled file renamed after the compile, or a record copied in from another
+  output directory, would have been accepted as that file's record. The pre-run gate now compares
+  the record's `Node` against the compiled file's name and fails closed on a mismatch, so a policy
+  can only be enforced on the file its record was written for. Every record the compile has ever
+  written carries `Node`, so no existing record is invalidated.
 
 ## [1.5.0] - 2026-11-19
 
