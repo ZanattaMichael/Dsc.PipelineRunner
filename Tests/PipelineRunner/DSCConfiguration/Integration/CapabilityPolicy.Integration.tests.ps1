@@ -1116,6 +1116,31 @@ Layers:
             return (Join-Path $OutputPath 'App.yml')
         }
 
+        # An engine that records the methods it was asked for. -Calls must be a PARAMETER:
+        # GetNewClosure() captures the local scope's variables only, so a scriptblock literal
+        # written inside an It captures nothing and $Calls - which BeforeEach sets in a parent
+        # scope - reads as $null inside the closure. Same shape as New-RecordingEngine above.
+        function New-UseEngine {
+            param(
+                [System.Collections.Generic.List[object]] $Calls,
+                # Reports drift on Test and asks for a reboot after Set, as a resource that needs
+                # a restart to finish does.
+                [switch] $RebootAfterSet
+            )
+            if ($RebootAfterSet) {
+                return {
+                    param($Context)
+                    $Calls.Add([string]$Context.Method)
+                    return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
+                }.GetNewClosure()
+            }
+            return {
+                param($Context)
+                $Calls.Add([string]$Context.Method)
+                return @{ InDesiredState = $true; Message = 'ok' }
+            }.GetNewClosure()
+        }
+
         $plainTeamYaml = @'
 resources:
   - name: Team thing
@@ -1222,8 +1247,7 @@ resources:
     }
 
     It "Refuses the machine a run-time Target would have reached, against every contributing layer" {
-        $engine = { param($Context) $Calls.Add($Context.Method); return @{ InDesiredState = $true; Message = 'ok' } }.GetNewClosure()
-        $result = Start-DscRunner -FilePath $SteeredComputerFile -EngineAction $engine -Policy $SteeredComputerPolicy -ErrorAction SilentlyContinue
+        $result = Start-DscRunner -FilePath $SteeredComputerFile -EngineAction (New-UseEngine -Calls $Calls) -Policy $SteeredComputerPolicy -ErrorAction SilentlyContinue
         # The file starts: the pre-run gate judged the computer against the platform, which may
         # reach anything.
         $result.Status | Should -Not -Be 'AbortedByException'
@@ -1237,8 +1261,7 @@ resources:
     }
 
     It "Stops a file whose Credential action the layer may not use, before any vault is reached" {
-        $engine = { param($Context) $Calls.Add($Context.Method); return @{ InDesiredState = $true; Message = 'ok' } }.GetNewClosure()
-        $result = Start-DscRunner -FilePath $TeamVaultFile -EngineAction $engine -Policy $TeamVaultPolicy -ErrorAction SilentlyContinue
+        $result = Start-DscRunner -FilePath $TeamVaultFile -EngineAction (New-UseEngine -Calls $Calls) -Policy $TeamVaultPolicy -ErrorAction SilentlyContinue
         $result.Status | Should -Be 'AbortedByException'
         $result.ErrorMessage | Should -Match "resolves a credential through the 'SecretManagement' Credential action \(target.credential\)"
         $Calls.Count | Should -Be 0
@@ -1248,12 +1271,7 @@ resources:
     It "Does not restart a remote target for a layer without the Reboot capability" {
         # Nothing in the compiled file says a restart will be wanted: the engine asks for one
         # after Set() has run, so this is the only place it can be refused.
-        $engine = {
-            param($Context)
-            $Calls.Add($Context.Method)
-            return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
-        }.GetNewClosure()
-        $result = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction $engine -Policy $TeamRebootPolicy -ErrorAction SilentlyContinue
+        $result = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet) -Policy $TeamRebootPolicy -ErrorAction SilentlyContinue
         $refused = $result.FailedResources | Where-Object InstanceName -EQ 'Team thing'
         $refused | Should -Not -BeNullOrEmpty
         $refused.ErrorMessage | Should -Match 'uses a restart of its remote Target, which is not allowed for layer\(s\) Teams'
@@ -1263,23 +1281,13 @@ resources:
     }
 
     It "Restarts it for a layer that has the capability" {
-        $engine = {
-            param($Context)
-            $Calls.Add($Context.Method)
-            return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
-        }.GetNewClosure()
-        $result = Start-DscRunner -FilePath $PlatformRebootFile -Mode Set -EngineAction $engine -Policy $PlatformRebootPolicy -ErrorAction SilentlyContinue
+        $result = Start-DscRunner -FilePath $PlatformRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet) -Policy $PlatformRebootPolicy -ErrorAction SilentlyContinue
         ($result.FailedResources | Where-Object InstanceName -EQ 'Platform thing') | Should -BeNullOrEmpty
         Should -Invoke Restart-Computer -Times 1 -ParameterFilter { $ComputerName -eq 'dc01.corp.example.test' }
     }
 
     It "Restarts it as it always has when no policy is supplied" {
-        $engine = {
-            param($Context)
-            $Calls.Add($Context.Method)
-            return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
-        }.GetNewClosure()
-        $null = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction $engine -ErrorAction SilentlyContinue
+        $null = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet) -ErrorAction SilentlyContinue
         Should -Invoke Restart-Computer -Times 1 -ParameterFilter { $ComputerName -eq 'web01.app.example.test' }
     }
 }
