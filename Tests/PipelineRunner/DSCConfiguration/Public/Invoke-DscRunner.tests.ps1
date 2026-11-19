@@ -210,7 +210,7 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Engine = 'DscV3'; Reboot = 'Ignore' } }
 
             { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath } |
-                Should -Throw "*PipelineRunnerSettings.Reboot is 'Ignore'*layer 'Platform'*"
+                Should -Throw "*layer 'Platform'*PipelineRunnerSettings.Reboot is 'Ignore'*"
             Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 0 -Scope It
         }
 
