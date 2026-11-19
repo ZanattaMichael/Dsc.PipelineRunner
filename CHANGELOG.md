@@ -4,7 +4,72 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **The capability policy decides what a resource may be, not only what it may use** (preview,
+  #86 Part B). Five capabilities join `Targets`, `Engines`, `ExecutionScripts` and
+  `DatumScriptBlocks` in `Policy.yml`:
+  - `Resources` — a list of `Module/Resource` patterns a layer may declare, so a layer can be
+    denied `PSDesiredStateConfiguration/Script` and with it the ability to run arbitrary code
+    through the engine. A pattern with no `/` is refused at load, because it would name no
+    resource type and so allow nothing while reading as though it allowed a module.
+  - `Credentials` — the Credential actions a layer may resolve, covering both
+    `target.credential` and `resourceCredential` (a block with no `action` counts as
+    `Environment`, as the runner treats it). A team can be allowed the agent's environment
+    variables and denied the platform's `SecretManagement` vault and inline `Static` passwords;
+    an empty list means no credentials at all.
+  - `RemoteTargets` — the computer names a non-`Local` Target may be aimed at. `Targets` says
+    which mechanism a layer may use; this says where it may reach. A non-`Local` Target that
+    names no computer is refused.
+  - `Notify` — whether a layer's resource may `notify` another, which makes the notified resource
+    run `Set()` even though its own `Test()` reported it already in the desired state.
+    `dependsOn` is deliberately not restricted: it only orders resources that were going to run.
+  - `Reboot` — whether the runner may restart a remote target when a resource's `Set()` reports
+    `RebootRequired`. Without it the resource fails, the message says the `Set()` has already
+    been applied, and the machine is left running.
+
+  Each is enforced before the first resource of a file runs, and the ones whose value the runner
+  only holds at the moment of use — the remote computer, the Credential actions, the reboot — are
+  checked again immediately before a session is opened, a secret is read or a machine is
+  restarted. A Target action written as an expression is still never expanded; the computer name
+  beside it is now judged against every layer that contributed to the node, so a machine the
+  platform may reach but a team may not is refused there.
+- **`Get-DscCapabilityPolicyReport`** — a new exported command that says what a policy permits and
+  which layer each file and each resource declaration falls in, without compiling or running
+  anything. Every layer with the *effective* rule for every capability (the ones a layer does not
+  list shown as what `Default` resolves them to, not left blank), the file-to-layer and
+  `ResolutionPrecedence`-to-layer mapping, every resource the files declare with the layers that
+  declare it, and findings for the ways a policy ends up quietly ineffective: a layer whose
+  `Paths` match no file, a file no layer claims, a layer that may use a remote Target but may
+  reach no computer, a layer that may declare no resource type at all, `Default: Allow`, and any
+  declaration the policy would refuse. `-AsText` renders it for a person; otherwise it returns an
+  object whose `HasError` a pull-request pipeline can gate on. It reads the files rather than
+  performing Datum's merge, so it is advisory — the run is authoritative.
+
 ### Changed
+
+- **A policy violation names the node, the policy and the files of the layer that refused.** The
+  aggregate message that stops a file now reads `Capability policy: N violation(s) in node
+  '<node>'; no resource was run. Policy: '<path>' (<fingerprint>)`, and each violation appends the
+  configuration paths the denying layer owns in that node, read from the provenance record. A
+  pipeline log shows this message on its own, often for one of several nodes.
+- **A policy whose path patterns match nothing says so.** Compiling with a policy now warns for
+  each layer whose `Paths` match no file in the configuration, and for any file no layer claims.
+  Both were silent before: the files land in `(unclaimed)`, which denies everything, so the run
+  stopped for a reason that looked nothing like "your `Paths` have a typo".
+- **BREAKING for an existing preview policy.** A policy written against v1.3.0 still loads, but
+  under `Default: Deny` the five new capabilities resolve to `Deny` for every layer that does not
+  list them — and **a layer with no `Resources` rule may declare no resource at all**, so a
+  configuration that ran before can stop running until its policy is updated. That is the
+  fail-closed behaviour the `Default` key exists for. Run
+  `Get-DscCapabilityPolicyReport -ConfigurationPath <config> -AsText` and grant each layer what it
+  needs; see
+  [Upgrading a policy written for the first preview](docs/capability-policy.md#upgrading-a-policy-written-for-the-first-preview).
+- **The shipped `Example Policy Configuration` demonstrates all nine capabilities**, and its
+  platform resource no longer writes `computerName: $(variables('JumpHost'))`: the runner does not
+  expand expressions anywhere inside a `target` block, so that was a literal host name rather than
+  a lookup. Both the example's README and `docs/capability-policy.md` now say so, and the
+  integration suite makes each refusal the README claims.
 
 - **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
   made (`dsc resource list`, about three seconds on a hosted Windows agent) is saved under the

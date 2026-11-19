@@ -170,11 +170,46 @@ Concretely:
     script or running it anyway. This is an explicit opt-in, not a sandbox — once enabled,
     these scripts run with the same trust and privileges as the rest of the configuration.
 
+### Trusting the layers of one configuration differently (preview)
+
+The statement above — the configuration repository is one unit of trust — is the default and
+remains true when no policy is present. A
+[**capability policy**](docs/capability-policy.md) (`Policy.yml` beside `Datum.yml`) narrows it per
+layer. A layer is decided by where a file is in the repository, never by anything written inside
+the file, so the policy's path patterns mirror the repository controls (CODEOWNERS, per-folder
+branch protection) that tie a folder to a team.
+
+Per layer, a policy decides: which Target actions and engines may be used; which **resource types**
+may be declared; which **machines** a non-`Local` Target may reach; which **Credential actions** may
+be resolved, so a team can be allowed the build agent's environment variables and denied the
+platform's vault and inline passwords; whether `preExecutionScript`/`postExecutionScript` and Datum
+script blocks are allowed; whether a resource may `notify` another into re-applying itself; and
+whether the runner may **restart a remote target**. A capability a layer does not list follows the
+policy's `Default`, so with `Default: Deny` a capability added in a later version of the runner is
+denied until the policy grants it.
+
+Enforcement is in three places: a raw-text scan of the layer files before Datum loads anything;
+every knowable violation before the first resource of a compiled file runs, reported in one pass;
+and again at the point of use, immediately before a target is contacted, a credential is resolved
+or a machine is restarted. It fails closed — a missing, unreadable or foreign provenance record, a
+file no layer claims, a resource not in the record, and `-RequirePolicy` without a policy all stop
+the run. `Get-DscCapabilityPolicyReport` describes what a policy permits without compiling or
+running anything.
+
+What a policy does **not** do: it is not a sandbox for the compile step (the Datum merge still runs
+as ordinary PowerShell; Part A of issue #86 is the containment work), it does not constrain the
+properties passed to an allowed resource type or which methods a layer may use, it restricts
+Credential *actions* rather than individual secrets, and `Datum.yml` still controls the merge, so it
+must belong to the most trusted layer and be protected like `Policy.yml` itself. A contributor who
+can change or delete `Policy.yml` controls the policy; a pipeline that cannot rely on repository
+controls should supply its own with `-PolicyPath` from somewhere contributors cannot write, or at
+minimum pass `-RequirePolicy`.
+
 ### What this means for operators
 
-Anyone who can push to the configuration repository can execute arbitrary code on the
-build agent and on the managed nodes. This is inherent to running DSC configurations and
-cannot be patched away inside `Dsc.PipelineRunner`; it must be mitigated
+Without a capability policy, anyone who can push to the configuration repository can execute
+arbitrary code on the build agent and on the managed nodes. This is inherent to running DSC
+configurations and cannot be patched away inside `Dsc.PipelineRunner`; it must be mitigated
 **operationally**:
 
 - Protect the configuration repository with the **same controls as the runner's own
@@ -183,6 +218,9 @@ cannot be patched away inside `Dsc.PipelineRunner`; it must be mitigated
 - Pin the configuration to a reviewed revision with `-ConfigurationRevision`, ideally a full
   commit SHA, so a push to the tracked branch cannot change what a run applies.
 - Run the agent with the least privilege the target resources require.
+- Where several teams contribute to one configuration, add a
+  [capability policy](docs/capability-policy.md) so each layer is limited to what it needs, and
+  pass `-RequirePolicy` so removing the file cannot switch enforcement off unnoticed.
 
 When the configuration source is a remote URL, the runner emits a `Write-Warning` at the
 start of compilation restating this trust requirement.
@@ -346,9 +384,16 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   unclaimed file has no capabilities whatever the default; what several layers contributed to is
   allowed only if every one of them is; a Datum script block in a layer that may not use one stops
   the compile before Datum loads it and cannot be hidden with YAML; a file that breaks the policy
-  does not start and every violation is named; a Target written as an expression is checked when
-  it is known, against every layer that could have supplied it; and a missing, unreadable or
-  foreign provenance record fails closed.
+  does not start and every violation is named, with the node, the policy, the layer and the files
+  that layer owns; a resource type, the machine a remote Target reaches, every Credential action a
+  resource resolves, a `notify` that would force another layer's resource to re-apply, and a
+  restart of a remote target are each denied by default and each refused at the point of use as
+  well as before the run; `dependsOn` is deliberately not restricted; a list capability with
+  nothing to match is denied even against `'*'`; a Target written as an expression is checked when
+  it is known, against every layer that could have supplied it, and so is the computer beside it;
+  a missing, unreadable or foreign provenance record fails closed; and
+  `Get-DscCapabilityPolicyReport` describes a policy, and finds the ways one is silently
+  ineffective, without compiling or running anything.
 - `Tests/PipelineRunner/Security/PlainSecretExposure.Security.tests.ps1` — plain-string secrets
   under sensitive names, and secrets inside lists of mappings, are scrubbed from the thrown error
   and redacted from the verbose breadcrumb, an overlapping secret is replaced whole, and

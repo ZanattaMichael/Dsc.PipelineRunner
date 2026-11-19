@@ -19,7 +19,9 @@ Describe "Capability policy provenance through a real Datum compile (preview)" -
         . (Get-FunctionPath 'Get-PolicyLayer.ps1').FullName
         . (Get-FunctionPath 'Test-PolicyCapability.ps1').FullName
         . (Get-FunctionPath 'Get-ResourceProvenance.ps1').FullName
+        . (Get-FunctionPath 'Test-ResourceCapabilityPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
+        . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
 
         function New-ConfigurationTree {
@@ -147,13 +149,21 @@ Layers:
     Capabilities:
       Targets: [ '*' ]
       Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ '*' ]
+      RemoteTargets: [ '*' ]
       ExecutionScripts: true
       DatumScriptBlocks: true
+      Notify: true
+      Reboot: true
   - Name: Teams
     Paths: [ 'Projects/**' ]
     Capabilities:
       Targets: [ Local, WinRM ]
       Engines: [ DscV2, DscV3 ]
+      Resources: [ 'Stub/*' ]
+      Credentials: [ Environment ]
+      RemoteTargets: [ '*.app.example.test' ]
 '@
 
         $script:ConfigurationRoot = Join-Path $TestDrive 'config'
@@ -282,6 +292,188 @@ Layers:
             (Get-RunPolicyViolation -Policy $Policy -FilePath $CompiledFile -Task @($Compiled.resources) -DefaultTargetAction 'Local' -Engine 'Bespoke').Violations -join "`n" |
                 Should -Match "engine 'Bespoke' is not allowed for layer\(s\) Teams"
         }
+
+        It "Also refuses the machine that resource reaches, which is not in the team's RemoteTargets" {
+            # Two separate capabilities on one resource: the mechanism (SSH) and the destination.
+            # Either one is enough to refuse it, and a reader is told about both.
+            $Violations | Should -Match "\[Stub/Thing/Shared\] uses the remote Target computer 'bastion.example.test', which is not allowed for layer\(s\) Teams"
+        }
+
+        It "Names the files of the layer that refused, read from the record the compile wrote" {
+            $Violations | Should -Match 'layer Teams owns Projects/Present/App'
+        }
+    }
+
+    Context "The capabilities a resource's own content decides" {
+
+        # Each of these compiles a team file for real and checks the refusal against the record
+        # Datum's own merge produced, rather than a record written by the test.
+        BeforeAll {
+            function Test-TeamFile {
+                param([string] $TeamYaml)
+                $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+                New-ConfigurationTree -Root $root -Files @{
+                    'Datum.yml'                = $script:DatumYaml
+                    'Policy.yml'               = $script:PolicyYaml
+                    'Baseline/Common.yml'      = $script:BaselineYaml
+                    'Composites/Block.yml'     = $script:BlockYaml
+                    'Projects/Present/App.yml' = $TeamYaml
+                }
+                $policyPath = Resolve-CapabilityPolicyPath -ConfigurationPath $root
+                $policy = Import-CapabilityPolicy -Path $policyPath -ConfigurationPath $root
+                Assert-DatumScriptBlockPolicy -ConfigurationPath $root -Policy $policy
+                $output = Join-Path $root '_compiled'
+                Invoke-PolicyCompile -ConfigurationRoot $root -OutputDirectory $output -PolicyPath $policyPath
+                $compiledFile = Join-Path $output 'App.yml'
+                $compiled = Get-Content -LiteralPath $compiledFile -Raw | ConvertFrom-Yaml
+                return ((Get-RunPolicyViolation -Policy $policy -FilePath $compiledFile -Task @($compiled.resources) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n")
+            }
+        }
+
+        It "Refuses a resource type the team may not declare" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Payload
+    type: PSDesiredStateConfiguration/Script
+    properties:
+      GetScript: '{ @{} }'
+'@ | Should -Match "\[PSDesiredStateConfiguration/Script/Payload\] is of the resource type 'PSDesiredStateConfiguration/Script', which is not allowed for layer\(s\) Teams"
+        }
+
+        It "Allows a resource type it may" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team only
+    type: Stub/Thing
+    properties:
+      Setting: team
+'@ | Should -Not -Match '\[Stub/Thing/Team only\]'
+        }
+
+        It "Refuses a machine outside the team's RemoteTargets, on a Target it may use" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team remote
+    type: Stub/Thing
+    target:
+      action: WinRM
+      computerName: dc01.corp.example.test
+    properties:
+      Setting: team
+'@ | Should -Match "\[Stub/Thing/Team remote\] uses the remote Target computer 'dc01.corp.example.test', which is not allowed for layer\(s\) Teams"
+        }
+
+        It "Allows a machine inside them" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team remote
+    type: Stub/Thing
+    target:
+      action: WinRM
+      computerName: web01.app.example.test
+    properties:
+      Setting: team
+'@ | Should -Not -Match '\[Stub/Thing/Team remote\]'
+        }
+
+        It "Refuses a Credential action the team may not use, in either block" {
+            $violations = Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team vault
+    type: Stub/Thing
+    target:
+      action: WinRM
+      computerName: web01.app.example.test
+      credential:
+        action: SecretManagement
+        Name: platform-secret
+    properties:
+      Setting: team
+  - name: Team static
+    type: Stub/Thing
+    resourceCredential:
+      action: Static
+      UserName: dummy
+      Password: dummy
+    properties:
+      Setting: team
+'@
+            $violations | Should -Match "\[Stub/Thing/Team vault\] resolves a credential through the 'SecretManagement' Credential action \(target.credential\)"
+            $violations | Should -Match "\[Stub/Thing/Team static\] resolves a credential through the 'Static' Credential action \(resourceCredential\)"
+        }
+
+        It "Allows the Credential action it may" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team env
+    type: Stub/Thing
+    resourceCredential:
+      action: Environment
+      UserNameVariable: TEAM_USER
+      PasswordVariable: TEAM_PASSWORD
+    properties:
+      Setting: team
+'@ | Should -Not -Match '\[Stub/Thing/Team env\]'
+        }
+
+        It "Refuses a team's notify, which would force a platform resource to re-apply itself" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team nudge
+    type: Stub/Thing
+    notify:
+      - Stub/Thing/Platform only
+    properties:
+      Setting: team
+'@ | Should -Match '\[Stub/Thing/Team nudge\] notifies 1 resource\(s\) \(Stub/Thing/Platform only\), forcing them to re-run Set\(\)'
+        }
+
+        It "Does not refuse a team's dependsOn, which only orders what was going to run" {
+            Test-TeamFile -TeamYaml @'
+resources:
+  - name: Team after
+    type: Stub/Thing
+    dependsOn:
+      - Stub/Thing/Platform only
+    properties:
+      Setting: team
+'@ | Should -Not -Match '\[Stub/Thing/Team after\]'
+        }
+    }
+
+    Context "The policy is legible before it bites, against the same configuration" {
+
+        BeforeAll {
+            . (Get-FunctionPath 'Format-CapabilityPolicyReport.ps1').FullName
+            . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
+            . (Get-FunctionPath 'Get-DscCapabilityPolicyReport.ps1').FullName
+            $script:StaticReport = Get-DscCapabilityPolicyReport -ConfigurationPath $ConfigurationRoot
+        }
+
+        It "Agrees with the compile about which layer owns each precedence entry" {
+            # The record is written from the merge; the report is written from the files. The two
+            # have to say the same thing about the hierarchy or one of them is lying.
+            @($StaticReport.ResolutionPrecedence).Count | Should -Be @($Record.Layers).Count
+            for ($i = 0; $i -lt @($Record.Layers).Count; $i++) {
+                $StaticReport.ResolutionPrecedence[$i].Layer | Should -Be $Record.Layers[$i].Layer
+            }
+        }
+
+        It "Agrees with the compile about which layer declared each resource" {
+            ($StaticReport.Resources | Where-Object Name -EQ 'Platform only').DeclaringLayers | Should -Be @('Platform')
+            @(($StaticReport.Resources | Where-Object Name -EQ 'Shared' | Select-Object -First 1).DeclaringLayers) | Sort-Object | Should -Be @('Platform', 'Teams')
+        }
+
+        It "Finds the team's SSH resource without compiling anything" {
+            $shared = @($StaticReport.Resources | Where-Object { $_.Name -eq 'Shared' -and $_.DeclaredIn -like 'Projects/*' })
+            $shared.Count | Should -Be 1
+            $shared[0].Allowed | Should -BeFalse
+            ($shared[0].Refusals -join ' ') | Should -Match "the Target 'SSH'"
+        }
+
+        It "Compiles nothing: no output and no provenance record appear in the configuration" {
+            @(Get-ChildItem -LiteralPath $ConfigurationRoot -Recurse -File -Filter '*.provenance.json').Count | Should -Be 0
+        }
     }
 
     Context "Without a policy" {
@@ -333,7 +525,9 @@ Describe "A real runner pass under a capability policy (preview)" -Tag Integrati
         . (Get-FunctionPath 'Get-PolicyLayer.ps1').FullName
         . (Get-FunctionPath 'Test-PolicyCapability.ps1').FullName
         . (Get-FunctionPath 'Get-ResourceProvenance.ps1').FullName
+        . (Get-FunctionPath 'Test-ResourceCapabilityPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
+        . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
 
         . (Get-FunctionPath 'DscMethodResult.ps1').FullName
@@ -391,7 +585,8 @@ lookup_options:
 "@
 
         # The inline recording engine counts as an engine of its own, so this policy lets both
-        # layers use any engine and restricts what the suite is about: Targets and scripts.
+        # layers use any engine, any resource type and any remote computer: what it restricts is
+        # what this suite is about, which is Targets and execution scripts.
         $script:RunPolicyYaml = @'
 PolicyVersion: 1
 Default: Deny
@@ -401,12 +596,20 @@ Layers:
     Capabilities:
       Targets: [ '*' ]
       Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ '*' ]
+      RemoteTargets: [ '*' ]
       ExecutionScripts: true
+      Notify: true
+      Reboot: true
   - Name: Teams
     Paths: [ 'Projects/**' ]
     Capabilities:
       Targets: [ Local ]
       Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ '*' ]
+      RemoteTargets: [ '*' ]
 '@
 
         $script:RunBaselineYaml = @'
@@ -549,8 +752,10 @@ resources:
     It "Does not start a file that breaks the policy, and names every violation" {
         $result = Start-DscRunner -FilePath $ViolatingFile -EngineAction (New-RecordingEngine -Calls $Calls) -Policy $ViolatingPolicy -RunnerSettings @{ AllowExecutionScripts = $true } -ErrorAction SilentlyContinue
         $result.Status | Should -Be 'AbortedByException'
-        $result.ErrorMessage | Should -Match 'Capability policy: 2 violation\(s\); no resource was run'
+        $result.ErrorMessage | Should -Match 'Capability policy: 2 violation\(s\) in node ''App''; no resource was run'
+        $result.ErrorMessage | Should -Match 'Policy: ' -Because 'a pipeline log shows this message on its own, so it has to say which policy refused'
         $result.ErrorMessage | Should -Match "\[Stub/Thing/Team over SSH\] uses the Target 'SSH', which is not allowed for layer\(s\) Teams"
+        $result.ErrorMessage | Should -Match 'layer Teams owns Projects/Present/App' -Because 'naming the layer is only half of it: a reader needs the files it owns'
         $result.ErrorMessage | Should -Match "\[Stub/Thing/Team with a script\] has an execution script"
         $Calls.Count | Should -Be 0 -Because 'the engine must not be called for a file that is refused'
     }
@@ -611,7 +816,9 @@ Describe "The shipped example: Example Policy Configuration" -Tag Integration, H
         . (Get-FunctionPath 'Get-PolicyLayer.ps1').FullName
         . (Get-FunctionPath 'Test-PolicyCapability.ps1').FullName
         . (Get-FunctionPath 'Get-ResourceProvenance.ps1').FullName
+        . (Get-FunctionPath 'Test-ResourceCapabilityPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
+        . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
 
@@ -722,5 +929,357 @@ Describe "The shipped example: Example Policy Configuration" -Tag Integration, H
         $root = New-ExampleCopy -ChangeTeamFile { param($text) $text -replace 'SiteName: web-frontend', "SiteName: '[x={ Get-Date }=]'" }
         { Test-Example -Root $root } | Should -Throw "*'Projects/Present/WebTeam.yml' (layer Teams) contains a Datum script block*"
         Test-Path -LiteralPath (Join-Path $root '_compiled') | Should -BeFalse
+    }
+
+    It "README change 5: refuses a resource type the team may not declare" {
+        $root = New-ExampleCopy -ChangeTeamFile { param($text) $text -replace '(?m)^(  - name: Site name\r?\n)    type: PSDscResources/Environment', "`$1    type: PSDesiredStateConfiguration/Script" }
+        (Test-Example -Root $root).Check.Violations -join "`n" |
+            Should -Match "\[PSDesiredStateConfiguration/Script/Site name\] is of the resource type 'PSDesiredStateConfiguration/Script', which is not allowed for layer\(s\) Teams"
+    }
+
+    It "README change 6: refuses another machine, on a Target the team may still use" {
+        $root = New-ExampleCopy -ChangeTeamFile { param($text) $text -replace 'web01\.app\.contoso\.example', 'bastion.contoso.example' }
+        $violations = (Test-Example -Root $root).Check.Violations -join "`n"
+        $violations | Should -Match "uses the remote Target computer 'bastion.contoso.example', which is not allowed for layer\(s\) Teams"
+        $violations | Should -Not -Match "uses the Target 'WinRM'" -Because 'the mechanism is still allowed; it is the destination that is not'
+    }
+
+    It "README change 7: refuses a Credential action the team may not use: <Action>" -ForEach @(
+        @{ Action = 'SecretManagement' }, @{ Action = 'Static' }
+    ) {
+        $replacement = $Action
+        $root = New-ExampleCopy -ChangeTeamFile { param($text) $text -replace '(?m)^(        action: )Environment$', ("`$1" + $replacement) }
+        (Test-Example -Root $root).Check.Violations -join "`n" |
+            Should -Match "resolves a credential through the '$replacement' Credential action \(target.credential\)"
+    }
+
+    It "README change 8: refuses a team's notify, which would force a platform resource to re-apply" {
+        $root = New-ExampleCopy -ChangeTeamFile {
+            param($text)
+            $text -replace '(?m)^(  - name: Site name\r?\n)', "`$1    notify:`n      - PSDscResources/Environment/Log level`n"
+        }
+        (Test-Example -Root $root).Check.Violations -join "`n" |
+            Should -Match '\[PSDscResources/Environment/Site name\] notifies 1 resource\(s\) \(PSDscResources/Environment/Log level\), forcing them to re-run Set\(\)'
+    }
+
+    It "Shows the same policy as a report, without compiling or running anything" {
+        . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
+        . (Get-FunctionPath 'Format-CapabilityPolicyReport.ps1').FullName
+        . (Get-FunctionPath 'Get-DscCapabilityPolicyReport.ps1').FullName
+        $report = Get-DscCapabilityPolicyReport -ConfigurationPath $ExampleSource -RequirePolicy
+        @($report.Findings | Where-Object Severity -EQ 'Error') | Should -BeNullOrEmpty
+        @($report.Resources | Where-Object { -not $_.Allowed }) | Should -BeNullOrEmpty
+        @($report.Layers).Count | Should -Be 2
+        ($report.Layers | Where-Object Name -EQ 'Teams').Capabilities['Reboot'] | Should -Be 'Deny (not listed; from Default)'
+    }
+}
+
+Describe "A real runner pass: the capabilities checked at the point of use (preview)" -Tag Integration, HostedIntegration {
+
+    # The pre-run gate reads the compiled file; these are the checks the runner makes again with
+    # the value it is really about to use, immediately before using it. Two of them can refuse
+    # something the pre-run gate allowed:
+    #
+    #   * a computer reached through a Target action that was only knowable at run time, which is
+    #     judged against every layer that contributed to the node;
+    #   * a restart of a remote target, which nothing in the compiled file announces - the engine
+    #     asks for it after Set() has already run.
+    #
+    # The rest is defence in depth: the task object the gate inspected is the one the resource
+    # runs from, and a module-resident pipeline rule runs between the two.
+
+    BeforeAll {
+        foreach ($module in 'powershell-yaml', 'datum', 'datum.invokecommand') {
+            Import-Module -Name $module -ErrorAction Stop
+        }
+
+        . (Get-FunctionPath 'Resolve-DscDatumProject.ps1').FullName
+        . (Get-FunctionPath 'Get-CompositeDefinition.ps1').FullName
+        . (Get-FunctionPath 'Expand-CompositeResource.ps1').FullName
+        . (Get-FunctionPath 'Import-CapabilityPolicy.ps1').FullName
+        . (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1').FullName
+        . (Get-FunctionPath 'Get-PolicyLayer.ps1').FullName
+        . (Get-FunctionPath 'Test-PolicyCapability.ps1').FullName
+        . (Get-FunctionPath 'Get-ResourceProvenance.ps1').FullName
+        . (Get-FunctionPath 'Test-ResourceCapabilityPolicy.ps1').FullName
+        . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
+        . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
+
+        . (Get-FunctionPath 'DscMethodResult.ps1').FullName
+        . (Get-FunctionPath 'Invoke-Action.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-DscMethodResult.ps1').FullName
+        . (Get-FunctionPath 'Invoke-EngineAction.ps1').FullName
+        . (Get-FunctionPath 'Start-DscRunner.ps1').FullName
+        . (Get-FunctionPath 'Protect-SensitiveValue.ps1').FullName
+        . (Get-FunctionPath 'GetDefaultValues.ps1').FullName
+        . (Get-FunctionPath 'SetVariables.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-CaseInsensitiveHashtable.ps1').FullName
+        . (Get-FunctionPath 'Expand-HashTable.ps1').FullName
+        . (Get-FunctionPath 'Expand-StringInArray.ps1').FullName
+        . (Get-FunctionPath 'Expand-SafeString.ps1').FullName
+        . (Get-FunctionPath 'Expand-Parameters.ps1').FullName
+        . (Get-FunctionPath 'Expand-ParameterInArray.ps1').FullName
+        . (Get-FunctionPath 'Resolve-PipelineParameter.ps1').FullName
+        . (Get-FunctionPath 'Assert-SafeConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'ConvertTo-NormalizedConditionExpression.ps1').FullName
+        . (Get-FunctionPath 'Stop-TaskProcessing.ps1').FullName
+        . (Get-FunctionPath 'variables.ps1').FullName
+        . (Get-FunctionPath 'Invoke-CustomTask.ps1').FullName
+        . (Get-FunctionPath 'Invoke-PreParseRules.ps1').FullName
+        . (Get-FunctionPath 'Invoke-FormatTasks.ps1').FullName
+
+        $references = @{}
+        $variables  = @{}
+        $parameters = @{}
+
+        $separator = [System.IO.Path]::DirectorySeparatorChar
+        $script:UseDatumYaml = @"
+ResolutionPrecedence:
+  - Projects$separator`$(`$Node.ProjectPresence)$separator`$(`$Node.Project)
+  - Baseline${separator}Common
+
+default_lookup_options: MostSpecific
+
+PipelineRunnerSettings:
+  ConfigurationVersion: 0.5
+  PipelineRunnerVersion: 1.1.0
+
+DatumHandlers:
+  Datum.InvokeCommand::InvokeCommand:
+    SkipDuringLoad: true
+
+lookup_options:
+  variables:
+    merge_hash_array: deep
+  resources:
+    merge_hash_array: UniqueKeyValTuples
+    merge_options:
+      tuple_keys:
+        - name
+"@
+
+        # Both layers may use any Target, so the Target check never masks the ones under test.
+        # What the teams may not do is reach outside their own subnet, use the platform's vault,
+        # or have a machine restarted.
+        $script:UsePolicyYaml = @'
+PolicyVersion: 1
+Default: Deny
+Layers:
+  - Name: Platform
+    Paths: [ 'Datum.yml', 'Baseline/**' ]
+    Capabilities:
+      Targets: [ '*' ]
+      Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ '*' ]
+      RemoteTargets: [ '*' ]
+      Reboot: true
+  - Name: Teams
+    Paths: [ 'Projects/**' ]
+    Capabilities:
+      Targets: [ '*' ]
+      Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ Environment ]
+      RemoteTargets: [ '*.app.example.test' ]
+'@
+
+        function New-UseNode {
+            param([string] $TeamYaml, [string] $BaselineYaml)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $files = @{
+                'Datum.yml'                = $script:UseDatumYaml
+                'Policy.yml'               = $script:UsePolicyYaml
+                'Baseline/Common.yml'      = $BaselineYaml
+                'Projects/Present/App.yml' = $TeamYaml
+            }
+            foreach ($relativePath in $files.Keys) {
+                $path = Join-Path $root $relativePath
+                New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+                Set-Content -LiteralPath $path -Value $files[$relativePath] -Encoding UTF8
+            }
+            $OutputPath = Join-Path $root '_compiled'
+            New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+            $CapabilityPolicyPath = Resolve-CapabilityPolicyPath -ConfigurationPath $root
+            $script:UsePolicy = Import-CapabilityPolicy -Path $CapabilityPolicyPath -ConfigurationPath $root
+            Assert-DatumScriptBlockPolicy -ConfigurationPath $root -Policy $script:UsePolicy
+            Push-Location -LiteralPath $root
+            try {
+                $Datum = New-DatumStructure -DefinitionFile 'Datum.yml'
+                foreach ($ProjectType in $Datum.Projects.psobject.properties) {
+                    foreach ($ProjectNode in $Datum.Projects."$($ProjectType.name)".psobject.properties) {
+                        Resolve-DscDatumProject -NodeName $ProjectNode -AllNodes $Datum.Projects."$($ProjectType.name)"."$($ProjectNode.Name)"
+                    }
+                }
+            }
+            finally { Pop-Location }
+            return (Join-Path $OutputPath 'App.yml')
+        }
+
+        $plainTeamYaml = @'
+resources:
+  - name: Team thing
+    type: Stub/Thing
+    properties:
+      Setting: team
+'@
+
+        # The platform's resource names its Target with an expression and the team sets the
+        # variable. The runner never expands anything in a 'target' block, so the action stays
+        # that literal text - but the computer beside it is a real host name, and at the point of
+        # use it is judged against the team's RemoteTargets as well as the platform's.
+        $script:SteeredComputerFile = New-UseNode -BaselineYaml @'
+variables:
+  Hop: Local
+resources:
+  - name: Platform thing
+    type: Stub/Thing
+    target:
+      action: $(variables('Hop'))
+      computerName: dc01.corp.example.test
+    properties:
+      Setting: platform
+'@ -TeamYaml @'
+variables:
+  Hop: WinRM
+resources:
+  - name: Team thing
+    type: Stub/Thing
+    properties:
+      Setting: team
+'@
+        $script:SteeredComputerPolicy = $script:UsePolicy
+
+        $script:TeamVaultFile = New-UseNode -BaselineYaml @'
+resources: []
+'@ -TeamYaml @'
+resources:
+  - name: Team thing
+    type: Stub/Thing
+    target:
+      action: WinRM
+      computerName: web01.app.example.test
+      credential:
+        action: SecretManagement
+        Name: platform-secret
+    properties:
+      Setting: team
+'@
+        $script:TeamVaultPolicy = $script:UsePolicy
+
+        $script:TeamRebootFile = New-UseNode -BaselineYaml @'
+resources: []
+'@ -TeamYaml @'
+resources:
+  - name: Team thing
+    type: Stub/Thing
+    target:
+      action: WinRM
+      computerName: web01.app.example.test
+    properties:
+      Setting: team
+'@
+        $script:TeamRebootPolicy = $script:UsePolicy
+
+        $script:PlatformRebootFile = New-UseNode -TeamYaml $plainTeamYaml -BaselineYaml @'
+resources:
+  - name: Platform thing
+    type: Stub/Thing
+    target:
+      action: WinRM
+      computerName: dc01.corp.example.test
+    properties:
+      Setting: platform
+'@
+        $script:PlatformRebootPolicy = $script:UsePolicy
+
+        # --- Runner stand-ins. Compiling is finished, so Datum's own calls are unaffected.
+        Mock -CommandName Get-Module -ParameterFilter { $Name -eq 'Dsc.PipelineRunner' } -MockWith { return @{ ModuleBase = $Global:RepositoryRoot } }
+        Mock -CommandName Write-Host
+        Mock -CommandName Write-Information
+        Mock -CommandName Invoke-CustomTask -MockWith {
+            param([Parameter(Mandatory = $true)] [Object[]]$Tasks, [Parameter(Mandatory = $true)] [String]$CustomTaskName)
+            return $Tasks
+        }
+        Mock -CommandName Invoke-PreParseRules
+        Mock -CommandName Invoke-FormatTasks -MockWith { param([Parameter(Mandatory = $true)] [Object[]]$Tasks) return $Tasks }
+        # A Target action hands back a remote session; a Credential action hands back a dummy
+        # credential. Both record that they were reached, which for a refused resource they must
+        # not be.
+        Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Target' } -MockWith {
+            return [pscustomobject]@{ IsRemote = $true; ComputerName = [string]$Context.ComputerName; PSSession = $null }
+        }
+        Mock -CommandName Invoke-Action -ParameterFilter { $Hook -eq 'Credential' } -MockWith {
+            return [System.Management.Automation.PSCredential]::new('dummy', (ConvertTo-SecureString 'dummy' -AsPlainText -Force))
+        }
+        # Nothing in this suite may restart anything; the mock is how that is proved.
+        Mock -CommandName Restart-Computer
+    }
+
+    BeforeEach {
+        $script:StopTaskProcessing = $false
+        $script:Calls = [System.Collections.Generic.List[object]]::new()
+    }
+
+    It "Refuses the machine a run-time Target would have reached, against every contributing layer" {
+        $engine = { param($Context) $Calls.Add($Context.Method); return @{ InDesiredState = $true; Message = 'ok' } }.GetNewClosure()
+        $result = Start-DscRunner -FilePath $SteeredComputerFile -EngineAction $engine -Policy $SteeredComputerPolicy -ErrorAction SilentlyContinue
+        # The file starts: the pre-run gate judged the computer against the platform, which may
+        # reach anything.
+        $result.Status | Should -Not -Be 'AbortedByException'
+        $refused = $result.FailedResources | Where-Object InstanceName -EQ 'Platform thing'
+        $refused | Should -Not -BeNullOrEmpty
+        $refused.ErrorMessage | Should -Match "uses the remote Target computer 'dc01.corp.example.test'"
+        $refused.ErrorMessage | Should -Match 'which is not allowed for layer\(s\) Teams'
+        Should -Invoke Invoke-Action -Times 0 -ParameterFilter { $Hook -eq 'Target' }
+        # ... and the rest of the file still runs.
+        $result.PassCount | Should -Be 1
+    }
+
+    It "Stops a file whose Credential action the layer may not use, before any vault is reached" {
+        $engine = { param($Context) $Calls.Add($Context.Method); return @{ InDesiredState = $true; Message = 'ok' } }.GetNewClosure()
+        $result = Start-DscRunner -FilePath $TeamVaultFile -EngineAction $engine -Policy $TeamVaultPolicy -ErrorAction SilentlyContinue
+        $result.Status | Should -Be 'AbortedByException'
+        $result.ErrorMessage | Should -Match "resolves a credential through the 'SecretManagement' Credential action \(target.credential\)"
+        $Calls.Count | Should -Be 0
+        Should -Invoke Invoke-Action -Times 0 -ParameterFilter { $Hook -eq 'Credential' }
+    }
+
+    It "Does not restart a remote target for a layer without the Reboot capability" {
+        # Nothing in the compiled file says a restart will be wanted: the engine asks for one
+        # after Set() has run, so this is the only place it can be refused.
+        $engine = {
+            param($Context)
+            $Calls.Add($Context.Method)
+            return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
+        }.GetNewClosure()
+        $result = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction $engine -Policy $TeamRebootPolicy -ErrorAction SilentlyContinue
+        $refused = $result.FailedResources | Where-Object InstanceName -EQ 'Team thing'
+        $refused | Should -Not -BeNullOrEmpty
+        $refused.ErrorMessage | Should -Match 'uses a restart of its remote Target, which is not allowed for layer\(s\) Teams'
+        $refused.ErrorMessage | Should -Match 'has already been applied' -Because 'the operator has to know the machine is mid-change'
+        Should -Invoke Restart-Computer -Times 0
+        $Calls | Should -Contain 'Set' -Because 'the Set itself was allowed; only the restart was not'
+    }
+
+    It "Restarts it for a layer that has the capability" {
+        $engine = {
+            param($Context)
+            $Calls.Add($Context.Method)
+            return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
+        }.GetNewClosure()
+        $result = Start-DscRunner -FilePath $PlatformRebootFile -Mode Set -EngineAction $engine -Policy $PlatformRebootPolicy -ErrorAction SilentlyContinue
+        ($result.FailedResources | Where-Object InstanceName -EQ 'Platform thing') | Should -BeNullOrEmpty
+        Should -Invoke Restart-Computer -Times 1 -ParameterFilter { $ComputerName -eq 'dc01.corp.example.test' }
+    }
+
+    It "Restarts it as it always has when no policy is supplied" {
+        $engine = {
+            param($Context)
+            $Calls.Add($Context.Method)
+            return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
+        }.GetNewClosure()
+        $null = Start-DscRunner -FilePath $TeamRebootFile -Mode Set -EngineAction $engine -ErrorAction SilentlyContinue
+        Should -Invoke Restart-Computer -Times 1 -ParameterFilter { $ComputerName -eq 'web01.app.example.test' }
     }
 }

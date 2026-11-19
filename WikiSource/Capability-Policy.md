@@ -27,14 +27,27 @@ Layers:
     Capabilities:
       Targets: [ '*' ]
       Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ '*' ]
+      RemoteTargets: [ '*' ]
       ExecutionScripts: true
       DatumScriptBlocks: true
+      Notify: true
+      Reboot: true
   - Name: Teams
     Paths: [ 'Projects/**' ]
     Capabilities:
       Targets: [ Local, WinRM ]
       Engines: [ DscV2, DscV3 ]
+      Resources: [ 'PSDscResources/*' ]
+      Credentials: [ Environment ]
+      RemoteTargets: [ '*.app.contoso.example' ]
 ```
+
+List every capability for your most trusted layer, even the ones you would grant anyway. A
+capability a layer does not list follows `Default`, so with `Default: Deny` a capability added in a
+later version of the runner is denied until you grant it — which is the behaviour you want for a
+team's layer and usually not for the platform's.
 
 Then run as usual. The policy is picked up because it is there:
 
@@ -64,10 +77,21 @@ A complete example you can copy is in the repository under
 | --- | --- | --- |
 | `Targets` | list, wildcards allowed | The [Target action](Remote-Targets-and-Credentials) a resource runs through, including the file's default. |
 | `Engines` | list, wildcards allowed | The [engine](Engines) that runs the file. |
+| `Resources` | list of `Module/Resource` patterns | What a resource may **be**: `'PSDscResources/*'`, `'*'`. A pattern with no `/` is refused, because it would name no [resource type](Resource-Properties) and so allow nothing. |
+| `Credentials` | list of Credential action names | Every credential a resource resolves: `target.credential` and [`resourceCredential`](Remote-Targets-and-Credentials). A block with no `action` counts as `Environment`. An empty list means no credentials at all. |
+| `RemoteTargets` | list of computer-name patterns | `target.computerName`, for any Target other than `Local`. `Targets` is the mechanism; this is the destination. A non-`Local` Target naming no computer is refused. |
 | `ExecutionScripts` | `true` / `false` | `preExecutionScript` and `postExecutionScript`. `AllowExecutionScripts` must also be on. |
 | `DatumScriptBlocks` | `true` / `false` | `[x={ ... }=]` blocks evaluated during the Datum merge. |
+| `Notify` | `true` / `false` | [`notify`](Resource-Properties), which makes another resource run `Set()` even when its own `Test()` said it was already in the desired state. `dependsOn` is **not** restricted: it only orders resources that were going to run anyway. |
+| `Reboot` | `true` / `false` | Restarting a remote target after a `Set()` reports `RebootRequired`. Without it the resource fails and the machine is left running. |
 
 A file that no layer claims may do nothing at all, whatever `Default` says.
+
+Three things are deliberately outside a policy, because they come from the pipeline or the module
+rather than from the configuration: the [`Source` and `Connect` actions](Execution-Lifecycle) and
+the reporters (`Invoke-DscRunner -Source`, `-Connect`, `-ReportAction`), and the module's own
+[Pipeline Rules](Pipeline-Rules). The person who writes the policy is the person who passes those,
+so a policy clause about them would only constrain its author against themselves.
 
 ## How a layer is decided
 
@@ -84,11 +108,14 @@ replaces it whole, and its version is held to the team's permissions.
 A file that breaks the policy does not start. Every violation is listed:
 
 ```
-Capability policy: 2 violation(s); no resource was run.
+Capability policy: 2 violation(s) in node 'App'; no resource was run.
+Policy: '/config/Policy.yml' (9b1c4e2a7f05).
   - Resource [Module/Resource/Team over SSH] uses the Target 'SSH', which is not allowed for
-    layer(s) Teams (contributors to this resource: Teams).
+    layer(s) Teams (contributors to this resource: Teams) (in this node, layer Teams owns
+    Projects/Present/App).
   - Resource [Module/Resource/Team with a script] has an execution script, which is not allowed
-    for layer(s) Teams (contributors to this resource: Teams).
+    for layer(s) Teams (contributors to this resource: Teams) (in this node, layer Teams owns
+    Projects/Present/App).
 ```
 
 A Datum script block in a layer that may not use one stops earlier still, before anything is
@@ -102,6 +129,34 @@ compiled:
 
 A dry run (`-Mode DryRun`) reports the same, so a pull-request pipeline can catch a violation
 before the change is merged.
+
+## See what the policy means, before it bites
+
+```powershell
+Get-DscCapabilityPolicyReport -ConfigurationPath ./config -AsText
+```
+
+Prints every layer with the **effective** rule for every capability — the ones a layer does not
+list shown as `Deny (not listed; from Default)` rather than left blank — which layer owns each file
+and each `ResolutionPrecedence` entry, every resource the files declare with the layers that
+declare it, and findings for the ways a policy ends up quietly ineffective:
+
+| Finding | Meaning |
+| --- | --- |
+| `LayerMatchesNothing` | A layer's `Paths` match no file. Almost always a typo — and a typo in `Paths` puts files in `(unclaimed)`, which may do nothing. |
+| `UnclaimedFile` | A file no layer claims. |
+| `RemoteTargetWithoutComputer` | The layer may use a remote Target but `RemoteTargets` allows it no computer, so every remote resource it declares is refused. |
+| `LayerDeclaresNothing` | The layer owns files but may declare no resource type at all. |
+| `DefaultAllow` | `Default: Allow`, so a capability a later version adds is allowed to every layer. |
+| `DeclarationRefused` | A declaration the policy would refuse. |
+| `PreCompileRefusal` | What the pre-compile check would refuse (a Datum script block in the wrong layer). |
+
+It compiles nothing and runs nothing, so it is safe in a pull request or a pre-commit hook. Without
+`-AsText` you get an object, and `$report.HasError` is what a pipeline gates on.
+
+It reads the files, not Datum's merge, so it is **advisory**: a resource it shows as allowed can
+still be refused at run time, usually because a second layer also declares it. The run is what
+enforces the policy.
 
 ## See what the policy was applied to
 
@@ -126,12 +181,27 @@ may do. Give `Policy.yml` and `Datum.yml` to your most trusted owners with CODEO
 protection. If that is not enough for you, keep the policy somewhere contributors cannot write and
 pass it with `-PolicyPath`, or at least use `-RequirePolicy`.
 
+## Upgrading a policy written for v1.3.0
+
+The first preview had four capabilities. A policy written then still loads, but under
+`Default: Deny` the five that were added — `Resources`, `Credentials`, `RemoteTargets`, `Notify`
+and `Reboot` — now resolve to `Deny` for every layer that does not list them. **A layer with no
+`Resources` rule may declare no resource at all**, so a configuration that ran before can stop
+running until its policy is updated. That is fail-closed working as intended.
+
+Run `Get-DscCapabilityPolicyReport -ConfigurationPath <config> -AsText` and read the `Layers`
+section: every capability shown as `Deny (not listed; from Default)` is a decision the policy has
+not made yet. Grant each layer what it needs — `Resources` at least — and leave the rest denied.
+
 ## Limits of the preview
 
 - It is not a sandbox. The Datum merge still runs as ordinary PowerShell; the `DatumScriptBlocks`
   check removes the documented way to run code there, nothing more.
-- A layer allowed to declare resources can declare any resource type. Restricting resource types,
-  methods, credentials, sources and Connect actions is planned, not implemented.
+- `Resources` restricts which resource *types* a layer may declare, not the properties it passes
+  them, and not which *methods* it may use (there is no "`Test` and `Get` but not `Set`" yet).
+- `Credentials` restricts which Credential *actions* a layer may use, not which individual
+  secrets. Two layers allowed `SecretManagement` can read each other's secrets; that boundary
+  belongs to the vault.
 - A composite instantiated by a team gets the team's permissions, even when the platform wrote the
   composite.
 
@@ -148,3 +218,11 @@ The design, the reasoning and the follow-up list are in
 | `The policy file is in a sub-folder of the configuration` | The policy must be at the root, beside `Datum.yml`, or outside the configuration. |
 | `A policy is required for this run` | `-RequirePolicy` was given and there is no `Policy.yml` and no `-PolicyPath`. |
 | `Unknown key(s) …`, `unknown capability …` | The policy file is read strictly. Fix the spelling; nothing is guessed. |
+| `is of the resource type '…', which is not allowed` | Add the type to the layer's `Resources`, as `Module/Resource` or `Module/*`. |
+| `uses the remote Target computer '…', which is not allowed` | The Target action is allowed but the machine is not. Add it to the layer's `RemoteTargets`. |
+| `uses a remote Target with no computerName` | A Target other than `Local` has to name a machine; there is nothing for the policy to allow. |
+| `does not name a resource type` | A `Resources` pattern has no `/`. Write `PSDscResources/*`, not `PSDscResources`. |
+| `resolves a credential through the '…' Credential action` | Add the action to the layer's `Credentials`, or have the layer use one it already has. |
+| `notifies N resource(s) …, forcing them to re-run Set()` | Set `Notify: true` for the layer, or use `dependsOn` if ordering is all that was wanted. |
+| `uses a restart of its remote Target` | The resource's `Set()` has run and asked for a reboot. Set `Reboot: true` for the layer, or restart the machine yourself. |
+| `layer '…' matches no file` (a warning) | A path pattern is wrong. The files you meant it to own are in `(unclaimed)` and may do nothing. |

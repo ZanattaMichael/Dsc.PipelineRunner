@@ -45,3 +45,43 @@ function Get-PolicyLayer {
 
     return '(unclaimed)'
 }
+
+<#
+.SYNOPSIS
+Turns a configuration file's path into the path a policy's Paths patterns are matched against
+(issue #86, Part B).
+
+.DESCRIPTION
+Layers are matched on a file's path relative to the configuration root, with forward slashes and
+without the file extension - except the Datum definition file, which is written with its name
+('Datum.yml') because that is how a policy author refers to it. Kept in one place so every caller
+that attributes a file to a layer (the pre-compile script-block scan, the coverage report) agrees
+on what a path means.
+
+.PARAMETER Root
+The configuration root.
+
+.PARAMETER FullName
+The file's full path, inside that root.
+
+.OUTPUTS
+[string] The relative layer path, or $null when the file is not inside the root.
+#>
+function ConvertTo-PolicyLayerPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory)]
+        [string] $Root,
+
+        [Parameter(Mandatory)]
+        [string] $FullName
+    )
+
+    $normalizedRoot = $Root.TrimEnd('\', '/')
+    if ($FullName.Length -le $normalizedRoot.Length + 1) { return $null }
+
+    $relative = $FullName.Substring($normalizedRoot.Length + 1) -replace '\\', '/'
+    if ($relative -ieq 'Datum.yml' -or $relative -ieq 'Datum.yaml') { return 'Datum.yml' }
+    return ($relative -replace '\.[^./]+$', '')
+}

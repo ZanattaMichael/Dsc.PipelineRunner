@@ -493,6 +493,7 @@ forced-refresh semantics in `Set` mode, and the declaration-gated visibility
 | `Build-DatumConfiguration` | Compiles the Datum configuration by resolving all nodes and writing per-project YAML files to the output directory. Runs in a separate runspace. |
 | `ConvertTo-DscV3ConfigurationDocument` | Converts compiled, runner-specific resources into a schema-compliant DSC v3 configuration document (`$schema` + `name`/`type`/`properties` only) that `dsc config get\|test\|set` accepts. |
 | `Test-DatumConfiguration` | Validates a Datum configuration object: checks for `PipelineRunnerSettings`, enforces version constraints, and warns when the configuration version is near the maximum supported version. |
+| `Get-DscCapabilityPolicyReport` | Preview. Says what a configuration's [capability policy](docs/capability-policy.md) permits, which layer owns each file and each resource declaration, and where the policy is silently ineffective — without compiling or running anything. `-AsText` for a person, otherwise an object whose `HasError` a pull-request pipeline can gate on. |
 | `Resolve-DscDatumProject` | Resolves a single Datum project node, evaluating variables and converting the result to YAML. Called internally by `Build-DatumConfiguration`. |
 | `Stop-TaskProcessing` | Signals the runner to skip all remaining resources in the current YAML file. Must be called from within `preExecutionScript` or `postExecutionScript`; from a `postCondition`, use the `stopProcessing()` function instead. |
 
@@ -637,6 +638,6 @@ annotated tag and starts the Release workflow on it. See [CONTRIBUTING.md](CONTR
 | Hosted Linux agents with DSC v3 | [docs/hosted-agent-dsc-v3.md](docs/hosted-agent-dsc-v3.md) |
 | Azure DevOps self-hosted agent and pipeline | [docs/azure-devops-self-hosted-agent.md](docs/azure-devops-self-hosted-agent.md) |
 | Trust model and security policy | [docs/trust-model.md](docs/trust-model.md), [SECURITY.md](SECURITY.md) |
-| Capability policy (preview): what each layer of a configuration may use | [docs/capability-policy.md](docs/capability-policy.md), [worked example](Example%20Policy%20Configuration) |
+| Capability policy (preview): what each layer of a configuration may use — Targets, engines, resource types, remote machines, credentials, execution scripts, Datum script blocks, `notify`, reboots | [docs/capability-policy.md](docs/capability-policy.md), [worked example](Example%20Policy%20Configuration) |
 | Contributing and releasing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | All of the above as one searchable site | <https://zanattamichael.github.io/Dsc.PipelineRunner/> ([how it is built](docs/documentation-site.md)) |

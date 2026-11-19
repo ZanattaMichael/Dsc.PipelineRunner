@@ -22,15 +22,23 @@ The file is YAML:
       - Name: Platform
         Paths: [ 'Datum.yml', 'OrganizationPolicies/**', 'Composites/**' ]
         Capabilities:
-          Targets: [ '*' ]         # Target actions (Local, WinRM, SSH ...), wildcards allowed
-          Engines: [ '*' ]         # Engine actions (DscV2, DscV3 ...)
-          ExecutionScripts: true   # preExecutionScript / postExecutionScript
-          DatumScriptBlocks: true  # [x={ ... }=] blocks evaluated during the Datum merge
+          Targets: [ '*' ]            # Target actions (Local, WinRM, SSH ...), wildcards allowed
+          Engines: [ '*' ]            # Engine actions (DscV2, DscV3 ...)
+          Resources: [ '*' ]          # resource types, written 'Module/Resource'
+          Credentials: [ '*' ]        # Credential actions (Environment, SecretManagement, Static ...)
+          RemoteTargets: [ '*' ]      # target.computerName a non-Local Target may be aimed at
+          ExecutionScripts: true      # preExecutionScript / postExecutionScript
+          DatumScriptBlocks: true     # [x={ ... }=] blocks evaluated during the Datum merge
+          Notify: true                # 'notify', which forces another resource to re-run Set()
+          Reboot: true                # restarting a remote target after a Set that asks for one
       - Name: Teams
         Paths: [ 'Projects/**' ]
         Capabilities:
           Targets: [ Local, WinRM ]
           Engines: [ DscV2, DscV3 ]
+          Resources: [ 'PSDscResources/*' ]
+          Credentials: [ Environment ]
+          RemoteTargets: [ '*.app.contoso.example' ]
 
 Paths are relative to the configuration root, with forward slashes, without the file extension
 (the definition file is written as 'Datum.yml'). The first layer whose Paths match a file owns it.
@@ -103,8 +111,10 @@ function Import-CapabilityPolicy {
         throw "$prefix Layers must be a non-empty list."
     }
 
-    $listCapabilities = 'Targets', 'Engines'
-    $switchCapabilities = 'ExecutionScripts', 'DatumScriptBlocks'
+    # Keep these two lists in step with Test-PolicyCapability's ValidateSet and with the tables
+    # in docs/capability-policy.md: they are the whole vocabulary a policy file may use.
+    $listCapabilities = 'Targets', 'Engines', 'Resources', 'Credentials', 'RemoteTargets'
+    $switchCapabilities = 'ExecutionScripts', 'DatumScriptBlocks', 'Notify', 'Reboot'
     $layerKeys = 'Name', 'Paths', 'Capabilities'
     $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $layers = [System.Collections.Generic.List[hashtable]]::new()
@@ -139,6 +149,15 @@ function Import-CapabilityPolicy {
                     $values = @($value)
                     if ($value -is [System.Collections.IDictionary] -or ($values | Where-Object { $_ -isnot [string] })) {
                         throw "$prefix Layer '$name': $capability must be a list of names (wildcards allowed), for example [ Local, WinRM ]. An empty list allows none."
+                    }
+                    # A resource type is 'Module/Resource'. A bare module name is almost always a
+                    # mistake that would allow nothing, so say so rather than deny silently.
+                    if ([string]$capability -eq 'Resources') {
+                        foreach ($pattern in @($values | Where-Object { $_ -is [string] })) {
+                            if ($pattern -notmatch '/' -and $pattern -ne '*') {
+                                throw "$prefix Layer '$name': the Resources pattern '$pattern' does not name a resource type. A resource type is written 'Module/Resource', so use '$pattern/*' to allow every resource of that module, or '*' for any."
+                            }
+                        }
                     }
                     $capabilities[[string]$capability] = [string[]]@($values | Where-Object { $null -ne $_ })
                 }

@@ -145,17 +145,49 @@ network access and credential availability on the build agent accordingly.
 ## Capability policy (preview)
 
 Everything above treats the configuration repository as one unit of trust. A
-[capability policy](capability-policy.md) (a `Policy.yml` beside `Datum.yml`) is a first step
-towards trusting its layers differently: it states which Targets, engines, execution scripts and
-Datum script blocks each layer may use, and the runner refuses a file that breaks it. The policy
-is a file of its own that is never merged, so no layer can override it.
-It is a preview with stated limits; in particular it is not a sandbox for the compile step.
+[capability policy](capability-policy.md) (a `Policy.yml` beside `Datum.yml`) trusts its layers
+differently. It states, per layer, which Targets and engines may be used, which **resource types**
+may be declared, which **machines** a remote Target may reach, which **Credential actions** may be
+resolved, whether execution scripts and Datum script blocks are allowed, whether a resource may
+`notify` another into re-applying itself, and whether the runner may **restart a remote target**.
+The runner refuses a file that breaks it. The policy is a file of its own that is never merged, so
+no layer can override it, and a capability a layer does not list follows the policy's `Default`,
+which is why `Default: Deny` is recommended.
+
+Where this moves the boundary described above:
+
+- **Credentials.** The sections above say a configuration that can name a `Credential` action gets
+  whatever that action can reach. With a policy, which actions a layer may name is a decision: a
+  layer can be allowed `Environment` and denied `SecretManagement` and `Static`, so a team cannot
+  read the platform's vault or commit a password. The policy constrains the *action*, not the
+  individual secret; two layers allowed `SecretManagement` can still read each other's secrets, and
+  that boundary belongs to the vault's own access control.
+- **Remote targets.** Which machines a layer may reach is a decision (`RemoteTargets`), separately
+  from which mechanism it may use (`Targets`). This is checked before the run and again
+  immediately before the session is opened.
+- **Resource types.** `Resources` is the lever for the "a configuration that can declare resources
+  can run code" problem: a layer that may not declare `PSDesiredStateConfiguration/Script` cannot
+  reach for arbitrary code that way. It restricts *types*, not the properties passed to them, so
+  the allowed list should be chosen by what a module can do rather than by what a team writes
+  today.
+- **Reboots.** Restarting a remote machine is the only thing the runner does on its own
+  initiative, and a layer can now be denied it.
+
+What it still does not do: it is not a sandbox for the compile step, it does not constrain resource
+properties or which methods a layer may use, and a composite instantiated by a layer is held to
+that layer's permissions rather than the definition's. `Get-DscCapabilityPolicyReport` describes
+what a given policy permits, and which layer each file and declaration falls in, without compiling
+or running anything.
 
 ## Future hardening (tracked)
 
-- AST-based allow-listing of permitted DSC resource types.
 - Executing the compile step under
   `[System.Management.Automation.SessionState]::LanguageMode = 'ConstrainedLanguage'`.
+- A `Methods` capability (`Test` and `Get` but not `Set`) for a layer that may describe state but
+  not apply it.
+- Composite definition and instance identities, so a platform composite can hand out a capability
+  the instantiating layer does not have.
 
 These would narrow the boundary but cannot remove it: a configuration that is allowed to
-declare resources is, by construction, allowed to change the state those resources manage.
+declare resources is, by construction, allowed to change the state those resources manage — the
+capability policy decides *which* resources, for *which* layer, not whether that is true.
