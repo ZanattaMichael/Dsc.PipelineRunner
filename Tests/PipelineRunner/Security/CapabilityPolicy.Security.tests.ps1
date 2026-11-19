@@ -1,5 +1,5 @@
 <#
-Security regression suite: the capability policy (preview, issue #86 Part B).
+Security regression suite: the capability policy (issue #86 Part B).
 
 A capability policy lets the pipeline's owner say what each layer of a configuration may use, so
 several teams can contribute configuration without each being fully trusted. These tests pin the
@@ -30,7 +30,7 @@ properties that make it worth having:
 
 Dummy values only.
 #>
-Describe "Security: capability policy (preview)" -Tag Unit, Security {
+Describe "Security: capability policy" -Tag Unit, Security {
 
     BeforeAll {
         Import-Module -Name 'powershell-yaml' -ErrorAction Stop

@@ -10,7 +10,7 @@ file independently.
 ```
 config/
 ├── Datum.yml                       # resolution precedence, lookup options, PipelineRunnerSettings
-├── Policy.yml                      # optional: capability policy (preview). Its own file, never merged
+├── Policy.yml                      # optional: capability policy. Its own file, never merged
 ├── Composites/                     # optional: composite resource definitions (not in ResolutionPrecedence)
 │   └── StandardProject.yml
 ├── Projects/
@@ -195,90 +195,15 @@ the runner sees.
 
 ## Running a configuration you compiled yourself
 
-A caller that builds its per-node documents somewhere else does not have to write a Datum
-repository to get at the runner. `-ConfigurationFile` names one or more documents, and
-`-ConfigurationDirectory` a directory of them; either skips the compile and runs the documents
-as they are. Both are mutually exclusive with the `Source` parameters.
+You do not need a Datum repository if you already have the per-node documents.
+`-ConfigurationFile` or `-ConfigurationDirectory` skips the compile and runs them as they are:
 
 ```powershell
-Invoke-DscRunner -ConfigurationFile .\out\SRV-APP-01.yml -BypassDatumPolicy -Mode Test
 Invoke-DscRunner -ConfigurationDirectory .\out -BypassDatumPolicy -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
 ```
 
-`-BypassDatumPolicy` is required, and is explained under the capability policy below.
-
-A document must be what the compile would have produced: flat, composites already expanded
-(an unexpanded `Composite/` instance is refused), and `.yml`, `.yaml` or `.json`. Everything in
-["How a run executes"](Execution-Lifecycle) is unchanged — the pre-parse
-[Pipeline Rules](Pipeline-Rules), conditions, `dependsOn`/`notify` ordering, lifecycle scripts,
-`reference()`/`using()`, the report and the exit code. Three things follow from not having a
-hierarchy:
-
-- **The node name is the document's file name**, without its extension — the same rule the
-  compiled path uses, since the compile names each file after its node. It is what `nodeName()`
-  returns, what each result row records and what the report files are named after, so two
-  documents in one run may not share a file name. When the file is not named after its node,
-  `-NodeName` says what the node is:
-
-  ```powershell
-  Invoke-DscRunner -ConfigurationFile .\tmp\rendered.yml -NodeName SRV-APP-01
-  ```
-
-  A node name belongs to one node, so `-NodeName` cannot be combined with
-  `-ConfigurationDirectory` or with several `-ConfigurationFile` paths — name those files after
-  their nodes instead. It is written into the report file names, so it is validated as a plain
-  file name by the same rule the compile applies to a Datum node name: a path separator, a
-  wildcard, `..` or a leading dot is refused before anything runs.
-- **`PipelineRunnerSettings` come from `-RunnerSettings`**, a hashtable of the same keys
-  [Datum.yml would carry](PipelineRunnerSettings). There is no `Datum.yml` to read them from, and
-  they are deliberately *not* read out of the document: whether a configuration may run
-  unconstrained lifecycle scripts (`AllowExecutionScripts`) is a decision for whoever starts the
-  run, and a document that could grant it to itself would not be a decision at all. Omit the
-  parameter and the runner's defaults apply.
-
-  A `PipelineRunnerSettings` block left in a document is therefore **inert**, and the runner says
-  so: one warning per document naming the file, because silence would let someone believe those
-  settings took effect. It is not an error — the document is otherwise valid.
-- **The [capability policy](Capability-Policy) does not apply, and that has to be declared.** A
-  policy says what each *layer* of a configuration may use, and a layer is decided by where a
-  file sits in the hierarchy; a passthrough document has no layers, so no policy can be enforced
-  over it. That would make choosing passthrough a quiet way out of the policy, so the runner will
-  not infer it from the absence of layers — `-BypassDatumPolicy` is **required** for a
-  passthrough run. A run that takes it warns that the policy is bypassed and records
-  `PolicyBypassed` on every node's result and report document, so the step is visible afterwards
-  and not only in the console. `-PolicyPath` and `-RequirePolicy` remain refused: there is no
-  layer for them to decide a capability from.
-
-  The switch grants no exception. Precedence:
-
-  | Behind the documents | Without `-BypassDatumPolicy` | With it |
-  |---|---|---|
-  | A `Datum.yml` **and** a `Policy.yml` | Refused | **Refused** — run it through the Datum path |
-  | No policy | Refused, naming the switch | Runs, warns, records the bypass |
-
-  **Where the runner looks.** The two files sit at the configuration *root* while a node file sits
-  two levels below it, so looking only beside the document would miss the case worth catching.
-  For each document the runner walks from the document's own directory upward through its parents
-  — the way `git` finds a `.git` — and takes the first directory holding a `Datum.yml` as the
-  configuration behind it. A policy counts only when it sits *beside* that file, which is the only
-  place a policy is ever read from; a `Policy.yml` in a sub-folder is a file a constrained layer
-  could have written. One governed document refuses the whole run.
-
-  **What that cannot do.** It recognises a configuration by its `Datum.yml`. It cannot tell that a
-  document was *copied out* of a governed repository and left somewhere else — nothing in a flat
-  document records where it came from, which is the whole reason a policy cannot apply to it. So
-  the check closes the "pointed passthrough at the repository" case, and the switch remains a
-  declaration by the caller rather than a proof. A `Policy.yml` with no `Datum.yml` above the
-  documents is the ambiguous case: it governs nothing the runner can resolve layers for, so it
-  draws a warning rather than a refusal.
-
-  `-BypassDatumPolicy` is refused on the Datum path, where every resource has a layer and the
-  policy applies, so it can never be a way to switch enforcement off for a configuration that
-  has one.
-
-A passthrough document is code in exactly the same sense a compiled one is — see the
-[trust model](https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/docs/trust-model.md).
-Supplying it directly removes the compile, not the trust requirement.
+See [Bypassing Datum](Bypassing-Datum) for what a document must look like, where its settings
+come from, and when the run is refused.
 
 ## One file is one scope
 

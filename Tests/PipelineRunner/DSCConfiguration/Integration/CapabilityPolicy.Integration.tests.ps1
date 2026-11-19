@@ -1,4 +1,4 @@
-Describe "Capability policy provenance through a real Datum compile (preview)" -Tag Integration, HostedIntegration {
+Describe "Capability policy provenance through a real Datum compile" -Tag Integration, HostedIntegration {
 
     # The capability policy (issue #86, Part B) depends on one thing no mock can prove: that asking
     # Datum for each layer on its own really shows which layer files contributed to each merged
@@ -506,7 +506,7 @@ resources:
     }
 }
 
-Describe "A real runner pass under a capability policy (preview)" -Tag Integration, HostedIntegration {
+Describe "A real runner pass under a capability policy" -Tag Integration, HostedIntegration {
 
     # The compile writes the provenance record; this suite proves the runner acts on it. A file
     # that complies runs; a file that does not is stopped before the engine is called once; and a
@@ -988,7 +988,7 @@ Describe "The shipped example: Example Policy Configuration" -Tag Integration, H
     }
 }
 
-Describe "A real runner pass: the capabilities checked at the point of use (preview)" -Tag Integration, HostedIntegration {
+Describe "A real runner pass: the capabilities checked at the point of use" -Tag Integration, HostedIntegration {
 
     # The pre-run gate reads the compiled file; these are the checks the runner makes again with
     # the value it is really about to use, immediately before using it. Two of them can refuse

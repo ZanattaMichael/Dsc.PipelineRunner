@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Decides whether a set of layers may use a capability (issue #86, Part B; preview).
+Decides whether a set of layers may use a capability (issue #86, Part B).
 
 .DESCRIPTION
 Least privilege: something that several layers contributed to is allowed only if EVERY one of

@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 Refuses a configuration whose PipelineRunnerSettings hold a value the capability policy does not
-allow (issue #86, Part B; preview).
+allow (issue #86, Part B).
 
 .DESCRIPTION
 PipelineRunnerSettings in Datum.yml decide how the runner behaves for the whole configuration:

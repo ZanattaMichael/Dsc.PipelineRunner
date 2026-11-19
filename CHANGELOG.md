@@ -6,15 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **The capability policy governs `PipelineRunnerSettings`** (preview, #86). An optional
+- **The capability policy governs `PipelineRunnerSettings`** (#86). An optional
   `Settings` block in `Policy.yml` lists the values `Datum.yml` may use for
   `AllowExecutionScripts`, `Reboot`, `Target` and `Engine`. A value outside it, or the runner's
   default for a key `Datum.yml` leaves out, stops the run before compile and is reported by
   `Get-DscCapabilityPolicyReport` as `SettingsRefusal`. An engine passed by the pipeline is not
   governed.
 
-- **The capability policy decides what a resource may be, not only what it may use** (preview,
-  #86 Part B). Five capabilities join `Targets`, `Engines`, `ExecutionScripts` and
+- **The capability policy decides what a resource may be, not only what it may use**
+  (#86 Part B). Five capabilities join `Targets`, `Engines`, `ExecutionScripts` and
   `DatumScriptBlocks` in `Policy.yml`:
   - `Resources` — a list of `Module/Resource` patterns a layer may declare, so a layer can be
     denied `PSDesiredStateConfiguration/Script` and with it the ability to run arbitrary code
@@ -55,6 +55,12 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **The capability policy is no longer a preview.** The "(preview)" label is gone from the docs,
+  the wiki, the help text and the run log. Behaviour and the `Policy.yml` format are unchanged.
+- **Bypassing Datum has its own wiki page**, [Bypassing Datum](WikiSource/Bypassing-Datum.md):
+  how to run documents with `-BypassDatumPolicy`, why `-RunnerSettings` and not the document
+  supplies the settings, and when the run is refused.
+
 - **The documentation site is built with mdBook** (#111), like the Meridian docs: a sidebar,
   full-text search (`S` or `/`), light and dark themes, and an animated background behind every
   page that stays still for `prefers-reduced-motion`. `tools/check-site.js` checks every link and
@@ -81,7 +87,7 @@ All notable changes to this project will be documented in this file.
   fail-closed behaviour the `Default` key exists for. Run
   `Get-DscCapabilityPolicyReport -ConfigurationPath <config> -AsText` and grant each layer what it
   needs; see
-  [Upgrading a policy written for the first preview](docs/capability-policy.md#upgrading-a-policy-written-for-the-first-preview).
+  [Upgrading a policy written for v1.3.0](docs/capability-policy.md#upgrading-a-policy-written-for-v130).
 - **The shipped `Example Policy Configuration` demonstrates all nine capabilities**, and its
   platform resource no longer writes `computerName: $(variables('JumpHost'))`: the runner does not
   expand expressions anywhere inside a `target` block, so that was a literal host name rather than
@@ -109,7 +115,7 @@ All notable changes to this project will be documented in this file.
   `-RunnerSettings` hashtable, never from the document — `AllowExecutionScripts` is a decision for
   whoever starts the run, and a document that could grant it to itself would not be a gate; a
   block left in a document is inert and now draws a warning naming the file, because silence let
-  it look as though those settings had taken effect. And the capability policy (preview) cannot
+  it look as though those settings had taken effect. And the capability policy cannot
   apply, because a layer is decided by where a file sits in the hierarchy — so, rather than let
   that be inferred from the absence of layers, **`-BypassDatumPolicy` is required** for a
   passthrough run. A run that takes it warns that the policy is bypassed and records

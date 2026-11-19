@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Loads and validates a capability policy file (issue #86, Part B; preview).
+Loads and validates a capability policy file (issue #86, Part B).
 
 .DESCRIPTION
 A capability policy says what each layer of a configuration is allowed to use.

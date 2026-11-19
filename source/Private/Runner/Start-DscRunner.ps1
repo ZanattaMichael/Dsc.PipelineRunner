@@ -78,7 +78,7 @@ function Start-DscRunner {
         [string] $EngineVersion, # Optional resource version hint that biases 'Auto' engine selection by major version.
         [scriptblock] $EngineAction, # Optional inline engine override; takes precedence over -Engine.
         [scriptblock] $ReportAction, # Optional inline reporter; receives the report document for this file.
-        [hashtable] $Policy, # Optional capability policy (Import-CapabilityPolicy); preview, issue #86 Part B.
+        [hashtable] $Policy, # Optional capability policy (Import-CapabilityPolicy); issue #86 Part B.
 
         # Resolved PipelineRunnerSettings (#57 §2/§3/§4), e.g. AllowExecutionScripts, Reboot,
         # Target. Invoke-DscRunner resolves this once from Datum.yml (pre-compile, since it is
@@ -486,7 +486,7 @@ function Start-DscRunner {
         elseif ($Value -is [System.Collections.IEnumerable]) { foreach ($item in $Value) { & $collectStrings $item } }
     }
 
-    # Capability policy (preview, #86 Part B). $policyProvenance stays $null when no policy is set.
+    # Capability policy (#86 Part B). $policyProvenance stays $null when no policy is set.
     $policyProvenance = $null
     $policyExpressionTargets = @{}
     # A short identifier for the policy, for messages. Defensive about the length: a direct caller

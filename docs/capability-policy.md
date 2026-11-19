@@ -1,11 +1,10 @@
-# Capability policy (preview)
+# Capability policy
 
-> **Status: preview.** This is the layered capability policy of
-> [issue #86](https://github.com/ZanattaMichael/Dsc.PipelineRunner/issues/86) (Part B). The file
-> format and behaviour may still change before it is declared stable. Read
+> This is the layered capability policy of
+> [issue #86](https://github.com/ZanattaMichael/Dsc.PipelineRunner/issues/86) (Part B). Read
 > [What it does not protect against](#what-it-does-not-protect-against) before relying on it, and
-> [Upgrading a policy written for the first preview](#upgrading-a-policy-written-for-the-first-preview)
-> if you wrote one against v1.3.0: five capabilities have been added, and under `Default: Deny`
+> [Upgrading a policy written for v1.3.0](#upgrading-a-policy-written-for-v130)
+> if you wrote one then: five capabilities have been added, and under `Default: Deny`
 > they are denied until the policy grants them.
 
 A capability policy lets the owner of a pipeline say **what each layer of a configuration is
@@ -328,13 +327,13 @@ only knowable at run time.
 - A list capability with nothing to match is denied, not allowed: an empty computer name is
   refused even against `RemoteTargets: [ '*' ]`.
 
-### Upgrading a policy written for the first preview
+### Upgrading a policy written for v1.3.0
 
-The first preview (v1.3.0) had four capabilities. A policy written then still loads, but under
+The first release (v1.3.0) had four capabilities. A policy written then still loads, but under
 `Default: Deny` the five that were added — `Resources`, `Credentials`, `RemoteTargets`, `Notify`
 and `Reboot` — now resolve to `Deny` for every layer that does not list them. **A layer with no
-`Resources` rule may declare no resource at all**, so a configuration that ran under the first
-preview can stop running until its policy is updated. That is the fail-closed behaviour working as
+`Resources` rule may declare no resource at all**, so a configuration that ran under v1.3.0
+can stop running until its policy is updated. That is the fail-closed behaviour working as
 intended, and it is the whole reason `Default` exists.
 
 What to do: run `Get-DscCapabilityPolicyReport -ConfigurationPath <config> -AsText` and read the
@@ -351,7 +350,7 @@ the definition's permissions, while the parameters the instantiating team passes
 against that team's permissions. That lets a platform team hand out building blocks that do more
 than the instantiating team could do directly.
 
-**The preview does not implement that yet.** A composite member (named `<instance>::<member>` in
+**The runner does not implement that yet.** A composite member (named `<instance>::<member>` in
 the compiled file) is attributed to the layers that declared its instance *and* to every layer
 that owns a composite definition. That can only narrow what a member may do, so it is safe, but a
 platform composite instantiated by a team currently gets the team's permissions. Implementing the

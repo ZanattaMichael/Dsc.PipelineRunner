@@ -1,4 +1,4 @@
-# A small configuration that shows the capability policy (preview). See README.md in this folder.
+# A small configuration that shows the capability policy. See README.md in this folder.
 #
 # Two layers contribute to every node:
 #   Projects\<presence>\<node>   written by an application team (the node's own file)

@@ -170,7 +170,7 @@ Concretely:
     script or running it anyway. This is an explicit opt-in, not a sandbox — once enabled,
     these scripts run with the same trust and privileges as the rest of the configuration.
 
-### Trusting the layers of one configuration differently (preview)
+### Trusting the layers of one configuration differently
 
 The statement above — the configuration repository is one unit of trust — is the default and
 remains true when no policy is present. A
@@ -377,7 +377,7 @@ one fails the ordinary unit gate rather than waiting for the next audit:
   run-time state is validated and deferred, not evaluated; the resultant configuration it writes and
   returns has secrets redacted; and a Test or Set run returns no RSOP.
 - `Tests/PipelineRunner/Security/CapabilityPolicy.Security.tests.ps1` — the capability policy
-  (preview, `Policy.yml` beside `Datum.yml`, see [docs/capability-policy.md](docs/capability-policy.md)):
+  (`Policy.yml` beside `Datum.yml`, see [docs/capability-policy.md](docs/capability-policy.md)):
   the policy is a file of its own that Datum never loads, so it cannot be merged or overridden; a
   policy in a layer's sub-folder is neither discovered nor accepted, a `Datum.yml` that declares a
   store for the policy file is refused, and `-RequirePolicy` fails a configuration that has none; a

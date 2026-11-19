@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 Works out which policy layers contributed to each resource of a node
-(issue #86, Part B; preview).
+(issue #86, Part B).
 
 .DESCRIPTION
 Datum merges the layers of a node into one result and does not say where each part came from. The
@@ -14,7 +14,7 @@ writes inside a file can change it.
 
 Composite members (resources that only exist after composite expansion) are named
 '<instance>::<member>'. A member is attributed to the layers that declared its instance and, in
-this preview, to every layer that owns a composite definition (the expansion does not yet record
+for now, to every layer that owns a composite definition (the expansion does not yet record
 which definition a member came from). That can only narrow what a member may do. A member whose
 instance cannot be identified falls back to every layer that instantiated a composite in the node.
 

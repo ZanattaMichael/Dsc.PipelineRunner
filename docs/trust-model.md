@@ -142,7 +142,7 @@ None of this narrows the core boundary — a configuration that can name a `targ
 it already declares. It documents where that trust now reaches, so operators can scope
 network access and credential availability on the build agent accordingly.
 
-## Capability policy (preview)
+## Capability policy
 
 Everything above treats the configuration repository as one unit of trust. A
 [capability policy](capability-policy.md) (a `Policy.yml` beside `Datum.yml`) trusts its layers

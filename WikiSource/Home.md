@@ -16,6 +16,7 @@ relationships and early termination possible.
 | Run the thing for the first time | [Getting started](Getting-Started) |
 | Run it as a step in GitHub Actions, Azure DevOps, GitLab, CircleCI or Jenkins | [Dsc.PipelineRunnerActions](https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions) |
 | Lay out a configuration repository | [Configuration repository layout](Configuration-Repository-Layout) |
+| Run documents you compiled yourself, without Datum | [Bypassing Datum](Bypassing-Datum) |
 | Know every legal key on a resource | [Resource properties](Resource-Properties) |
 | Know every run-level setting | [PipelineRunnerSettings](PipelineRunnerSettings) |
 | Read a value from a variable, parameter or another resource | [Function language](Function-Language) |
@@ -25,7 +26,7 @@ relationships and early termination possible.
 | Make a DSC v3 run faster, or understand the processes it starts | [DSC v3 performance](DSC-v3-Performance) |
 | Apply configuration to a remote machine | [Remote targets and credentials](Remote-Targets-and-Credentials) |
 | Work out which account the pipeline must run as | [The identity the runner runs as](Remote-Targets-and-Credentials#the-identity-the-runner-runs-as) |
-| Limit what each team's part of a configuration may use | [Capability policy (preview)](Capability-Policy) |
+| Limit what each team's part of a configuration may use | [Capability policy](Capability-Policy) |
 | Fail the build when a resource fails | [Reporting and exit codes](Reporting-and-Exit-Codes) |
 | Work out why something broke | [Troubleshooting](Troubleshooting) |
 | Change the runner itself | [Contributing](Contributing) |

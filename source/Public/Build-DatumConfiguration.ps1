@@ -62,7 +62,7 @@ Function Build-DatumConfiguration {
         [Switch]
         $SourceIsRemote,
 
-        # Preview (issue #86, Part B): a capability policy file. When supplied, a layer that may
+        # Issue #86, Part B: a capability policy file. When supplied, a layer that may
         # not use Datum script blocks is stopped before Datum loads anything, and a provenance
         # record (<node>.provenance.json) is written beside each compiled file so the run can
         # enforce the policy. The file must be outside -ConfigurationPath.
