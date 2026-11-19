@@ -1,11 +1,10 @@
-# Capability policy (preview)
+# Capability policy
 
-> **Status: preview.** This is the layered capability policy of
-> [issue #86](https://github.com/ZanattaMichael/Dsc.PipelineRunner/issues/86) (Part B). The file
-> format and behaviour may still change before it is declared stable. Read
+> This is the layered capability policy of
+> [issue #86](https://github.com/ZanattaMichael/Dsc.PipelineRunner/issues/86) (Part B). Read
 > [What it does not protect against](#what-it-does-not-protect-against) before relying on it, and
-> [Upgrading a policy written for the first preview](#upgrading-a-policy-written-for-the-first-preview)
-> if you wrote one against v1.3.0: five capabilities have been added, and under `Default: Deny`
+> [Upgrading a policy written for v1.3.0](#upgrading-a-policy-written-for-v130)
+> if you wrote one then: five capabilities have been added, and under `Default: Deny`
 > they are denied until the policy grants them.
 
 A capability policy lets the owner of a pipeline say **what each layer of a configuration is
@@ -14,6 +13,21 @@ them being trusted with everything the runner can do.
 
 Without a policy nothing changes: the configuration repository is fully trusted, as described in
 the [trust model](trust-model.md).
+
+## Version requirements
+
+- `Dsc.PipelineRunner` 1.3.0 or later; the `Settings` block needs 1.5.1. An older module does
+  not look for `Policy.yml` and ignores it silently.
+- `PipelineRunnerSettings` at `ConfigurationVersion: 0.6` and `PipelineRunnerVersion: 1.2.0` or
+  later. Older values still compile and the policy is still enforced, but the run warns and names
+  the fix (`Test-PolicyConfigurationVersion`). It warns rather than refuses so that existing
+  configurations keep working, and it never switches the policy off, which would fail open.
+
+`Policy.yml` is optional and stays optional: without one nothing changes. A pipeline that needs
+a policy passes `-RequirePolicy`, which fails the run when there is none.
+
+To upgrade: update the module the pipeline installs, then set both values in `Datum.yml`. See
+[Upgrading](../WikiSource/PipelineRunnerSettings.md#upgrading).
 
 ## The idea in one example
 
@@ -328,13 +342,13 @@ only knowable at run time.
 - A list capability with nothing to match is denied, not allowed: an empty computer name is
   refused even against `RemoteTargets: [ '*' ]`.
 
-### Upgrading a policy written for the first preview
+### Upgrading a policy written for v1.3.0
 
-The first preview (v1.3.0) had four capabilities. A policy written then still loads, but under
+The first release (v1.3.0) had four capabilities. A policy written then still loads, but under
 `Default: Deny` the five that were added — `Resources`, `Credentials`, `RemoteTargets`, `Notify`
 and `Reboot` — now resolve to `Deny` for every layer that does not list them. **A layer with no
-`Resources` rule may declare no resource at all**, so a configuration that ran under the first
-preview can stop running until its policy is updated. That is the fail-closed behaviour working as
+`Resources` rule may declare no resource at all**, so a configuration that ran under v1.3.0
+can stop running until its policy is updated. That is the fail-closed behaviour working as
 intended, and it is the whole reason `Default` exists.
 
 What to do: run `Get-DscCapabilityPolicyReport -ConfigurationPath <config> -AsText` and read the
@@ -351,7 +365,7 @@ the definition's permissions, while the parameters the instantiating team passes
 against that team's permissions. That lets a platform team hand out building blocks that do more
 than the instantiating team could do directly.
 
-**The preview does not implement that yet.** A composite member (named `<instance>::<member>` in
+**The runner does not implement that yet.** A composite member (named `<instance>::<member>` in
 the compiled file) is attributed to the layers that declared its instance *and* to every layer
 that owns a composite definition. That can only narrow what a member may do, so it is safe, but a
 platform composite instantiated by a team currently gets the team's permissions. Implementing the

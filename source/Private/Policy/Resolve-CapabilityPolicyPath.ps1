@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Finds the capability policy file for a configuration (issue #86, Part B; preview).
+Finds the capability policy file for a configuration (issue #86, Part B).
 
 .DESCRIPTION
 The policy is a file of its own at the root of the configuration, beside Datum.yml: Policy.yml

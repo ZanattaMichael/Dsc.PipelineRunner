@@ -1,10 +1,25 @@
-# Capability Policy (preview)
+# Capability Policy
 
 A capability policy says **what each layer of a configuration is allowed to use**, so several
 teams can contribute to one configuration without each of them being trusted with everything the
-runner can do. It is a preview: the format and behaviour may change.
+runner can do.
 
 Without a policy nothing changes.
+
+## Version requirements
+
+The capability policy needs:
+
+- `Dsc.PipelineRunner` **1.3.0 or later** (the `Settings` block: **1.5.1 or later**). An older
+  module does not look for `Policy.yml`, so the policy is **silently ignored**.
+- `PipelineRunnerSettings` in `Datum.yml` at **`ConfigurationVersion: 0.6`** and
+  **`PipelineRunnerVersion: 1.2.0`** or later. Older values (for example `0.5` / `1.1.0`) still
+  run, and the policy is still enforced, but the run warns and names the fix.
+
+`Policy.yml` is **optional**, in this version and newer ones: a configuration without one runs
+as before. A pipeline that wants a policy to be mandatory passes `-RequirePolicy`, which fails the
+run when there is none. To upgrade, see
+[Upgrading](PipelineRunnerSettings#upgrading).
 
 ## Set one up
 
@@ -201,7 +216,7 @@ pass it with `-PolicyPath`, or at least use `-RequirePolicy`.
 
 ## Upgrading a policy written for v1.3.0
 
-The first preview had four capabilities. A policy written then still loads, but under
+The first release had four capabilities. A policy written then still loads, but under
 `Default: Deny` the five that were added — `Resources`, `Credentials`, `RemoteTargets`, `Notify`
 and `Reboot` — now resolve to `Deny` for every layer that does not list them. **A layer with no
 `Resources` rule may declare no resource at all**, so a configuration that ran before can stop
@@ -211,7 +226,7 @@ Run `Get-DscCapabilityPolicyReport -ConfigurationPath <config> -AsText` and read
 section: every capability shown as `Deny (not listed; from Default)` is a decision the policy has
 not made yet. Grant each layer what it needs — `Resources` at least — and leave the rest denied.
 
-## Limits of the preview
+## Limits
 
 - It is not a sandbox. The Datum merge still runs as ordinary PowerShell; the `DatumScriptBlocks`
   check removes the documented way to run code there, nothing more.
@@ -226,8 +241,7 @@ not made yet. Grant each layer what it needs — `Resources` at least — and le
   document supplied with `Invoke-DscRunner -ConfigurationFile` / `-ConfigurationDirectory` has no
   layers, so no capability can be decided for it; such a run must declare the step outside the
   policy with `-BypassDatumPolicy`, and is refused outright when a `Datum.yml` and a `Policy.yml`
-  sit together above the documents. See
-  [Running a configuration you compiled yourself](Configuration-Repository-Layout#running-a-configuration-you-compiled-yourself).
+  sit together above the documents. See [Bypassing Datum](Bypassing-Datum).
 
 The design, the reasoning and the follow-up list are in
 [docs/capability-policy.md](https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/docs/capability-policy.md).

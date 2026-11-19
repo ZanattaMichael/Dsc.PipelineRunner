@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Names the policy layer that owns a configuration file (issue #86, Part B; preview).
+Names the policy layer that owns a configuration file (issue #86, Part B).
 
 .DESCRIPTION
 Provenance is derived from where a file is in the configuration repository, which a contributor

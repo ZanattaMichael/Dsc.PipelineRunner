@@ -53,6 +53,18 @@ rather than a reason to stop. Guard it:
 
 ---
 
+### `Policy.yml` has no effect
+
+The pipeline is loading a module older than 1.3.0, which does not look for `Policy.yml`. Check
+the version it loads (`Get-Module Dsc.PipelineRunner`) and see
+[Upgrading](PipelineRunnerSettings#upgrading).
+
+### `[Capability policy] ... The capability policy needs ConfigurationVersion 0.6 and PipelineRunnerVersion 1.2.0`
+
+A warning, not an error: the policy is still enforced. `Datum.yml` declares older
+`PipelineRunnerSettings` versions. Update the module and set `ConfigurationVersion: 0.6` and
+`PipelineRunnerVersion: 1.2.0`; see [Upgrading](PipelineRunnerSettings#upgrading).
+
 ## The compile fails
 
 ### `[Expand-CompositeResource] Composite instance [Composite/X/Y] ...`

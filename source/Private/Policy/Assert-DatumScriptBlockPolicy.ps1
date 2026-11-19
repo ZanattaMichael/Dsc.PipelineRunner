@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 Stops the compile when a layer that may not use Datum script blocks contains one
-(issue #86, Part B; preview).
+(issue #86, Part B).
 
 .DESCRIPTION
 A Datum.InvokeCommand block, written [x={ ... }=], is PowerShell that Datum evaluates during the

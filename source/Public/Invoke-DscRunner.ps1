@@ -161,7 +161,7 @@ on disk after the run instead of deleting it. Useful when debugging a compile fa
 Directories supplied by the caller are never deleted, with or without this switch.
 
 .PARAMETER PolicyPath
-Preview. A capability policy file that says what each layer of the configuration may use (Target
+A capability policy file that says what each layer of the configuration may use (Target
 actions, engines, execution scripts, Datum script blocks). A layer is decided by a file's path in
 the configuration. Normally this is not needed: the policy is the file Policy.yml at the root of
 the configuration, beside Datum.yml, and is used when it is there. -PolicyPath names a different
@@ -174,7 +174,7 @@ quietly enforces nothing. Such a run declares the step outside the policy with
 -BypassDatumPolicy instead.
 
 .PARAMETER RequirePolicy
-Preview. Fail when there is no capability policy: no Policy.yml in the configuration and no
+Fail when there is no capability policy: no Policy.yml in the configuration and no
 -PolicyPath. Refused for a passthrough configuration, for the reason given under -PolicyPath.
 A pipeline that sets this is saying every run must be governed, which a passthrough run cannot
 be - so the two are deliberately incompatible.
@@ -268,7 +268,7 @@ function Invoke-DscRunner {
 
         [switch]$KeepTemporaryDirectory,
 
-        # Preview (issue #86, Part B): a capability policy says what each layer of the
+        # Issue #86, Part B: a capability policy says what each layer of the
         # configuration may use (Targets, Engines, execution scripts, Datum script blocks). By
         # default it is the file Policy.yml at the root of the configuration, beside Datum.yml;
         # -PolicyPath names another file, which then wins. See docs/capability-policy.md.
@@ -278,7 +278,7 @@ function Invoke-DscRunner {
         [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
         [string]$PolicyPath,
 
-        # Preview: fail when there is no capability policy (no Policy.yml in the configuration and
+        # Fail when there is no capability policy (no Policy.yml in the configuration and
         # no -PolicyPath), for a pipeline that must never run an unconstrained configuration.
         [switch]$RequirePolicy,
 
@@ -371,7 +371,7 @@ function Invoke-DscRunner {
             if ($RunnerSettings -and $RunnerSettings.Count -gt 0) { $settings = $RunnerSettings }
 
             #
-            # 3p. Capability policy (preview, #86 Part B). The policy decides what a resource may
+            # 3p. Capability policy (#86 Part B). The policy decides what a resource may
             # do from the LAYER its file sits in, and a passthrough document has no layers, so
             # there is nothing to decide one from. That makes choosing passthrough a way to step
             # outside the policy mechanism, so the step has to be declared by the caller and
@@ -515,7 +515,10 @@ function Invoke-DscRunner {
                 # sub-folder of the configuration, where a constrained layer could change it.
                 $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $sourceDirectory
                 $buildArguments.PolicyPath = $capabilityPolicy.Path
-                Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+                Write-Information "Capability policy: $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+                # A configuration still on PipelineRunnerSettings older than 0.6 / 1.2.0 predates the
+                # policy: warn and name the fix. The policy is still enforced.
+                $null = Test-PolicyConfigurationVersion -Settings $settings -PolicyPath $capabilityPolicy.Path
                 # The PipelineRunnerSettings values Datum.yml may hold (Policy.yml 'Settings'),
                 # before anything is compiled.
                 Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -Engine $configurationEngine -EngineFromPipeline:$engineFromPipeline

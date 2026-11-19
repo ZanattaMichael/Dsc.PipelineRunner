@@ -27,7 +27,7 @@
     This function requires the 'Dsc.PipelineRunner', 'powershell-yaml', 'datum', and 'datum.invokecommand' modules to be installed and available.
 #>
 Function DatumConfigurationScriptBlock {
-    # $CapabilityPolicyPath (preview, #86 Part B) is read by Resolve-DscDatumProject from this scope,
+    # $CapabilityPolicyPath (#86 Part B) is read by Resolve-DscDatumProject from this scope,
     # like $Datum and $OutputPath: when set, a provenance record is written for each node.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'OutputPath', Justification = 'Read by Resolve-DscDatumProject from this scope (dynamic scoping).')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'CapabilityPolicyPath', Justification = 'Read by Resolve-DscDatumProject from this scope (dynamic scoping).')]

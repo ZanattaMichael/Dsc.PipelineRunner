@@ -109,7 +109,7 @@ Function Resolve-DscDatumProject {
     # Convert the configuration to YAML format and save it to the output file
     $configuration | ConvertTo-Yaml | Out-File -LiteralPath ([System.IO.Path]::Combine($OutputPath, "$nodeFileName.yml"))
 
-    # Capability policy (preview, #86 Part B): record which layers contributed to each resource.
+    # Capability policy (#86 Part B): record which layers contributed to each resource.
     # $CapabilityPolicyPath comes from the compile script block's scope, like $Datum. The record is
     # written by the runner from the layer files' paths; nothing in a layer file can change it.
     if (-not [string]::IsNullOrWhiteSpace([string]$CapabilityPolicyPath)) {

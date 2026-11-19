@@ -1,4 +1,4 @@
-# Example: a configuration with a capability policy (preview)
+# Example: a configuration with a capability policy
 
 A small configuration that two kinds of contributor share, with a policy that says what each may
 use. It is the worked example for [docs/capability-policy.md](../docs/capability-policy.md).

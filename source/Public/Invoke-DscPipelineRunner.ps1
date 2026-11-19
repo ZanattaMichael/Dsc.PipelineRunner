@@ -62,11 +62,11 @@ Leave a cloned configuration directory on disk after the run instead of deleting
 caller-supplied local configuration directory is never deleted, with or without this switch.
 
 .PARAMETER PolicyPath
-Preview. A capability policy file (see docs/capability-policy.md). Normally not needed: the file
+A capability policy file (see docs/capability-policy.md). Normally not needed: the file
 Policy.yml at the root of the configuration, beside Datum.yml, is used when it is there.
 
 .PARAMETER RequirePolicy
-Preview. Fail when there is no capability policy.
+Fail when there is no capability policy.
 
 .EXAMPLE
 Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir "C:\Configs" `
@@ -151,13 +151,13 @@ function Invoke-DscPipelineRunner {
         [Parameter()]
         [switch]$KeepTemporaryDirectory,
 
-        # Preview (issue #86, Part B): a capability policy file. Normally not needed: Policy.yml
+        # Issue #86, Part B: a capability policy file. Normally not needed: Policy.yml
         # at the root of the configuration, beside Datum.yml, is used when it is there.
         [Parameter()]
         [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
         [String]$PolicyPath,
 
-        # Preview: fail when there is no capability policy.
+        # Fail when there is no capability policy.
         [Parameter()]
         [switch]$RequirePolicy
     )
@@ -225,13 +225,13 @@ function Invoke-DscPipelineRunner {
         # permits it while still rejecting a path that escapes it.
         $buildArguments = @{ OutputPath = $ExportConfigDir; ConfigurationPath = $DatumConfigurationPath; AllowedRoot = $ExportConfigDir; SourceIsRemote = $sourceIsRemote }
 
-        # Capability policy (preview, #86 Part B): Policy.yml beside Datum.yml, or -PolicyPath.
+        # Capability policy (#86 Part B): Policy.yml beside Datum.yml, or -PolicyPath.
         $capabilityPolicy = $null
         $resolvedPolicyPath = Resolve-CapabilityPolicyPath -ConfigurationPath $DatumConfigurationPath -PolicyPath $PolicyPath -Require:$RequirePolicy
         if ($resolvedPolicyPath) {
             $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $DatumConfigurationPath
             $buildArguments.PolicyPath = $capabilityPolicy.Path
-            Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+            Write-Information "Capability policy: $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
         }
 
         #
@@ -245,6 +245,8 @@ function Invoke-DscPipelineRunner {
         # The values the policy's Settings block allows, judged before anything is compiled. This
         # entry point never takes the engine from Datum.yml, so Engine is not judged.
         if ($capabilityPolicy) {
+            # Older PipelineRunnerSettings versions than 0.6 / 1.2.0 warn; the policy still applies.
+            $null = Test-PolicyConfigurationVersion -Settings $settings -PolicyPath $capabilityPolicy.Path
             Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -EngineFromPipeline
         }
 
