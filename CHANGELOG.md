@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
   ([trust model](docs/trust-model.md)). See
   [Configuration Repository Layout](WikiSource/Configuration-Repository-Layout.md#running-a-configuration-you-compiled-yourself).
 
+## [1.5.0] - 2026-11-19
+
 ### Changed
 
 - **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
