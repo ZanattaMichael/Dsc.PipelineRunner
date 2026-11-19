@@ -1,0 +1,33 @@
+# The documentation site (GitHub Pages): https://zanattamichael.github.io/Dsc.PipelineRunner/
+#
+# Built with mdBook. tools/build-site.js assembles site-src/ from README.md, docs/, WikiSource/,
+# the generated command reference, the example folders, every other README.md, CONTRIBUTING.md,
+# SECURITY.md, CHANGELOG.md and assets/, and writes the navigation (site-src/SUMMARY.md) and the
+# Resources page from what it finds, so a new document gets onto the site by adding the file.
+# tools/check-site.js then checks every link in site/. See docs/documentation-site.md.
+
+[book]
+title = "Dsc.PipelineRunner"
+description = "Desired State Configuration in any CI/CD pipeline."
+language = "en"
+src = "site-src"
+
+[build]
+build-dir = "site"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/ZanattaMichael/Dsc.PipelineRunner"
+site-url = "/Dsc.PipelineRunner/"
+no-section-label = true
+# The favicon, which tools/build-site.js copies there from assets/.
+theme = "site-src/theme"
+# The palettes, the hero, the animated background and the motion (see the top of each file).
+additional-css = ["assets/site.css"]
+additional-js = ["assets/site.js"]
+
+[output.html.fold]
+enable = true
+level = 1

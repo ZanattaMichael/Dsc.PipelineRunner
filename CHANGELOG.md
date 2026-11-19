@@ -55,6 +55,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **The documentation site is built with mdBook** (#111), like the Meridian docs: a sidebar,
+  full-text search (`S` or `/`), light and dark themes, and an animated background behind every
+  page that stays still for `prefers-reduced-motion`. `tools/check-site.js` checks every link and
+  anchor in the built site in place of MkDocs' strict mode. The Pages workflow now fails, with the
+  setting to change, when GitHub Pages is not set to deploy from GitHub Actions; until then
+  GitHub's Jekyll build of the branch replaced the site with the bare README.
+
 - The shipped example configurations and the documentation's `Datum.yml` examples declare
   `ConfigurationVersion: 0.6` and `PipelineRunnerVersion: 1.2.0`.
 

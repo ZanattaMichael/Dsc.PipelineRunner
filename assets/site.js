@@ -72,20 +72,41 @@
   }, { passive: true });
 })();
 
-// Reveals the blocks of a page as they scroll into view (assets/site.css, .reveal). Only for
+// The logo beside the title in the top bar, and the pair as a link home. mdBook sets path_to_root on
+// every page.
+(function () {
+  'use strict';
+  var title = document.querySelector('.menu-title');
+  if (!title || title.querySelector('.site-mark')) return;
+  var root = typeof path_to_root === 'string' ? path_to_root : '';
+  var img = document.createElement('img');
+  img.className = 'site-mark';
+  img.alt = '';
+  img.width = 28;
+  img.height = 28;
+  img.src = root + 'assets/logo.svg';
+  var home = document.createElement('a');
+  home.className = 'site-home';
+  home.href = root + 'index.html';
+  home.setAttribute('aria-label', 'Dsc.PipelineRunner documentation home');
+  home.appendChild(img);
+  while (title.firstChild) home.appendChild(title.firstChild);
+  title.appendChild(home);
+})();
+
+// Reveals the blocks of a page as they scroll into view (assets/site.css, .site-reveal). Only for
 // readers who have not asked for reduced motion, and only when the browser can observe
 // visibility; otherwise this does nothing and every block is visible from the start.
 (function () {
   'use strict';
   var motion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: no-preference)') : null;
   if (!motion || !motion.matches || !('IntersectionObserver' in window)) return;
-  var article = document.querySelector('.md-content__inner.md-typeset');
-  if (!article) return;
-  var blocks = Array.prototype.filter.call(article.children, function (element) {
-    return /^(H2|H3|P|UL|OL|TABLE|PRE|BLOCKQUOTE|DIV|DETAILS)$/.test(element.tagName) && !element.classList.contains('site-hero');
+  var main = document.querySelector('.content main');
+  if (!main) return;
+  var blocks = Array.prototype.filter.call(main.children, function (element) {
+    return !/^(H1|SCRIPT|STYLE)$/.test(element.tagName) && !element.classList.contains('site-hero');
   });
-  if (!blocks.length) return;
-  document.documentElement.classList.add('site-reveal');
+  if (blocks.length < 3) return;
   var observer = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
       if (!entry.isIntersecting) return;
@@ -94,14 +115,17 @@
     });
   }, { rootMargin: '0px 0px -6% 0px', threshold: 0 });
   blocks.forEach(function (element) {
-    element.classList.add('reveal');
+    element.classList.add('site-reveal');
     observer.observe(element);
   });
-  // If the reader turns reduced motion on while the page is open, show everything at once.
-  var stop = function () {
-    if (motion.matches) return;
+  // A print, a jump to an anchor, or reduced motion turned on while the page is open never finds
+  // hidden text.
+  var showAll = function () {
     observer.disconnect();
-    document.documentElement.classList.remove('site-reveal');
+    blocks.forEach(function (element) { element.classList.add('is-visible'); });
   };
-  if (motion.addEventListener) motion.addEventListener('change', stop);
+  window.addEventListener('beforeprint', showAll);
+  window.addEventListener('hashchange', showAll);
+  if (location.hash) showAll();
+  if (motion.addEventListener) motion.addEventListener('change', function () { if (!motion.matches) showAll(); });
 })();

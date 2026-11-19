@@ -1,9 +1,9 @@
 # Builds the documentation site on every pull request, so a broken link in README.md, docs/,
 # WikiSource/ or the other pages fails the pull request rather than the Pages deployment.
 #
-# The site is assembled by tools/build-site.js (unit-tested here first) and built by mkdocs in
-# strict mode (mkdocs.yml). Pages.yml publishes the same build on pushes to main. See
-# docs/documentation-site.md.
+# The site is assembled by tools/build-site.js (unit-tested here first), built by mdBook
+# (book.toml), and every link in the result is checked by tools/check-site.js. Pages.yml
+# publishes the same build on pushes to main. See docs/documentation-site.md.
 name: Documentation site (build gate)
 
 on:
@@ -20,6 +20,9 @@ concurrency:
   group: docs-site-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  MDBOOK_VERSION: 0.5.4
+
 jobs:
   docs-site:
     name: Build documentation site
@@ -31,12 +34,16 @@ jobs:
         with:
           node-version: 22
 
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Restore mdBook
+        id: mdbook
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          python-version: '3.12'
+          path: ~/.cargo/bin/mdbook
+          key: mdbook-${{ runner.os }}-${{ env.MDBOOK_VERSION }}
 
-      - name: Install Material for MkDocs
-        run: pip install --quiet --requirement tools/site-requirements.txt
+      - name: Install mdBook
+        if: steps.mdbook.outputs.cache-hit != 'true'
+        run: cargo install --locked mdbook --version "$MDBOOK_VERSION"
 
       - name: Unit tests of the site builder
         run: node --test tools/build-site.test.js
@@ -45,10 +52,11 @@ jobs:
         shell: pwsh
         run: ./scripts/Build-WikiContent.ps1 -SourcePath $PWD -OutputPath ./output/WikiContent
 
-      - name: Assemble and build the site
+      - name: Assemble, build and check the site
         run: |
           node tools/build-site.js --wiki-content output/WikiContent
-          mkdocs build --strict
+          mdbook build
+          node tools/check-site.js site --site-url=/Dsc.PipelineRunner/
 
       - name: Upload the site
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
