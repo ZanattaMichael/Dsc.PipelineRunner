@@ -6,7 +6,8 @@
 # docs/documentation-site.md.
 #
 # One-time setup: in the repository's Settings > Pages, set Source to "GitHub Actions". Until
-# then the deploy job fails with a message that says so, and the site stays as it was.
+# then the deploy job fails with a message that says so (deploy-pages alone would succeed and be
+# overwritten by GitHub's Jekyll build of the branch).
 #
 # The wiki content is compiled here only to put the command reference on the site; the wiki
 # itself is still published by the Release workflow, and gated per pull request by Wiki.yml.
@@ -86,5 +87,18 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # With Source set to "Deploy from a branch", deploy-pages still succeeds, but GitHub's own
+      # Jekyll build of the branch publishes over it minutes later, so the live site is the bare
+      # README. Fail here instead, so the run says what is wrong.
+      - name: Check that Pages publishes from GitHub Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_type="$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .build_type 2>/dev/null || true)"
+          if [ "$build_type" != "workflow" ]; then
+            echo "::error title=The site was not published::GitHub Pages builds from '${build_type:-unknown}', not GitHub Actions, so a Jekyll build of the branch replaces this site. A repository admin sets Settings > Pages > Build and deployment > Source to GitHub Actions, then re-runs this workflow."
+            exit 1
+          fi
+
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

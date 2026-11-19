@@ -96,6 +96,117 @@
   font-size: 0.72rem;
 }
 
+/* The sky behind every page (assets/site.js draws it). The page lets it show through; the header
+   and the sidebars frost it. Without the script nothing changes. */
+:root, [data-md-color-scheme="default"] {
+  --site-sky-line: #0e66b5;
+  --site-sky-line-alpha: 0.12;
+  --site-sky-dot-alpha: 0.16;
+  --site-sky-glow-alpha: 0.12;
+  --site-sky-a: #0e66b5;
+  --site-sky-b: #249ee2;
+  --site-sky-c: #0b8f6b;
+  --site-sky-light: #0a2540;
+  --site-sky-light-alpha: 0.4;
+  --site-sky-pulse-alpha: 0.22;
+  --site-glass: rgba(255, 255, 255, 0.7);
+}
+
+[data-md-color-scheme="slate"] {
+  --site-sky-line: #5cc2f2;
+  --site-sky-line-alpha: 0.14;
+  --site-sky-dot-alpha: 0.2;
+  --site-sky-glow-alpha: 0.16;
+  --site-sky-a: #249ee2;
+  --site-sky-b: #5cc2f2;
+  --site-sky-c: #9ff3d0;
+  --site-sky-light: #ffffff;
+  --site-sky-light-alpha: 0.5;
+  --site-sky-pulse-alpha: 0.3;
+  --site-glass: rgba(30, 33, 41, 0.6);
+}
+
+.site-sky {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  z-index: 0;
+}
+
+.site-sky svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.site-sky__world {
+  transition: transform 0.6s ease-out;
+  will-change: transform;
+}
+
+.site-sky__dot {
+  fill: var(--site-sky-line);
+  opacity: var(--site-sky-dot-alpha);
+}
+
+.site-sky__lines path {
+  fill: none;
+  opacity: var(--site-sky-line-alpha);
+  stroke: var(--site-sky-line);
+  stroke-width: 1.4;
+}
+
+.site-sky__glow { opacity: var(--site-sky-glow-alpha); }
+.site-sky__stop-a { stop-color: var(--site-sky-a); }
+.site-sky__stop-b { stop-color: var(--site-sky-b); }
+.site-sky__stop-c { stop-color: var(--site-sky-c); }
+
+.site-sky__point {
+  fill: var(--site-sky-light);
+  opacity: calc(var(--site-sky-light-alpha) * 0.7);
+}
+
+.site-sky__halo {
+  fill: var(--site-sky-light);
+  opacity: 0.08;
+}
+
+/* The light along three lines. Readers who ask for reduced motion get the lines without it. */
+.site-sky__pulse {
+  display: none;
+  fill: none;
+  stroke-dasharray: 6 94;
+  stroke-linecap: round;
+}
+
+.site-sky__pulse--soft { opacity: var(--site-sky-pulse-alpha); stroke-width: 9; }
+.site-sky__pulse--sharp { opacity: var(--site-sky-light-alpha); stroke: var(--site-sky-light); stroke-width: 2.5; }
+.site-sky__pulse--a { stroke: var(--site-sky-a); }
+.site-sky__pulse--b { stroke: var(--site-sky-b); }
+.site-sky__pulse--c { stroke: var(--site-sky-c); }
+
+/* The page sits above the sky; the header and the sidebars frost it. */
+.has-sky .md-container {
+  position: relative;
+  z-index: 1;
+}
+
+.has-sky .md-header {
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(12px) saturate(1.2);
+  background-color: color-mix(in srgb, var(--md-primary-fg-color) 88%, transparent);
+}
+
+@media screen and (min-width: 76.25em) {
+  .has-sky .md-sidebar__scrollwrap {
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    background-color: var(--site-glass);
+    border-radius: 0.4rem;
+  }
+}
+
 /* Motion. Nothing below runs for a reader whose system asks for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   /* The hero draws itself once: the tile appears, the three layers draw in and merge into one
@@ -151,6 +262,28 @@
     transform: none;
   }
 
+  /* The sky's light travels from the three sources to the merge point, its glows drift and the
+     merge point breathes. */
+  .site-sky__pulse {
+    animation: site-sky-travel 8s linear infinite;
+    display: block;
+  }
+
+  .site-sky__glow {
+    animation: site-sky-drift 46s ease-in-out infinite alternate;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .site-sky__glow--2 { animation-delay: -20s; animation-duration: 58s; }
+  .site-sky__glow--3 { animation-delay: -35s; animation-duration: 52s; }
+
+  .site-sky__halo {
+    animation: site-sky-breathe 5s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
   /* The palette toggle fades between light and dark instead of snapping. */
   body,
   .md-main,
@@ -191,4 +324,18 @@
 @keyframes site-hero-rise {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
+}
+
+@keyframes site-sky-travel {
+  to { stroke-dashoffset: -100; }
+}
+
+@keyframes site-sky-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-90px, 60px) scale(1.18); }
+}
+
+@keyframes site-sky-breathe {
+  0%, 100% { opacity: 0.06; transform: scale(1); }
+  50% { opacity: 0.16; transform: scale(1.3); }
 }

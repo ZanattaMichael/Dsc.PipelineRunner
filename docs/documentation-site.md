@@ -71,11 +71,13 @@ files therefore fails the pull request that introduces it, not the deployment.
 The site moves a little, where it helps: the hero draws the logo once when the home page opens
 (the three configuration layers merge into one line and the check mark completes it), the
 *How it works* animation plays on the home page, sections fade in as they scroll into view
-(`assets/site.js`), and the light/dark toggle fades between the palettes. All of it is CSS and a
+(`assets/site.js`), and the light/dark toggle fades between the palettes. Behind every page,
+`assets/site.js` draws a faint animated sky: lines from three sources merging into one point, as
+in the logo, with light travelling along them. The header and sidebars frost it. All of it is CSS and a
 few lines of plain JavaScript; there is no framework and nothing is loaded from elsewhere.
 
 A reader whose system asks for reduced motion (`prefers-reduced-motion: reduce`) gets none of it:
-the hero is shown finished, the *How it works* animation is replaced by a still frame
+the hero is shown finished, the sky is still, the *How it works* animation is replaced by a still frame
 (`assets/how-it-works-still.png`, through a `<picture>` the build writes), no section is ever
 hidden, and the palette switches at once. Without JavaScript nothing is hidden either.
 
@@ -104,7 +106,8 @@ A repository administrator sets it once:
 2. Under **Build and deployment**, set **Source** to **GitHub Actions**.
 
 Until that is done, the Pages workflow's deploy job fails with a message saying the site is not
-configured for Actions, and the branch rendering stays as it was. The setting is not in any file,
+configured for Actions. Without that check the deploy would report success and GitHub's Jekyll
+build of the branch would replace the site a few minutes later. The setting is not in any file,
 so it is not part of a pull request.
 
 ## Building the site locally
