@@ -16,7 +16,9 @@ The capability policy needs:
   **`PipelineRunnerVersion: 1.2.0`** or later. Older values (for example `0.5` / `1.1.0`) still
   run, and the policy is still enforced, but the run warns and names the fix.
 
-`Policy.yml` stays optional: a configuration without one is not affected. To upgrade, see
+`Policy.yml` is **optional**, in this version and newer ones: a configuration without one runs
+as before. A pipeline that wants a policy to be mandatory passes `-RequirePolicy`, which fails the
+run when there is none. To upgrade, see
 [Upgrading](PipelineRunnerSettings#upgrading).
 
 ## Set one up

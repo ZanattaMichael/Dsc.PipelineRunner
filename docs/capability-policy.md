@@ -23,6 +23,9 @@ the [trust model](trust-model.md).
   the fix (`Test-PolicyConfigurationVersion`). It warns rather than refuses so that existing
   configurations keep working, and it never switches the policy off, which would fail open.
 
+`Policy.yml` is optional and stays optional: without one nothing changes. A pipeline that needs
+a policy passes `-RequirePolicy`, which fails the run when there is none.
+
 To upgrade: update the module the pipeline installs, then set both values in `Datum.yml`. See
 [Upgrading](../WikiSource/PipelineRunnerSettings.md#upgrading).
 

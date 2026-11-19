@@ -65,7 +65,8 @@ needs current `PipelineRunnerSettings` values:
 **Older configurations are not broken.** Any `ConfigurationVersion` from `0.1` to `0.9` is still
 accepted, so a configuration on `0.5` / `1.1.0` compiles and runs as before. The only change is a
 warning when it also has a `Policy.yml`: the policy is still enforced, and the warning names the
-fix. An older *module*, on the other hand, ignores `Policy.yml` without a word.
+fix. `Policy.yml` itself is optional; `-RequirePolicy` makes it mandatory for a pipeline that
+wants that. An older *module*, on the other hand, ignores `Policy.yml` without a word.
 
 To upgrade:
 
