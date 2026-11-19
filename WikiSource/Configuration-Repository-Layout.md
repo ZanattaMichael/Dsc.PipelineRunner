@@ -193,6 +193,47 @@ Get-ChildItem .\cache -Filter *.yml
 Inspect the compiled output whenever a value is not what you expected — it is the exact input
 the runner sees.
 
+## Running a configuration you compiled yourself
+
+A caller that builds its per-node documents somewhere else does not have to write a Datum
+repository to get at the runner. `-ConfigurationFile` names one or more documents, and
+`-ConfigurationDirectory` a directory of them; either skips the compile and runs the documents
+as they are. Both are mutually exclusive with the `Source` parameters.
+
+```powershell
+Invoke-DscRunner -ConfigurationFile .\out\SRV-APP-01.yml -Mode Test
+Invoke-DscRunner -ConfigurationDirectory .\out -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
+```
+
+A document must be what the compile would have produced: flat, composites already expanded
+(an unexpanded `Composite/` instance is refused), and `.yml`, `.yaml` or `.json`. Everything in
+["How a run executes"](Execution-Lifecycle) is unchanged — the pre-parse
+[Pipeline Rules](Pipeline-Rules), conditions, `dependsOn`/`notify` ordering, lifecycle scripts,
+`reference()`/`using()`, the report and the exit code. Three things follow from not having a
+hierarchy:
+
+- **The node name is the document's file name**, without its extension — the same rule the
+  compiled path uses, since the compile names each file after its node. It is what `nodeName()`
+  returns, what each result row records and what the report files are named after, so two
+  documents in one run may not share a file name.
+- **`PipelineRunnerSettings` come from `-RunnerSettings`**, a hashtable of the same keys
+  [Datum.yml would carry](PipelineRunnerSettings). There is no `Datum.yml` to read them from, and
+  they are deliberately *not* read out of the document: whether a configuration may run
+  unconstrained lifecycle scripts (`AllowExecutionScripts`) is a decision for whoever starts the
+  run, and a document that could grant it to itself would not be a decision at all. Omit the
+  parameter and the runner's defaults apply.
+- **The [capability policy](Capability-Policy) does not apply.** A policy says what each *layer*
+  of a configuration may use, and a layer is decided by where a file sits in the hierarchy; a
+  passthrough document has no layers. `-PolicyPath` and `-RequirePolicy` are refused for a
+  passthrough run rather than accepted and enforced over nothing, every passthrough run says on
+  the information stream that no policy is applied, and a `Policy.yml` sitting beside the
+  documents is warned about rather than silently ignored. A configuration whose layers must be
+  constrained has to be compiled through Datum.
+
+A passthrough document is code in exactly the same sense a compiled one is — see the
+[trust model](https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/docs/trust-model.md).
+Supplying it directly removes the compile, not the trust requirement.
+
 ## One file is one scope
 
 The compiled file is the unit of execution and the unit of scope:

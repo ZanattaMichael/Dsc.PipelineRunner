@@ -151,6 +151,16 @@ Datum script blocks each layer may use, and the runner refuses a file that break
 is a file of its own that is never merged, so no layer can override it.
 It is a preview with stated limits; in particular it is not a sandbox for the compile step.
 
+A policy also cannot be applied to a configuration supplied directly with
+`Invoke-DscRunner -ConfigurationFile` / `-ConfigurationDirectory` (issue #106): a layer is decided
+by where a file sits in the hierarchy, and such a document has none. The runner refuses
+`-PolicyPath` and `-RequirePolicy` for those runs rather than appearing to enforce a policy it
+cannot decide, and `Get-RunPolicyViolation` fails closed on a file with no provenance record in
+any case. A configuration whose layers must be trusted differently has to be compiled through
+Datum. Supplying a document directly removes the compile, not the trust boundary above: it runs
+as the same fully-trusted code, and must come from somewhere reviewed and protected in the same
+way.
+
 ## Future hardening (tracked)
 
 - AST-based allow-listing of permitted DSC resource types.

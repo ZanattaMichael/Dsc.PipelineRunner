@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Run a configuration you compiled yourself, without a Datum hierarchy** (#106).
+  `Invoke-DscRunner -ConfigurationFile <path[]>` and `-ConfigurationDirectory <path>` take
+  documents of the shape the compile produces and run them as they are, skipping
+  `Build-DatumConfiguration`; both are mutually exclusive with the `Source` parameters. A caller
+  that already decides what the desired state is no longer has to write a Datum repository to get
+  at the per-resource loop. Everything after the compile is unchanged: the pre-parse Pipeline
+  Rules, conditions, `dependsOn`/`notify` ordering, lifecycle scripts, `reference()`/`using()`,
+  the report and the exit code. Three things follow from there being no hierarchy. The node name
+  is the document's file name without its extension, the same rule the compiled path uses, so two
+  documents in one run may not share one. `PipelineRunnerSettings` come from the new
+  `-RunnerSettings` hashtable, not from the document — `AllowExecutionScripts` is a decision for
+  whoever starts the run. And the capability policy (preview) does not apply, because a layer is
+  decided by where a file sits in the hierarchy: `-PolicyPath` and `-RequirePolicy` are refused
+  for a passthrough run rather than enforced over nothing, every such run says on the information
+  stream that no policy is applied, and a `Policy.yml` beside the documents is warned about rather
+  than ignored. A passthrough document is code in the same sense a compiled one is
+  ([trust model](docs/trust-model.md)). See
+  [Configuration Repository Layout](WikiSource/Configuration-Repository-Layout.md#running-a-configuration-you-compiled-yourself).
+
 ### Changed
 
 - **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
