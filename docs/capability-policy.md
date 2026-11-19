@@ -123,6 +123,7 @@ write, or at least `-RequirePolicy`.
 | `Layers[].Name` | A label used in messages and in the provenance record. |
 | `Layers[].Paths` | Wildcard patterns on a file's path relative to the configuration root: forward slashes, **no file extension**, not case-sensitive. `*` and `**` both match across folders. The definition file is written `Datum.yml`. |
 | `Layers[].Capabilities` | What the layer may use; see below. |
+| `Settings` | Optional. The `PipelineRunnerSettings` values `Datum.yml` may hold; see [Settings](#settings-what-datumyml-may-say). |
 
 ### Capabilities
 
@@ -138,6 +139,37 @@ write, or at least `-RequirePolicy`.
 | `Notify` | `true` / `false` | `notify` on a resource. A notified resource runs `Set()` even though its own `Test()` reported it already in the desired state, so a layer that may notify can make another layer's resource apply itself. |
 | `Reboot` | `true` / `false` | Restarting a remote target when a resource's `Set()` reports `RebootRequired`. It is the most disruptive thing the runner does and the only one it does on its own initiative. |
 
+### Settings: what Datum.yml may say
+
+`PipelineRunnerSettings` in `Datum.yml` set how the runner behaves for the whole configuration.
+The optional `Settings` block lists the values each one may take. It is policy-wide, not per
+layer, because `Datum.yml` is one file owned by one layer.
+
+```yaml
+Settings:
+  AllowExecutionScripts: [ false ]
+  Reboot: [ Fail ]
+  Target: [ Local, WinRM ]   # wildcards allowed
+  Engine: [ DscV2, DscV3 ]
+```
+
+| Key | Judged value |
+| --- | --- |
+| `AllowExecutionScripts` | As the runner reads it (a boolean). Default when unset: `false`. |
+| `Reboot` | Default when unset: `Fail`. |
+| `Target` | The file-level default Target. Default when unset: `Local`. |
+| `Engine` | The engine `Datum.yml` selects (`Engine`, or `DSCResourceVersion`). Not judged when the pipeline chose it with `-Engine` or `-EngineAction`. |
+
+- A value outside its list stops the run **before compile**, naming every refused key, its value,
+  the layer that owns `Datum.yml` and the policy. `Get-DscCapabilityPolicyReport` reports the same
+  as a `SettingsRefusal` finding.
+- A key `Datum.yml` leaves out is judged by the runner's default, so a policy that does not allow
+  the default makes that key mandatory.
+- A key the policy does not list is not governed. Other keys (`ConfigurationVersion`,
+  `PipelineRunnerVersion`, `Report`) are refused at load.
+- The pipeline is not governed: its owner is the policy's owner. That includes a passthrough run's
+  `-RunnerSettings`; a passthrough run below a governed configuration is refused anyway.
+
 The file is read strictly. An unknown key, a wrong type or a missing field is an error. A policy
 that was silently misread would be worse than none.
 
@@ -148,7 +180,7 @@ that was silently misread would be worse than none.
 | `dependsOn` | It only orders resources that were going to run anyway. It cannot make another resource change state, which is what separates it from `notify`. |
 | `Source`, `Connect` and `Report` actions | These come from the pipeline (`Invoke-DscRunner -Source`, `-Connect`, `-ReportAction`), not from the configuration. The pipeline's owner is the same person who owns the policy, so a policy clause about them would only constrain the author against themselves — and the `Source` action is what fetches the configuration the policy lives in. |
 | Pipeline Rules | They ship with the module (`Pipeline Rules/`), not with the configuration, so no layer can add one. |
-| `PipelineRunnerSettings` keys | They are set in `Datum.yml`, which is one file owned by one layer. The report says which layer that is, because that layer controls the merge whatever else the policy says. |
+| Which layer may set `PipelineRunnerSettings` | They are set in `Datum.yml`, which is one file owned by one layer. The report says which layer that is. What values they may hold is governed, by [Settings](#settings-what-datumyml-may-say). |
 | Resource **properties** | A policy that tried to constrain property values would be a schema, not a capability. `Resources` is the lever: a layer that may not declare a `Script` resource cannot smuggle code through a property. |
 
 ### Making the policy legible: `Get-DscCapabilityPolicyReport`
@@ -250,6 +282,7 @@ that file.
 
 | When | What | On a violation |
 | --- | --- | --- |
+| Before the compile | `PipelineRunnerSettings` against `Settings` | Nothing is compiled or run; every refused value is named. |
 | Before the compile, on the raw files | Datum script blocks, per file; a `Datum.yml` that would pull the policy into the merge | Nothing is compiled or run; every offending file is named. Separately, a layer whose `Paths` match no file, and any file no layer claims, are warned about here. |
 | Before the first resource of a file | Engine; each resource's type, Target (or the file's default), remote computer, Credential actions, execution scripts and `notify` | The file does not start; every violation is named in one pass, with the node, the policy, the layer and the files that layer owns. |
 | When a resource is reached | The Target, the remote computer and the Credential actions that are really about to be used | That resource fails without the target being contacted or the credential resolved; the run continues. |
@@ -383,8 +416,7 @@ Be clear about these before depending on the policy.
   platform resource without taking over its `target`, its credential or its scripts. Today the
   merge replaces the resource whole, so a team that wants one property restates all of it and the
   whole resource is held to the team's permissions.
-- Function-language accessors and `stopProcessing`; which `PipelineRunnerSettings` keys a layer may
-  set (today they are all in `Datum.yml`, which is one file with one owner).
+- Function-language accessors and `stopProcessing`; governing `PipelineRunnerSettings.Report`.
 - Policy decisions in the report document and the JUnit and summary reporters.
 - Constrained Language Mode for the compile (Part A), and a policy key that requires it.
 - Signing or pinning the policy (a pipeline-supplied SHA-256 the file must match), for

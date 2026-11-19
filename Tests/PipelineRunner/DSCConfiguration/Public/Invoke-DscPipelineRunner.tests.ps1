@@ -18,6 +18,8 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
             (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
             (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
+            (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1')
+            (Get-FunctionPath 'Get-PolicyLayer.ps1')
             (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1')
         ) | ForEach-Object {
             . $_.FullName
@@ -313,6 +315,47 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
                 -not $PSBoundParameters.ContainsKey('RunnerSettings')
             }
+        }
+    }
+
+    Context "Capability policy Settings: what Datum.yml's PipelineRunnerSettings may say (#86)" {
+
+        BeforeAll {
+            Mock -CommandName Test-Path -MockWith { return $true }
+            $Env:AZDODSC_CACHE_DIRECTORY = "mocked"
+            Mock -CommandName Resolve-CapabilityPolicyPath -MockWith { return 'Policy.yml' }
+            # The Settings block as Import-CapabilityPolicy returns it; Assert-RunnerSettingsPolicy
+            # itself is not mocked, so this is the real check against the real message.
+            Mock -CommandName Import-CapabilityPolicy -MockWith {
+                @{
+                    PolicyVersion = 1
+                    Default       = 'Deny'
+                    Layers        = @(@{ Name = 'Platform'; Paths = [string[]]@('Datum.yml'); Capabilities = @{} })
+                    Settings      = @{ Reboot = [string[]]@('Fail'); Engine = [string[]]@('DscV3') }
+                    Path          = 'Policy.yml'
+                    Sha256        = ('a' * 64)
+                }
+            }
+        }
+
+        AfterAll {
+            Remove-Item Env:AZDODSC_CACHE_DIRECTORY -ErrorAction SilentlyContinue
+        }
+
+        It "Stops before compile when Datum.yml holds a value the policy does not allow" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Reboot = 'Ignore' } }
+
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -ConfigurationSourcePath $ConfigurationSourcePath } |
+                Should -Throw "*layer 'Platform'*PipelineRunnerSettings.Reboot is 'Ignore'*"
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 0 -Scope It
+            Assert-MockCalled -CommandName Start-DscRunner -Exactly 0 -Scope It
+        }
+
+        It "Does not judge Datum.yml's Engine, which this entry point never uses" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Engine = 'DscV2' } }
+
+            { Invoke-DscPipelineRunner -AzureDevopsOrganizationName "MyOrg" -ExportConfigDir $exportConfigDir -ConfigurationSourcePath $ConfigurationSourcePath } | Should -Not -Throw
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 1 -Scope It
         }
     }
 

@@ -549,4 +549,62 @@ resources:
             ConvertTo-Json -InputObject $received -Compress -Depth 5 | Should -BeExactly $Expected
         }
     }
+
+    Context "a single non-Datum document, run end to end through Invoke-DscRunner (#106)" {
+
+        # The passthrough unit tests stub Start-DscRunner, and the runner tests call Start-DscRunner
+        # directly. This drives one hand-written document through the public entry point and the
+        # real runner loop together, so the two halves are known to fit.
+
+        BeforeAll {
+            . (Get-FunctionPath 'Invoke-DscRunner.ps1').FullName
+            . (Get-FunctionPath 'Resolve-PassthroughConfiguration.ps1').FullName
+            . (Get-FunctionPath 'Resolve-PassthroughPolicyContext.ps1').FullName
+            . (Get-FunctionPath 'Resolve-DscEngine.ps1').FullName
+            . (Get-FunctionPath 'Merge-DscRunnerResult.ps1').FullName
+            . (Get-FunctionPath 'Register-RunnerTemporaryDirectory.ps1').FullName
+            . (Get-FunctionPath 'Remove-RunnerTemporaryDirectory.ps1').FullName
+            Mock -CommandName Write-Warning
+        }
+
+        It "runs the document's resources under its file name, with the caller's settings, and records the bypass" {
+            $directory = Join-Path $TestDrive 'passthrough-e2e'
+            $null = New-Item -ItemType Directory -Path $directory -Force
+            $document = Join-Path $directory 'SRV-APP-01.json'
+            Set-Content -LiteralPath $document -Encoding UTF8 -Value @'
+{
+  "resources": [
+    { "type": "Test/A", "name": "A", "properties": { "Value": "one" } },
+    { "type": "Test/Drift", "name": "Drift", "dependsOn": [ "Test/A/A" ], "properties": {} }
+  ]
+}
+'@
+            $calls = [System.Collections.Generic.List[object]]::new()
+
+            $summary = Invoke-DscRunner -ConfigurationFile $document -BypassDatumPolicy -Mode Test `
+                -RunnerSettings @{ Reboot = 'Ignore' } -ConnectAction { } -EngineAction (New-RecordingEngine -Calls $calls)
+
+            @($calls | Where-Object Method -EQ 'Test' | ForEach-Object Name) | Should -Be @('A', 'Drift')
+            @($calls | Where-Object Method -EQ 'Set').Count | Should -Be 0
+            $summary.TotalConfigurations | Should -Be 1
+            $summary.TotalResources | Should -Be 2
+            $summary.PassCount | Should -Be 1
+            $summary.FailCount | Should -Be 1
+            Should -Invoke -CommandName Write-Warning -Scope It -ParameterFilter { $Message -like '*BYPASSED*' }
+        }
+
+        It "is refused, Settings block or not, when a governed configuration sits above the document" {
+            $root = Join-Path $TestDrive 'passthrough-governed'
+            $null = New-Item -ItemType Directory -Path $root -Force
+            Set-Content -LiteralPath (Join-Path $root 'Datum.yml') -Value 'ResolutionPrecedence: []'
+            Set-Content -LiteralPath (Join-Path $root 'Policy.yml') -Value "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Platform`n    Paths: [ 'Datum.yml' ]`nSettings:`n  Reboot: [ Fail ]"
+            $document = Join-Path $root 'SRV-APP-02.json'
+            Set-Content -LiteralPath $document -Value '{ "resources": [] }'
+            $calls = [System.Collections.Generic.List[object]]::new()
+
+            { Invoke-DscRunner -ConfigurationFile $document -BypassDatumPolicy -RunnerSettings @{ Reboot = 'Fail' } -ConnectAction { } -EngineAction (New-RecordingEngine -Calls $calls) } |
+                Should -Throw '*governed by a capability policy*'
+            $calls.Count | Should -Be 0
+        }
+    }
 }

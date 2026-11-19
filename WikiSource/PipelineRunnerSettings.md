@@ -9,8 +9,8 @@ does not carry the block, so settings cannot be varied per node today.
 
 ```yaml
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
   DSCResourceVersion: 2.0
   Engine: DscV3
   AllowExecutionScripts: true
@@ -19,6 +19,9 @@ PipelineRunnerSettings:
 ```
 
 Every key is optional except the two version keys that `Test-DatumConfiguration` validates.
+
+A [capability policy](Capability-Policy#settings) can limit the values `AllowExecutionScripts`,
+`Engine`, `Reboot` and `Target` may take. A value it does not allow stops the run before compile.
 
 ## The keys
 
@@ -37,8 +40,8 @@ Every key is optional except the two version keys that `Test-DatumConfiguration`
 
 ```yaml
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
 ```
 
 `Test-DatumConfiguration` throws if the block is absent, if either value fails to cast to
@@ -176,8 +179,8 @@ resources:
 
 ```yaml
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
   DSCResourceVersion: 2.0
 ```
 
@@ -188,8 +191,8 @@ Everything else takes its default: `DscV2`, no execution scripts, `Reboot: Fail`
 
 ```yaml
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
   Engine: DscV3
   Target: WinRM
   Reboot: Ignore
@@ -202,8 +205,8 @@ remote resource restarts and waits anyway, and a local one continues without res
 
 ```yaml
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
   DSCResourceVersion: 2.0
   AllowExecutionScripts: true
 ```

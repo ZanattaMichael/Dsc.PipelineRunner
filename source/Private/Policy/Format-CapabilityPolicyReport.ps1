@@ -47,6 +47,18 @@ function Format-CapabilityPolicyReport {
         }
     }
 
+    $lines.Add('')
+    $lines.Add('PipelineRunnerSettings Datum.yml may hold (Settings)')
+    if ($null -eq $Report.Settings -or $Report.Settings.Count -eq 0) {
+        $lines.Add('  Not governed: the policy has no Settings block.')
+    }
+    else {
+        foreach ($key in ($Report.Settings.Keys | Sort-Object)) {
+            $values = @($Report.Settings[$key] | ForEach-Object { if ($_ -is [bool]) { "$_".ToLowerInvariant() } else { $_ } })
+            $lines.Add(('  {0,-22} {1}' -f $key, ($values -join ', ')))
+        }
+    }
+
     if (@($Report.ResolutionPrecedence).Count -gt 0) {
         $lines.Add('')
         $lines.Add('The hierarchy, by layer (Datum.yml ResolutionPrecedence)')

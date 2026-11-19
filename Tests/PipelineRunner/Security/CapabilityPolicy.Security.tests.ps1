@@ -20,6 +20,10 @@ properties that make it worth having:
     reach, the Credential actions a layer may resolve, a 'notify' that forces another layer's
     resource to re-apply, and restarting a remote target - each denied by default under
     Default: Deny, each named in the violation together with the layer and the files it owns;
+  * the PipelineRunnerSettings values Datum.yml may hold (AllowExecutionScripts, Reboot, Target,
+    Engine) are governed by the policy's Settings block, judged as the runner will read them, with
+    the runner's default standing in for a key Datum.yml leaves out; the pipeline's own choices
+    are not governed;
   * the report (Get-DscCapabilityPolicyReport) describes the policy without compiling anything,
     and finds the ways a policy ends up quietly ineffective.
   * a passthrough document (#106), which has no layers, can never half-enforce a policy.
@@ -40,6 +44,7 @@ Describe "Security: capability policy (preview)" -Tag Unit, Security {
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Format-CapabilityPolicyReport.ps1').FullName
+        . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
         . (Get-FunctionPath 'Get-DscCapabilityPolicyReport.ps1').FullName
 
@@ -211,6 +216,10 @@ Layers:
             @{ Why = 'a path pattern that climbs out';   Yaml = "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: A`n    Paths: [ '../*' ]"; Message = "*no '..'*" }
             @{ Why = 'a layer with no paths';            Yaml = "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: A`n    Paths: []"; Message = '*Paths must be a non-empty list*' }
             @{ Why = 'a file that is not a mapping';     Yaml = "- just`n- a list"; Message = '*must be a mapping*' }
+            @{ Why = 'Settings that is not a mapping';   Yaml = "PolicyVersion: 1`nDefault: Deny`nSettings: [ Reboot ]`nLayers:`n  - Name: A`n    Paths: [ '*' ]"; Message = '*Settings must be a mapping*' }
+            @{ Why = 'a setting it cannot govern';       Yaml = "PolicyVersion: 1`nDefault: Deny`nSettings:`n  ConfigurationVersion: [ '0.6' ]`nLayers:`n  - Name: A`n    Paths: [ '*' ]"; Message = "*'ConfigurationVersion' is not a setting a policy can govern*" }
+            @{ Why = 'a setting with an empty list';     Yaml = "PolicyVersion: 1`nDefault: Deny`nSettings:`n  Reboot: []`nLayers:`n  - Name: A`n    Paths: [ '*' ]"; Message = '*Reboot must be a non-empty list*' }
+            @{ Why = 'AllowExecutionScripts given as text'; Yaml = "PolicyVersion: 1`nDefault: Deny`nSettings:`n  AllowExecutionScripts: [ 'no' ]`nLayers:`n  - Name: A`n    Paths: [ '*' ]"; Message = '*AllowExecutionScripts must be a list of true or false*' }
         ) {
             { Import-CapabilityPolicy -Path (New-PolicyFile -Content $Yaml) } | Should -Throw $Message
         }
@@ -681,6 +690,77 @@ Layers:
 
         It "Gives a resource that is not in the record no capabilities" {
             Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $PointOfUse -ResourceKey 'M/R/Smuggled' -Capability Reboot | Should -Match '\(unclaimed\)'
+        }
+    }
+
+    Context "What Datum.yml's PipelineRunnerSettings may say: the policy's Settings block" {
+
+        BeforeAll {
+            $script:SettingsPolicy = Import-CapabilityPolicy -Path (New-PolicyFile -Content ($PolicyYaml + @"
+
+Settings:
+  AllowExecutionScripts: [ false ]
+  Reboot: [ Fail ]
+  Target: [ Local, WinRM ]
+  Engine: [ 'DscV*' ]
+"@))
+        }
+
+        It "Loads the Settings block as allowed values per key" {
+            $SettingsPolicy.Settings['AllowExecutionScripts'] | Should -Be @($false)
+            $SettingsPolicy.Settings['Target'] | Should -Be @('Local', 'WinRM')
+            $Policy.Settings.Count | Should -Be 0
+        }
+
+        It "Allows settings the policy allows" {
+            { Assert-RunnerSettingsPolicy -Policy $SettingsPolicy -Settings @{ Target = 'WinRM'; Reboot = 'Fail'; Engine = 'DscV3'; AllowExecutionScripts = $false } } | Should -Not -Throw
+        }
+
+        It "Refuses every disallowed value in one pass, naming the key, the value, the layer and the policy" {
+            $thrown = { Assert-RunnerSettingsPolicy -Policy $SettingsPolicy -Settings @{ AllowExecutionScripts = $true; Reboot = 'Ignore'; Target = 'SSH' } } | Should -Throw -PassThru
+            $message = $thrown.Exception.Message
+            $message | Should -BeLike '*refuses 3 PipelineRunnerSettings value(s)*'
+            $message | Should -BeLike "*AllowExecutionScripts is 'true' (set in Datum.yml); the policy allows: false*"
+            $message | Should -BeLike "*Reboot is 'Ignore'*"
+            $message | Should -BeLike "*Target is 'SSH'*"
+            $message | Should -BeLike "*layer 'Platform'*"
+            $message | Should -BeLike "*$($SettingsPolicy.Sha256.Substring(0, 12))*"
+        }
+
+        It "Judges a key Datum.yml leaves out by the runner's default" {
+            $strict = Import-CapabilityPolicy -Path (New-PolicyFile -Content ($PolicyYaml + "`nSettings:`n  Reboot: [ Ignore ]"))
+            { Assert-RunnerSettingsPolicy -Policy $strict -Settings @{} } | Should -Throw "*Reboot is 'Fail' (the runner's default, because Datum.yml does not set it)*"
+            { Assert-RunnerSettingsPolicy -Policy $strict -Settings $null } | Should -Throw '*Reboot*'
+            { Assert-RunnerSettingsPolicy -Policy $strict -Settings @{ Reboot = 'Ignore' } } | Should -Not -Throw
+        }
+
+        It "Reads AllowExecutionScripts the way the runner does" {
+            # The PreParse rule casts the value to a boolean, so the policy must judge that, not the text.
+            { Assert-RunnerSettingsPolicy -Policy $SettingsPolicy -Settings @{ AllowExecutionScripts = 'false' } } | Should -Throw "*AllowExecutionScripts is 'true'*"
+        }
+
+        It "Judges the engine the configuration chose, and leaves the pipeline's choice alone" {
+            $v3Only = Import-CapabilityPolicy -Path (New-PolicyFile -Content ($PolicyYaml + "`nSettings:`n  Engine: [ DscV3 ]"))
+            { Assert-RunnerSettingsPolicy -Policy $v3Only -Settings @{ Engine = 'DscV2' } } | Should -Throw "*Engine is 'DscV2'*"
+            { Assert-RunnerSettingsPolicy -Policy $v3Only -Settings @{ DSCResourceVersion = '2.0' } -Engine 'DscV2' } | Should -Throw "*Engine is 'DscV2' (selected from Datum.yml)*"
+            { Assert-RunnerSettingsPolicy -Policy $v3Only -Settings @{ Engine = 'DscV2' } -EngineFromPipeline } | Should -Not -Throw
+            { Assert-RunnerSettingsPolicy -Policy $v3Only -Settings @{} } | Should -Not -Throw
+        }
+
+        It "Changes nothing for a policy with no Settings block" {
+            { Assert-RunnerSettingsPolicy -Policy $Policy -Settings @{ AllowExecutionScripts = $true; Reboot = 'Ignore'; Target = 'SSH' } } | Should -Not -Throw
+        }
+
+        It "Is reported by Get-DscCapabilityPolicyReport before a run" {
+            $root = Join-Path $TestDrive 'settings-report'
+            $null = New-Item -ItemType Directory -Path (Join-Path $root 'Projects') -Force
+            Set-Content -LiteralPath (Join-Path $root 'Datum.yml') -Value "ResolutionPrecedence:`n  - Projects/App`nPipelineRunnerSettings:`n  AllowExecutionScripts: true"
+            Set-Content -LiteralPath (Join-Path $root 'Policy.yml') -Value ($PolicyYaml + "`nSettings:`n  AllowExecutionScripts: [ false ]")
+            Set-Content -LiteralPath (Join-Path $root 'Projects/App.yml') -Value 'resources: []'
+            $report = Get-DscCapabilityPolicyReport -ConfigurationPath $root
+            $report.HasError | Should -BeTrue
+            @($report.Findings | Where-Object Code -EQ 'SettingsRefusal').Message | Should -BeLike "*AllowExecutionScripts is 'true'*"
+            (Format-CapabilityPolicyReport -Report $report) -join "`n" | Should -Match 'AllowExecutionScripts\s+false'
         }
     }
 

@@ -22,6 +22,8 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Resolve-PassthroughPolicyContext.ps1')
             (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
             (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
+            (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1')
+            (Get-FunctionPath 'Get-PolicyLayer.ps1')
             (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1')
         ) | ForEach-Object { . $_.FullName }
 
@@ -206,6 +208,37 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
                 $Engine -eq 'DscV2'
             }
             Assert-MockCalled -CommandName Get-PipelineRunnerSetting -Exactly 1 -Scope It
+        }
+    }
+
+    Context "Capability policy Settings: what Datum.yml's PipelineRunnerSettings may say (#86)" {
+
+        BeforeAll {
+            Import-Module -Name 'powershell-yaml' -ErrorAction Stop
+            $script:SettingsPolicyPath = Join-Path $TestDrive 'settings-policy.yml'
+            Set-Content -LiteralPath $SettingsPolicyPath -Value "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Platform`n    Paths: [ 'Datum.yml' ]`nSettings:`n  Engine: [ DscV3 ]`n  Reboot: [ Fail ]"
+        }
+
+        It "Stops before compile when Datum.yml holds a value the policy does not allow" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Engine = 'DscV3'; Reboot = 'Ignore' } }
+
+            { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath } |
+                Should -Throw "*layer 'Platform'*PipelineRunnerSettings.Reboot is 'Ignore'*"
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 0 -Scope It
+        }
+
+        It "Judges the engine the configuration selected" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ DSCResourceVersion = '2.0' } }
+
+            { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath } |
+                Should -Throw "*PipelineRunnerSettings.Engine is 'DscV2'*"
+        }
+
+        It "Does not govern an engine the pipeline chose" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Engine = 'DscV3' } }
+
+            { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath -Engine 'DscV2' } | Should -Not -Throw
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 1 -Scope It
         }
     }
 
@@ -683,6 +716,21 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
 
                     @($policyWarning | ForEach-Object { [string]$_ }) -join "`n" | Should -Match 'is NOT being applied'
                     Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It
+                }
+
+                It "Does not judge -RunnerSettings against a stray policy's Settings block (#86)" {
+                    # The settings of a passthrough run come from the pipeline, whose owner is the
+                    # policy's owner, so a Settings block it cannot resolve layers for governs nothing.
+                    $withSettings = Join-Path $TestDrive 'straypolicy-settings'
+                    $null = New-Item -Path $withSettings -ItemType Directory -Force
+                    [System.IO.File]::WriteAllText((Join-Path $withSettings 'n.yml'), 'resources: []')
+                    [System.IO.File]::WriteAllText((Join-Path $withSettings 'Policy.yml'), "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Platform`n    Paths: [ 'Datum.yml' ]`nSettings:`n  Reboot: [ Fail ]")
+
+                    Invoke-DscRunner -ConfigurationDirectory $withSettings -BypassDatumPolicy -RunnerSettings @{ Reboot = 'Ignore' } -WarningAction SilentlyContinue
+
+                    Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
+                        $RunnerSettings['Reboot'] -eq 'Ignore' -and $null -eq $Policy
+                    }
                 }
             }
 

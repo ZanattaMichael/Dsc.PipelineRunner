@@ -179,11 +179,14 @@ function Get-DscCapabilityPolicyReport {
     # A definition file this cannot read is reported above, not thrown: the point of the report is
     # to describe a configuration somebody is still working on.
     $defaultTarget = 'Local'
+    $settings = $null
+    $settingsReadable = $true
     try {
         $settings = Get-PipelineRunnerSetting -ConfigurationDirectory $root
         if ($settings -and -not [string]::IsNullOrWhiteSpace([string]$settings['Target'])) { $defaultTarget = [string]$settings['Target'] }
     }
     catch {
+        $settingsReadable = $false
         & $add 'Warning' 'UnreadableSettings' "The PipelineRunnerSettings block of the Datum definition file cannot be read, so this report assumes the default Target is 'Local': $($_.Exception.Message)"
     }
 
@@ -281,6 +284,14 @@ function Get-DscCapabilityPolicyReport {
     try { Assert-DatumScriptBlockPolicy -ConfigurationPath $root -Policy $policy }
     catch { & $add 'Error' 'PreCompileRefusal' ([string]$_.Exception.Message) }
 
+    # The policy's Settings block against Datum.yml's PipelineRunnerSettings, through the same
+    # check the run uses. The engine is judged as Datum.yml names it; a pipeline that passes
+    # -Engine is not governed.
+    if ($settingsReadable) {
+        try { Assert-RunnerSettingsPolicy -Policy $policy -Settings $settings }
+        catch { & $add 'Error' 'SettingsRefusal' ([string]$_.Exception.Message) }
+    }
+
     $settingsLayer = Get-PolicyLayer -Policy $policy -RelativePath 'Datum.yml'
     & $add 'Information' 'DefinitionFileOwner' "The Datum definition file belongs to layer '$settingsLayer'. It sets the resolution precedence, the merge rules, the Datum handlers and PipelineRunnerSettings, so whoever can change it can reshape the merge whatever this policy says. It should belong to the most trusted layer, and be protected like Policy.yml."
 
@@ -291,6 +302,7 @@ function Get-DscCapabilityPolicyReport {
         PolicyVersion        = $policy.PolicyVersion
         Default              = [string]$policy.Default
         Layers               = $layers
+        Settings             = $policy.Settings
         Files                = @($coverage.Files)
         ResolutionPrecedence = @($precedence)
         Resources            = $resources

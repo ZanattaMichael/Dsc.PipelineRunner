@@ -23,6 +23,7 @@ Describe "Capability policy provenance through a real Datum compile (preview)" -
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
+        . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
 
         function New-ConfigurationTree {
             param([string]$Root, [hashtable]$Files)
@@ -62,8 +63,8 @@ ResolutionPrecedence:
 default_lookup_options: MostSpecific
 
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.5
-  PipelineRunnerVersion: 1.1.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
 
 DatumHandlers:
   Datum.InvokeCommand::InvokeCommand:
@@ -529,6 +530,7 @@ Describe "A real runner pass under a capability policy (preview)" -Tag Integrati
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
+        . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
 
         . (Get-FunctionPath 'DscMethodResult.ps1').FullName
         . (Get-FunctionPath 'Invoke-Action.ps1').FullName
@@ -567,8 +569,8 @@ ResolutionPrecedence:
 default_lookup_options: MostSpecific
 
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.5
-  PipelineRunnerVersion: 1.1.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
 
 DatumHandlers:
   Datum.InvokeCommand::InvokeCommand:
@@ -820,6 +822,7 @@ Describe "The shipped example: Example Policy Configuration" -Tag Integration, H
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
+        . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
 
         $script:ExampleSource = Join-Path $Global:RepositoryRoot 'Example Policy Configuration'
@@ -962,6 +965,17 @@ Describe "The shipped example: Example Policy Configuration" -Tag Integration, H
             Should -Match '\[PSDscResources/Environment/Site name\] notifies 1 resource\(s\) \(PSDscResources/Environment/Log level\), forcing them to re-run Set\(\)'
     }
 
+    It "README: refuses a Datum.yml setting outside the policy's Settings block, before compile" {
+        $root = New-ExampleCopy
+        $policy = Import-CapabilityPolicy -Path (Resolve-CapabilityPolicyPath -ConfigurationPath $root -Require) -ConfigurationPath $root
+        { Assert-RunnerSettingsPolicy -Policy $policy -Settings (Get-PipelineRunnerSetting -ConfigurationDirectory $root) } | Should -Not -Throw
+
+        $definition = Join-Path $root 'Datum.yml'
+        (Get-Content -LiteralPath $definition -Raw) -replace '(?m)^(  Target: Local)', "`$1`n  Reboot: Ignore" | Set-Content -LiteralPath $definition -Encoding UTF8
+        { Assert-RunnerSettingsPolicy -Policy $policy -Settings (Get-PipelineRunnerSetting -ConfigurationDirectory $root) } |
+            Should -Throw "*PipelineRunnerSettings.Reboot is 'Ignore' (set in Datum.yml); the policy allows: Fail*"
+    }
+
     It "Shows the same policy as a report, without compiling or running anything" {
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Format-CapabilityPolicyReport.ps1').FullName
@@ -1004,6 +1018,7 @@ Describe "A real runner pass: the capabilities checked at the point of use (prev
         . (Get-FunctionPath 'Test-ResourceCapabilityPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
+        . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
 
         . (Get-FunctionPath 'DscMethodResult.ps1').FullName
         . (Get-FunctionPath 'Invoke-Action.ps1').FullName
@@ -1041,8 +1056,8 @@ ResolutionPrecedence:
 default_lookup_options: MostSpecific
 
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.5
-  PipelineRunnerVersion: 1.1.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
 
 DatumHandlers:
   Datum.InvokeCommand::InvokeCommand:

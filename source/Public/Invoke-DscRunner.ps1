@@ -448,14 +448,22 @@ function Invoke-DscRunner {
         # (2.x -> DscV2, 3.x -> DscV3, otherwise dsc.exe auto-detection). This keeps the version
         # gate out of the core loop while honouring the field configs already carry. For a
         # passthrough run the same rule is applied to the settings the caller supplied.
+        #
+        # Whether the configuration chose the engine: the capability policy's Settings block
+        # governs only what Datum.yml decides, never what the pipeline passed. A passthrough
+        # run's settings come from the pipeline (-RunnerSettings), so it is never judged.
+        $engineFromPipeline = [bool]$EngineAction -or $PSBoundParameters.ContainsKey('Engine')
+        $configurationEngine = $null
         if (-not $EngineAction -and -not $PSBoundParameters.ContainsKey('Engine')) {
             if ($settings) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$settings['Engine'])) {
                     $Engine = [string]$settings['Engine']
+                    $configurationEngine = $Engine
                     Write-Verbose "[Invoke-DscRunner] Engine from PipelineRunnerSettings.Engine: $Engine"
                 }
                 elseif (-not [string]::IsNullOrWhiteSpace([string]$settings['DSCResourceVersion'])) {
                     $Engine = Resolve-DscEngine -Engine 'Auto' -Version ([string]$settings['DSCResourceVersion'])
+                    $configurationEngine = $Engine
                     Write-Verbose "[Invoke-DscRunner] Engine auto-selected from DSCResourceVersion '$($settings['DSCResourceVersion'])': $Engine"
                 }
             }
@@ -508,6 +516,9 @@ function Invoke-DscRunner {
                 $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $sourceDirectory
                 $buildArguments.PolicyPath = $capabilityPolicy.Path
                 Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+                # The PipelineRunnerSettings values Datum.yml may hold (Policy.yml 'Settings'),
+                # before anything is compiled.
+                Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -Engine $configurationEngine -EngineFromPipeline:$engineFromPipeline
             }
             Build-DatumConfiguration @buildArguments
 

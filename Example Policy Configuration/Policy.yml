@@ -55,3 +55,12 @@ Layers:
       # ExecutionScripts, DatumScriptBlocks, Notify and Reboot are not listed, so Default (Deny)
       # applies: no scripts, no code in the merge, no forcing a platform resource to re-apply
       # itself, and no restarting a machine.
+
+# What Datum.yml's PipelineRunnerSettings may say. Datum.yml belongs to the platform team, but the
+# values below are what the pipeline's owner will accept from it: a key Datum.yml leaves out is
+# judged by the runner's default, and a value outside a list stops the run before compile. A key
+# not listed here (AllowExecutionScripts, in this example) is not governed by the policy.
+Settings:
+  Engine: [ DscV2, DscV3 ]
+  Target: [ Local ]                      # remote work is opted into per resource, not by default
+  Reboot: [ Fail ]                       # a local reboot request stops the run; never ignored

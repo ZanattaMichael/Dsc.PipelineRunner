@@ -258,8 +258,8 @@ This module utilizes Datum from Gael Colas to streamline configuration. For more
 
     ```yaml
     PipelineRunnerSettings:
-      ConfigurationVersion: 0.5
-      PipelineRunnerVersion: 1.1.0
+      ConfigurationVersion: 0.6
+      PipelineRunnerVersion: 1.2.0
       Engine: DscV2
     ```
 
