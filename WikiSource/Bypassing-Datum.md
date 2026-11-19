@@ -27,6 +27,14 @@ Invoke-DscRunner -ConfigurationDirectory .\out -BypassDatumPolicy -RunnerSetting
 | `-RunnerSettings` | The [PipelineRunnerSettings](PipelineRunnerSettings) for the run, as a hashtable. Omit it to use the runner's defaults. |
 | `-NodeName` | The node name, when a single document's file is not named after its node. |
 
+## Version requirements
+
+Bypassing Datum needs `Dsc.PipelineRunner` **1.5.1 or later**. An older module does not know
+`-BypassDatumPolicy`, `-ConfigurationFile` or `-ConfigurationDirectory`, and fails with a
+parameter error. A bypass run has no `Datum.yml`, so `ConfigurationVersion` and
+`PipelineRunnerVersion` are not checked. Keep them at `0.6` / `1.2.0` in the configurations you
+still compile with Datum. See [Upgrading](PipelineRunnerSettings#upgrading).
+
 ## What a document must look like
 
 A document is what the compile would have produced: flat, with composites already expanded (an

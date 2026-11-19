@@ -245,6 +245,8 @@ function Invoke-DscPipelineRunner {
         # The values the policy's Settings block allows, judged before anything is compiled. This
         # entry point never takes the engine from Datum.yml, so Engine is not judged.
         if ($capabilityPolicy) {
+            # Older PipelineRunnerSettings versions than 0.6 / 1.2.0 warn; the policy still applies.
+            $null = Test-PolicyConfigurationVersion -Settings $settings -PolicyPath $capabilityPolicy.Path
             Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -EngineFromPipeline
         }
 

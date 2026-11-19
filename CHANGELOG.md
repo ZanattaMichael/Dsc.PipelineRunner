@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **A capability policy warns when `Datum.yml` declares older `PipelineRunnerSettings` versions.**
+  With a `Policy.yml` in force and `ConfigurationVersion` below `0.6` or `PipelineRunnerVersion`
+  below `1.2.0`, the run warns and names the fix: update the module, then set both values. The
+  policy is still enforced and older configurations still run. The wiki's
+  [Upgrading](WikiSource/PipelineRunnerSettings.md#upgrading) section lists the module and
+  settings versions the capability policy and bypassing Datum need.
+
 - **The capability policy governs `PipelineRunnerSettings`** (#86). An optional
   `Settings` block in `Policy.yml` lists the values `Datum.yml` may use for
   `AllowExecutionScripts`, `Reboot`, `Target` and `Engine`. A value outside it, or the runner's

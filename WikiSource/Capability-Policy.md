@@ -6,6 +6,19 @@ runner can do.
 
 Without a policy nothing changes.
 
+## Version requirements
+
+The capability policy needs:
+
+- `Dsc.PipelineRunner` **1.3.0 or later** (the `Settings` block: **1.5.1 or later**). An older
+  module does not look for `Policy.yml`, so the policy is **silently ignored**.
+- `PipelineRunnerSettings` in `Datum.yml` at **`ConfigurationVersion: 0.6`** and
+  **`PipelineRunnerVersion: 1.2.0`** or later. Older values (for example `0.5` / `1.1.0`) still
+  run, and the policy is still enforced, but the run warns and names the fix.
+
+`Policy.yml` stays optional: a configuration without one is not affected. To upgrade, see
+[Upgrading](PipelineRunnerSettings#upgrading).
+
 ## Set one up
 
 Put a file called `Policy.yml` at the root of the configuration, **beside `Datum.yml`**:

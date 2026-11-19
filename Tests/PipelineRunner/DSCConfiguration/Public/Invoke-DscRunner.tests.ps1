@@ -23,6 +23,7 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
             (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
             (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1')
+            (Get-FunctionPath 'Test-PolicyConfigurationVersion.ps1')
             (Get-FunctionPath 'Get-PolicyLayer.ps1')
             (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1')
         ) | ForEach-Object { . $_.FullName }
@@ -239,6 +240,21 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
 
             { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath -Engine 'DscV2' } | Should -Not -Throw
             Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 1 -Scope It
+        }
+
+        It "Warns, and still compiles under the policy, when Datum.yml declares versions older than 0.6 / 1.2.0" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ ConfigurationVersion = '0.5'; PipelineRunnerVersion = '1.1.0'; Engine = 'DscV3'; Reboot = 'Fail' } }
+
+            $warned = @(Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            @($warned | Where-Object { "$_" -match 'ConfigurationVersion 0\.5 and PipelineRunnerVersion 1\.1\.0' }).Count | Should -Be 1
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 1 -Scope It -ParameterFilter { $PolicyPath }
+        }
+
+        It "Does not warn for the current versions" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ ConfigurationVersion = '0.6'; PipelineRunnerVersion = '1.2.0'; Engine = 'DscV3'; Reboot = 'Fail' } }
+
+            $warned = @(Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            @($warned | Where-Object { "$_" -match 'PipelineRunnerVersion' }).Count | Should -Be 0
         }
     }
 

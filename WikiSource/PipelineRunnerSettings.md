@@ -52,6 +52,34 @@ range. It also warns when the configuration version trails the installed
 Because this runs during `Build-DatumConfiguration`, a configuration pinned to an older runner
 fails at compile time with a version message, not halfway through a `Set` run.
 
+## Upgrading
+
+The capability policy and bypassing Datum need a current module, and the capability policy also
+needs current `PipelineRunnerSettings` values:
+
+| Feature | `Dsc.PipelineRunner` | `ConfigurationVersion` / `PipelineRunnerVersion` |
+|---|---|---|
+| [Capability policy](Capability-Policy) | 1.3.0 or later (`Settings` block: 1.5.1) | `0.6` / `1.2.0` or later |
+| [Bypassing Datum](Bypassing-Datum) | 1.5.1 or later | Not checked (no `Datum.yml`) |
+
+**Older configurations are not broken.** Any `ConfigurationVersion` from `0.1` to `0.9` is still
+accepted, so a configuration on `0.5` / `1.1.0` compiles and runs as before. The only change is a
+warning when it also has a `Policy.yml`: the policy is still enforced, and the warning names the
+fix. An older *module*, on the other hand, ignores `Policy.yml` without a word.
+
+To upgrade:
+
+1. Update the module the pipeline installs, for example
+   `Install-Module Dsc.PipelineRunner -MinimumVersion 1.5.1`. Check what the pipeline actually
+   loads with `Get-Module Dsc.PipelineRunner`.
+2. Set the current values in `Datum.yml`:
+
+   ```yaml
+   PipelineRunnerSettings:
+     ConfigurationVersion: 0.6
+     PipelineRunnerVersion: 1.2.0
+   ```
+
 ## `Engine` and `DSCResourceVersion`
 
 Engine selection resolves in this order, first match wins:

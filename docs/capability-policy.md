@@ -14,6 +14,18 @@ them being trusted with everything the runner can do.
 Without a policy nothing changes: the configuration repository is fully trusted, as described in
 the [trust model](trust-model.md).
 
+## Version requirements
+
+- `Dsc.PipelineRunner` 1.3.0 or later; the `Settings` block needs 1.5.1. An older module does
+  not look for `Policy.yml` and ignores it silently.
+- `PipelineRunnerSettings` at `ConfigurationVersion: 0.6` and `PipelineRunnerVersion: 1.2.0` or
+  later. Older values still compile and the policy is still enforced, but the run warns and names
+  the fix (`Test-PolicyConfigurationVersion`). It warns rather than refuses so that existing
+  configurations keep working, and it never switches the policy off, which would fail open.
+
+To upgrade: update the module the pipeline installs, then set both values in `Datum.yml`. See
+[Upgrading](../WikiSource/PipelineRunnerSettings.md#upgrading).
+
 ## The idea in one example
 
 A platform team owns the baseline and the composites. Application teams own their own node files.

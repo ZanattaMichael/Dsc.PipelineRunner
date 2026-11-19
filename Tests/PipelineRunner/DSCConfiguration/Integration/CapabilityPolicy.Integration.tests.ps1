@@ -24,6 +24,7 @@ Describe "Capability policy provenance through a real Datum compile" -Tag Integr
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
         . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
+        . (Get-FunctionPath 'Test-PolicyConfigurationVersion.ps1').FullName
 
         function New-ConfigurationTree {
             param([string]$Root, [hashtable]$Files)
@@ -531,6 +532,7 @@ Describe "A real runner pass under a capability policy" -Tag Integration, Hosted
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
         . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
+        . (Get-FunctionPath 'Test-PolicyConfigurationVersion.ps1').FullName
 
         . (Get-FunctionPath 'DscMethodResult.ps1').FullName
         . (Get-FunctionPath 'Invoke-Action.ps1').FullName
@@ -823,6 +825,7 @@ Describe "The shipped example: Example Policy Configuration" -Tag Integration, H
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
         . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
+        . (Get-FunctionPath 'Test-PolicyConfigurationVersion.ps1').FullName
         . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
 
         $script:ExampleSource = Join-Path $Global:RepositoryRoot 'Example Policy Configuration'
@@ -1019,6 +1022,7 @@ Describe "A real runner pass: the capabilities checked at the point of use" -Tag
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
         . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
+        . (Get-FunctionPath 'Test-PolicyConfigurationVersion.ps1').FullName
 
         . (Get-FunctionPath 'DscMethodResult.ps1').FullName
         . (Get-FunctionPath 'Invoke-Action.ps1').FullName

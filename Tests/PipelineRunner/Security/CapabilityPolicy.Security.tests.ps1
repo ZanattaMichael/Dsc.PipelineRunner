@@ -45,6 +45,7 @@ Describe "Security: capability policy" -Tag Unit, Security {
         . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
         . (Get-FunctionPath 'Format-CapabilityPolicyReport.ps1').FullName
         . (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1').FullName
+        . (Get-FunctionPath 'Test-PolicyConfigurationVersion.ps1').FullName
         . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
         . (Get-FunctionPath 'Get-DscCapabilityPolicyReport.ps1').FullName
 
@@ -761,6 +762,46 @@ Settings:
             $report.HasError | Should -BeTrue
             @($report.Findings | Where-Object Code -EQ 'SettingsRefusal').Message | Should -BeLike "*AllowExecutionScripts is 'true'*"
             (Format-CapabilityPolicyReport -Report $report) -join "`n" | Should -Match 'AllowExecutionScripts\s+false'
+        }
+    }
+
+    Context "PipelineRunnerSettings older than 0.6 / 1.2.0 warn, and the policy still applies" {
+
+        It "says nothing for the current values: <ConfigurationVersion> / <PipelineRunnerVersion>" -ForEach @(
+            @{ ConfigurationVersion = '0.6'; PipelineRunnerVersion = '1.2.0' }
+            @{ ConfigurationVersion = 0.6;   PipelineRunnerVersion = '1.2' }
+            @{ ConfigurationVersion = '0.7'; PipelineRunnerVersion = '1.3.0' }
+        ) {
+            Mock -CommandName Write-Warning
+            Test-PolicyConfigurationVersion -Settings @{ ConfigurationVersion = $ConfigurationVersion; PipelineRunnerVersion = $PipelineRunnerVersion } -PolicyPath 'Policy.yml' |
+                Should -BeTrue
+            Should -Invoke -CommandName Write-Warning -Exactly 0 -Scope It
+        }
+
+        It "warns, naming the values and the fix, for older values: <ConfigurationVersion> / <PipelineRunnerVersion>" -ForEach @(
+            @{ ConfigurationVersion = '0.5'; PipelineRunnerVersion = '1.1.0' }
+            @{ ConfigurationVersion = '0.5'; PipelineRunnerVersion = '1.2.0' }
+            @{ ConfigurationVersion = '0.6'; PipelineRunnerVersion = '1.1.0' }
+        ) {
+            $result = Test-PolicyConfigurationVersion -Settings @{ ConfigurationVersion = $ConfigurationVersion; PipelineRunnerVersion = $PipelineRunnerVersion } -PolicyPath 'Policy.yml' -WarningVariable warned -WarningAction SilentlyContinue
+            $result | Should -BeFalse
+            $warned.Count | Should -Be 1
+            "$($warned[0])" | Should -Match "ConfigurationVersion $ConfigurationVersion and PipelineRunnerVersion $PipelineRunnerVersion"
+            "$($warned[0])" | Should -Match 'still enforced'
+            "$($warned[0])" | Should -Match 'ConfigurationVersion: 0\.6 and PipelineRunnerVersion: 1\.2\.0'
+        }
+
+        It "only warns, never throws, so an older configuration keeps running" {
+            { Test-PolicyConfigurationVersion -Settings @{ ConfigurationVersion = '0.1'; PipelineRunnerVersion = '0.1' } -WarningAction SilentlyContinue } |
+                Should -Not -Throw
+        }
+
+        It "leaves a missing or unreadable value to Test-DatumConfiguration" {
+            Mock -CommandName Write-Warning
+            Test-PolicyConfigurationVersion -Settings $null | Should -BeTrue
+            Test-PolicyConfigurationVersion -Settings @{ ConfigurationVersion = '0.5' } | Should -BeTrue
+            Test-PolicyConfigurationVersion -Settings @{ ConfigurationVersion = 'x'; PipelineRunnerVersion = '1.1.0' } | Should -BeTrue
+            Should -Invoke -CommandName Write-Warning -Exactly 0 -Scope It
         }
     }
 

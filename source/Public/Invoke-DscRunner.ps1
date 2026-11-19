@@ -516,6 +516,9 @@ function Invoke-DscRunner {
                 $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $sourceDirectory
                 $buildArguments.PolicyPath = $capabilityPolicy.Path
                 Write-Information "Capability policy: $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+                # A configuration still on PipelineRunnerSettings older than 0.6 / 1.2.0 predates the
+                # policy: warn and name the fix. The policy is still enforced.
+                $null = Test-PolicyConfigurationVersion -Settings $settings -PolicyPath $capabilityPolicy.Path
                 # The PipelineRunnerSettings values Datum.yml may hold (Policy.yml 'Settings'),
                 # before anything is compiled.
                 Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -Engine $configurationEngine -EngineFromPipeline:$engineFromPipeline
