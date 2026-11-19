@@ -193,6 +193,11 @@ Get-ChildItem .\cache -Filter *.yml
 Inspect the compiled output whenever a value is not what you expected — it is the exact input
 the runner sees.
 
+There is no supported way to hand the runner one of these files directly: every entry point
+compiles first, so a caller that builds its hierarchy elsewhere still needs a Datum repository.
+Running a pre-made configuration is proposed in
+[issue #106](https://github.com/ZanattaMichael/Dsc.PipelineRunner/issues/106).
+
 ## One file is one scope
 
 The compiled file is the unit of execution and the unit of scope:
