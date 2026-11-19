@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-19
+
 ### Changed
 
 - **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
