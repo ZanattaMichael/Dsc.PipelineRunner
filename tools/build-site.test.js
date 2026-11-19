@@ -354,11 +354,11 @@ test('the Pages workflow runs when anything the site is built from changes', () 
 test('SUMMARY.md: Home is a prefix chapter, sections are parts, a group is its overview page or a draft', () => {
   const toc = summary([
     ['Home', 'index.md'],
-    ['Guides', [['A [guide]', 'guides/a.md'], ['Plans', [['B', 'guides/b.md']]]]],
+    ['Guides', [['A [guide] \\ here', 'guides/a.md'], ['Plans', [['B', 'guides/b.md']]]]],
     ['Reference', [['Command reference', [['Overview', 'wiki/Command-Reference.md'], ['C', 'wiki/Command-C.md']]], ['Example Thing', 'examples/example thing/index.md']]],
   ]);
   assert.match(toc, /^# Summary\n/);
-  assert.match(toc, /\n\[Home\]\(index\.md\)\n\n# Guides\n\n- \[A \\\[guide\\\]\]\(guides\/a\.md\)\n- \[Plans\]\(\)\n  - \[B\]\(guides\/b\.md\)\n/);
+  assert.match(toc, /\n\[Home\]\(index\.md\)\n\n# Guides\n\n- \[A \\\[guide\\\] \\\\ here\]\(guides\/a\.md\)\n- \[Plans\]\(\)\n  - \[B\]\(guides\/b\.md\)\n/);
   assert.match(toc, /\n# Reference\n\n- \[Command reference\]\(wiki\/Command-Reference\.md\)\n  - \[C\]\(wiki\/Command-C\.md\)\n- \[Example Thing\]\(examples\/example%20thing\/index\.md\)\n/);
 });
 
