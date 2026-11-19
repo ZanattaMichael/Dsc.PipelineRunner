@@ -179,6 +179,24 @@ that layer's permissions rather than the definition's. `Get-DscCapabilityPolicyR
 what a given policy permits, and which layer each file and declaration falls in, without compiling
 or running anything.
 
+A policy also cannot be applied to a configuration supplied directly with
+`Invoke-DscRunner -ConfigurationFile` / `-ConfigurationDirectory` (issue #106): a layer is decided
+by where a file sits in the hierarchy, and such a document has none. Because that would make
+choosing passthrough a quiet way out of the policy, the runner does not infer it: such a run must
+declare it with `-BypassDatumPolicy`, warns that the policy is bypassed, and records
+`PolicyBypassed` on every node's result and report document so the step is auditable. The switch
+grants no exception — when a `Datum.yml` and a `Policy.yml` sit together above the documents the
+configuration is governed and the run is refused with or without it, and the switch is refused
+outright on the Datum path. That check finds the configuration by walking up from each document to
+the first `Datum.yml`; it cannot tell that a document was copied out of a governed repository and
+left elsewhere, so the switch is a declaration by the caller, not a proof. `-PolicyPath` and
+`-RequirePolicy` stay refused for those runs rather than appearing to enforce a policy the runner
+cannot decide, and the pre-run gate fails closed in any case on a file with no provenance record,
+one written under another policy, or one written for another node. A configuration whose layers must be trusted differently has to be compiled through
+Datum. Supplying a document directly removes the compile, not the trust boundary above: it runs
+as the same fully-trusted code, and must come from somewhere reviewed and protected in the same
+way.
+
 ## Future hardening (tracked)
 
 - Executing the compile step under

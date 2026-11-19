@@ -25,6 +25,16 @@ Specifies the mode of operation. Valid values are 'Test' (default) and 'Set'.
 .PARAMETER ReportPath
 Optional directory for saving the report. When provided, a CSV and a JSON report are written for the configuration.
 
+.PARAMETER NodeName
+The node name for this run. Defaults to the configuration file's base name, which is what the
+Datum compile produces. Supplied only by a passthrough caller (issue #106) whose file is not
+named after its node. It is written into the report file names, so it is validated as a file name.
+
+.PARAMETER PolicyBypassed
+Set by Invoke-DscRunner when a passthrough run declared -BypassDatumPolicy (issue #106). It does
+not change what runs; it records on the result and in the report document that the capability
+policy was stepped outside for this run.
+
 .PARAMETER Engine
 Execution engine action (Actions/Engine/<Engine>.ps1). 'Auto' opts in to detection; default is Invoke-DscResource (DscV2).
 
@@ -75,7 +85,19 @@ function Start-DscRunner {
         # not present in a compiled per-node YAML file) and passes it through; a direct caller
         # of Start-DscRunner may also supply it. Defaults are applied throughout when absent, so
         # every key stays optional and today's behavior is unchanged when this is not supplied.
-        [hashtable] $RunnerSettings = @{}
+        [hashtable] $RunnerSettings = @{},
+
+        # The node name for this run (#106). Optional: when omitted it is the configuration
+        # file's base name, which is what the Datum compile produces (one <node>.yml per node,
+        # named for the node) and what every caller got before this parameter existed. A
+        # passthrough caller whose file is not named after its node supplies it here.
+        [string] $NodeName,
+
+        # Set when this run declared -BypassDatumPolicy (#106): a passthrough document, which has
+        # no layers for a capability policy to be decided over, running with the caller's explicit
+        # say-so. Recorded on the result and in the report document so the bypass is visible to
+        # someone auditing the run afterwards, not only in the console.
+        [switch] $PolicyBypassed
     )
 
     # Informational output is the pipeline log's signal channel; make it visible by default
@@ -181,7 +203,22 @@ function Start-DscRunner {
 
     # Run-level bookkeeping. Results are structured records, deduplicated by the
     # (ConfigurationFile, ResourceType, InstanceName) tuple so a resource is counted once.
-    $nodeName    = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
+    # The node name. NOTE: $NodeName (the parameter above) and $nodeName are the SAME variable,
+    # because PowerShell variable names are case-insensitive. That is deliberate here: resolving
+    # it once at the top means every use below - the result records, the nodeName() accessor, the
+    # report file names and the reporter context - reads the resolved value with no second path.
+    if ([string]::IsNullOrWhiteSpace($NodeName)) {
+        $nodeName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
+    }
+    elseif ($NodeName -notmatch '^[^/\\:*?"<>|\x00-\x1F]+$' -or $NodeName.StartsWith('.') -or
+            $NodeName -match '\.\.' -or $NodeName -ne $NodeName.Trim()) {
+        # A node name becomes a file name: the report is written as <node>.csv, <node>.report.json,
+        # <node>.state.json and <node>.rsop.json under -ReportPath. Held to the same rule
+        # Resolve-DscDatumProject applies to a node name, for the same reason - a path separator,
+        # a wildcard, '..' or a leading '.' must not be able to steer a report write out of the
+        # report directory.
+        throw "[Start-DscRunner] The node name '$($NodeName -replace '[\x00-\x1F]', '?')' is not a valid file name (path separators, wildcard characters, '..' and a leading '.' are not allowed); the node name is written into this run's report file names."
+    }
     $results     = [System.Collections.Generic.List[pscustomobject]]::new()
     $resultIndex = [System.Collections.Generic.Dictionary[string, pscustomobject]]::new([System.StringComparer]::Ordinal)
     $runStatus   = 'Completed'
@@ -326,6 +363,26 @@ function Start-DscRunner {
         if ($null -ne $sectionValue -and $sectionValue -isnot [System.Collections.IDictionary]) {
             throw "[Start-DscRunner] The '$mappingSection' section of '$FilePath' must be a mapping of names to values, not a $($sectionValue.GetType().Name)."
         }
+    }
+
+    # A PipelineRunnerSettings block in a configuration file is INERT: the runner's settings come
+    # from -RunnerSettings, which Invoke-DscRunner resolves from Datum.yml before the compile or
+    # takes from a passthrough caller. The compile strips the block by design, so finding one here
+    # means someone handed the runner a hierarchy file instead of a compiled one, or left the block
+    # in a document they wrote - and silence would let them believe those settings took effect.
+    # Warned once per document (this runs once per file), and not an error: the document is
+    # otherwise valid.
+    $settingsBlock = $null
+    if ($pipeline -is [System.Collections.IDictionary]) {
+        foreach ($pipelineKey in @($pipeline.Keys)) {
+            if ([string]$pipelineKey -ieq 'PipelineRunnerSettings') { $settingsBlock = $pipeline[$pipelineKey]; break }
+        }
+    }
+    elseif ($null -ne $pipeline -and $pipeline.PSObject.Properties['PipelineRunnerSettings']) {
+        $settingsBlock = $pipeline.PipelineRunnerSettings
+    }
+    if ($null -ne $settingsBlock) {
+        Write-Warning "[Start-DscRunner] '$([System.IO.Path]::GetFileName($FilePath))' carries a PipelineRunnerSettings block. It is IGNORED: a configuration file's settings are never read from the file itself. A compiled configuration has no such block (the compile strips it), and a run's settings come from Datum.yml for a compiled run or from Invoke-DscRunner -RunnerSettings for a passthrough one. Move these settings to -RunnerSettings, or compile this configuration through Datum, or remove the block."
     }
 
     # Clear any existing data in these hashtables before populating them
@@ -1163,6 +1220,9 @@ function Start-DscRunner {
             StateCapture      = $reportState
             Results           = @($reportResults)
         }
+        # #106: added only when the bypass is in effect, so a compiled run's report document is
+        # exactly what it has always been and the two cannot be confused.
+        if ($PolicyBypassed) { $reportContract['PolicyBypassed'] = $true }
 
         # Dry run: the resultant configuration (RSOP). What this file resolves to after the
         # Datum merge, composite expansion, ordering and (where it does not need run-time
@@ -1343,6 +1403,12 @@ function Start-DscRunner {
     # Test or Set run keeps exactly the properties it has always had.
     if ($Mode -eq 'DryRun') {
         $runResult | Add-Member -NotePropertyName Rsop -NotePropertyValue $rsopDocument
+    }
+
+    # #106: likewise added only when the capability policy was bypassed, so a compiled run's
+    # result keeps exactly the properties it has always had and an auditor can tell them apart.
+    if ($PolicyBypassed) {
+        $runResult | Add-Member -NotePropertyName PolicyBypassed -NotePropertyValue $true
     }
 
     return $runResult

@@ -204,6 +204,12 @@ not made yet. Grant each layer what it needs — `Resources` at least — and le
   belongs to the vault.
 - A composite instantiated by a team gets the team's permissions, even when the platform wrote the
   composite.
+- It governs a configuration compiled from a hierarchy, not one handed to the runner directly. A
+  document supplied with `Invoke-DscRunner -ConfigurationFile` / `-ConfigurationDirectory` has no
+  layers, so no capability can be decided for it; such a run must declare the step outside the
+  policy with `-BypassDatumPolicy`, and is refused outright when a `Datum.yml` and a `Policy.yml`
+  sit together above the documents. See
+  [Running a configuration you compiled yourself](Configuration-Repository-Layout#running-a-configuration-you-compiled-yourself).
 
 The design, the reasoning and the follow-up list are in
 [docs/capability-policy.md](https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/docs/capability-policy.md).

@@ -502,6 +502,10 @@ forced-refresh semantics in `Set` mode, and the declaration-gated visibility
 | Parameter | Description |
 |---|---|
 | `ConfigurationSourcePath` | Convenience: a local directory or git URL. Populates the `Source` action's context (`Path` for `Local`, `Url` for `Git`). |
+| `ConfigurationFile` / `ConfigurationDirectory` | Run a configuration the caller already has, skipping the Datum compile. One or more `.yml`/`.yaml`/`.json` documents of the shape the compile produces, or a directory of them. Mutually exclusive with the `Source` parameters. Each document's file name is its node name. See [Configuration Repository Layout](https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki/Configuration-Repository-Layout). |
+| `NodeName` | Passthrough runs only, and only for a single document. The node name when the document's file is not named after its node. Defaults to the file's base name (the rule the compiled path uses). Written into the report file names, so it is validated as a plain file name; cannot be combined with `ConfigurationDirectory` or with several `ConfigurationFile` paths. |
+| `BypassDatumPolicy` | Switch, **required** for a passthrough run. Declares that the run steps outside the [capability policy](docs/capability-policy.md), which a passthrough document cannot be held to because it has no layers. The run warns and records `PolicyBypassed` on each node's result. It grants no exception: a document with a `Datum.yml` and a `Policy.yml` above it is refused either way. Refused on the Datum path. |
+| `RunnerSettings` | Passthrough runs only. The `PipelineRunnerSettings` a compiled run would read from `Datum.yml` (`Engine`, `AllowExecutionScripts`, `Reboot`, `Target`, `Report`). Not read from the document itself. |
 | `Source` / `SourceAction` / `SourceContext` | Name of the `Source` action (default `Local`), an inline scriptblock override, and the hashtable context passed to it. |
 | `Connect` / `ConnectAction` / `ConnectContext` | Name of the `Connect` action (default `None`), an inline scriptblock override, and the hashtable context passed to it. |
 | `Engine` / `EngineAction` / `EngineVersion` | Name of the execution engine action (default `DscV2`; `DscV3` drives `dsc.exe`; `Auto` detects `dsc` on `PATH`), an inline scriptblock override, and a version hint used to bias `Auto` selection. When `-Engine` is not passed, `PipelineRunnerSettings.Engine` (or the back-compat `DSCResourceVersion` major version) decides. |
@@ -512,7 +516,7 @@ forced-refresh semantics in `Set` mode, and the declaration-gated visibility
 | `FailOnError` | Switch. Sets a non-zero process exit code when the run reports a failure. |
 | `KeepTemporaryDirectory` | Switch. Leaves any directory the runner created (a clone, a temporary cache) in place instead of removing it when the run ends. A caller-supplied local path is never removed. |
 | `PolicyPath` | Preview. A [capability policy](docs/capability-policy.md) file that says what each layer of the configuration may use. Normally not needed: `Policy.yml` at the root of the configuration, beside `Datum.yml`, is used when it is there. A file that breaks the policy does not start. |
-| `RequirePolicy` | Preview. Switch. Fails the run when there is no capability policy. |
+| `RequirePolicy` | Preview. Switch. Fails the run when there is no capability policy. Refused for a passthrough run, which has no layers to apply a policy to. |
 
 ```powershell
 # Local directory, no authentication, DSC v2 engine (all defaults).
@@ -522,6 +526,10 @@ Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Mode Test
 Invoke-DscRunner -Source Git -SourceContext @{ Url = $repoUrl } `
                  -Connect AzureDevOps -ConnectContext @{ OrganizationName = 'MyOrg'; AuthenticationType = 'PAT'; PATToken = $pat } `
                  -Engine DscV3
+
+# A configuration the caller compiled themselves: no Datum hierarchy, same per-resource loop.
+# -BypassDatumPolicy declares that the run steps outside the capability policy.
+Invoke-DscRunner -ConfigurationDirectory 'C:\out' -BypassDatumPolicy -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
 ```
 
 ### `Invoke-DscPipelineRunner` Parameters

@@ -77,6 +77,32 @@ All notable changes to this project will be documented in this file.
   the record's `Node` against the compiled file's name and fails closed on a mismatch, so a policy
   can only be enforced on the file its record was written for. Every record the compile has ever
   written carries `Node`, so no existing record is invalidated.
+- **Run a configuration you compiled yourself, without a Datum hierarchy** (#106).
+  `Invoke-DscRunner -ConfigurationFile <path[]>` and `-ConfigurationDirectory <path>` take
+  documents of the shape the compile produces and run them as they are, skipping
+  `Build-DatumConfiguration`; both are mutually exclusive with the `Source` parameters. A caller
+  that already decides what the desired state is no longer has to write a Datum repository to get
+  at the per-resource loop. Everything after the compile is unchanged: the pre-parse Pipeline
+  Rules, conditions, `dependsOn`/`notify` ordering, lifecycle scripts, `reference()`/`using()`,
+  the report and the exit code. Three things follow from there being no hierarchy. The node name
+  is the document's file name without its extension, the same rule the compiled path uses, so two
+  documents in one run may not share one; `-NodeName` overrides it for a single document, and is
+  validated as a plain file name because the report files are named after it.
+  `PipelineRunnerSettings` come from the new
+  `-RunnerSettings` hashtable, never from the document — `AllowExecutionScripts` is a decision for
+  whoever starts the run, and a document that could grant it to itself would not be a gate; a
+  block left in a document is inert and now draws a warning naming the file, because silence let
+  it look as though those settings had taken effect. And the capability policy (preview) cannot
+  apply, because a layer is decided by where a file sits in the hierarchy — so, rather than let
+  that be inferred from the absence of layers, **`-BypassDatumPolicy` is required** for a
+  passthrough run. A run that takes it warns that the policy is bypassed and records
+  `PolicyBypassed` on every node's result and report document, so the step is auditable
+  afterwards. It grants no exception: when a `Datum.yml` and a `Policy.yml` sit together above
+  the documents the configuration is governed and the run is refused with or without the switch,
+  pointing at the Datum path instead; `-PolicyPath` and `-RequirePolicy` stay refused; and the
+  switch itself is refused on the Datum path, where the policy applies. A passthrough document is
+  code in the same sense a compiled one is ([trust model](docs/trust-model.md)). See
+  [Configuration Repository Layout](WikiSource/Configuration-Repository-Layout.md#running-a-configuration-you-compiled-yourself).
 
 ## [1.5.0] - 2026-11-19
 
