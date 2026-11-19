@@ -18,6 +18,8 @@ Describe "Invoke-DscPipelineRunner Function Tests" {
             (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
             (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
             (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
+            (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1')
+            (Get-FunctionPath 'Get-PolicyLayer.ps1')
             (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1')
         ) | ForEach-Object {
             . $_.FullName

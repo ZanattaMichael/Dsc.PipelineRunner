@@ -200,14 +200,20 @@ function Invoke-DscRunner {
         # Start-DscRunner receives compiled per-node YAML which does not carry this block.
         $settings = Get-PipelineRunnerSetting -ConfigurationDirectory $configurationDirectory
 
+        # Whether Datum.yml chose the engine: the capability policy's Settings block governs only
+        # what the configuration decides, never what the pipeline passed.
+        $engineFromPipeline = [bool]$EngineAction -or $PSBoundParameters.ContainsKey('Engine')
+        $configurationEngine = $null
         if (-not $EngineAction -and -not $PSBoundParameters.ContainsKey('Engine')) {
             if ($settings) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$settings['Engine'])) {
                     $Engine = [string]$settings['Engine']
+                    $configurationEngine = $Engine
                     Write-Verbose "[Invoke-DscRunner] Engine from PipelineRunnerSettings.Engine: $Engine"
                 }
                 elseif (-not [string]::IsNullOrWhiteSpace([string]$settings['DSCResourceVersion'])) {
                     $Engine = Resolve-DscEngine -Engine 'Auto' -Version ([string]$settings['DSCResourceVersion'])
+                    $configurationEngine = $Engine
                     Write-Verbose "[Invoke-DscRunner] Engine auto-selected from DSCResourceVersion '$($settings['DSCResourceVersion'])': $Engine"
                 }
             }
@@ -256,6 +262,9 @@ function Invoke-DscRunner {
             $capabilityPolicy = Import-CapabilityPolicy -Path $resolvedPolicyPath -ConfigurationPath $configurationDirectory
             $buildArguments.PolicyPath = $capabilityPolicy.Path
             Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
+            # The PipelineRunnerSettings values Datum.yml may hold (Policy.yml 'Settings'), before
+            # anything is compiled.
+            Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -Engine $configurationEngine -EngineFromPipeline:$engineFromPipeline
         }
         Build-DatumConfiguration @buildArguments
 

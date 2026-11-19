@@ -39,6 +39,11 @@ The file is YAML:
           Resources: [ 'PSDscResources/*' ]
           Credentials: [ Environment ]
           RemoteTargets: [ '*.app.contoso.example' ]
+    Settings:                       # optional: the PipelineRunnerSettings values Datum.yml may hold
+      AllowExecutionScripts: [ false ]
+      Reboot: [ Fail ]
+      Target: [ Local, WinRM ]
+      Engine: [ DscV2, DscV3 ]
 
 Paths are relative to the configuration root, with forward slashes, without the file extension
 (the definition file is written as 'Datum.yml'). The first layer whose Paths match a file owns it.
@@ -55,7 +60,7 @@ The configuration directory the policy will be applied to. The policy file must 
 (beside Datum.yml) or outside it, never in one of its sub-folders.
 
 .OUTPUTS
-[hashtable] The policy: PolicyVersion, Default, Layers (ordered), Path, Sha256.
+[hashtable] The policy: PolicyVersion, Default, Layers (ordered), Settings, Path, Sha256.
 #>
 function Import-CapabilityPolicy {
     [CmdletBinding()]
@@ -93,7 +98,7 @@ function Import-CapabilityPolicy {
         throw "$prefix The policy file must be a mapping with PolicyVersion, Default and Layers."
     }
 
-    $topLevelKeys = 'PolicyVersion', 'Default', 'Layers'
+    $topLevelKeys = 'PolicyVersion', 'Default', 'Layers', 'Settings'
     $unknown = @($document.Keys | Where-Object { [string]$_ -notin $topLevelKeys })
     if ($unknown.Count -gt 0) { throw "$prefix Unknown key(s) $(($unknown | ForEach-Object { "'$_'" }) -join ', '). Allowed keys: $($topLevelKeys -join ', ')." }
 
@@ -174,12 +179,44 @@ function Import-CapabilityPolicy {
         $layers.Add(@{ Name = $name; Paths = [string[]]$paths; Capabilities = $capabilities })
     }
 
+    # Settings: which values Datum.yml's PipelineRunnerSettings block may hold. It is policy-wide,
+    # not per layer, because Datum.yml is one file owned by one layer. A key the policy does not
+    # list is not governed. See Assert-RunnerSettingsPolicy.
+    $settings = @{}
+    $settingsDocument = $document['Settings']
+    if ($document.Contains('Settings')) {
+        if ($settingsDocument -isnot [System.Collections.IDictionary]) {
+            throw "$prefix Settings must be a mapping of PipelineRunnerSettings keys to the values Datum.yml may use, for example Settings: { Reboot: [ Fail ] }."
+        }
+        $settingKeys = 'AllowExecutionScripts', 'Engine', 'Reboot', 'Target'
+        foreach ($key in $settingsDocument.Keys) {
+            $known = @($settingKeys | Where-Object { $_ -eq [string]$key })
+            if ($known.Count -eq 0) {
+                throw "$prefix Settings: '$key' is not a setting a policy can govern. Known settings: $($settingKeys -join ', ')."
+            }
+            $value = $settingsDocument[$key]
+            $values = @($value)
+            if ($null -eq $value -or $value -is [System.Collections.IDictionary] -or $values.Count -eq 0) {
+                throw "$prefix Settings: $($known[0]) must be a non-empty list of the values Datum.yml may use, for example [ $(if ($known[0] -eq 'AllowExecutionScripts') { 'false' } else { 'Fail' }) ]."
+            }
+            if ($known[0] -eq 'AllowExecutionScripts') {
+                if ($values | Where-Object { $_ -isnot [bool] }) { throw "$prefix Settings: AllowExecutionScripts must be a list of true or false, for example [ false ]." }
+                $settings['AllowExecutionScripts'] = [bool[]]$values
+            }
+            else {
+                if ($values | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }) { throw "$prefix Settings: $($known[0]) must be a list of names (wildcards allowed), for example [ Local, WinRM ]." }
+                $settings[$known[0]] = [string[]]$values
+            }
+        }
+    }
+
     $sha256 = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($text))).Replace('-', '').ToLowerInvariant()
 
     return @{
         PolicyVersion = 1
         Default       = $default
         Layers        = $layers.ToArray()
+        Settings      = $settings
         Path          = $fullPath
         Sha256        = $sha256
     }

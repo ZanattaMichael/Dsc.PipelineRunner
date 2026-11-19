@@ -72,6 +72,7 @@ A complete example you can copy is in the repository under
 | `Name` | A label for messages. |
 | `Paths` | Patterns on a file's path from the configuration root: forward slashes, no file extension, not case-sensitive. `*` and `**` match across folders. Write the definition file as `Datum.yml`. |
 | `Capabilities` | See the next table. |
+| `Settings` | Optional. The `PipelineRunnerSettings` values `Datum.yml` may hold; see [Settings](#settings). |
 
 | Capability | Value | Governs |
 | --- | --- | --- |
@@ -86,6 +87,23 @@ A complete example you can copy is in the repository under
 | `Reboot` | `true` / `false` | Restarting a remote target after a `Set()` reports `RebootRequired`. Without it the resource fails and the machine is left running. |
 
 A file that no layer claims may do nothing at all, whatever `Default` says.
+
+### Settings
+
+Limits what [`PipelineRunnerSettings`](PipelineRunnerSettings) in `Datum.yml` may say. Policy-wide,
+because `Datum.yml` has one owner.
+
+```yaml
+Settings:
+  AllowExecutionScripts: [ false ]
+  Reboot: [ Fail ]
+  Target: [ Local, WinRM ]
+  Engine: [ DscV2, DscV3 ]
+```
+
+A value outside its list stops the run before compile. A key `Datum.yml` leaves out is judged by
+the runner's default (`false`, `Fail`, `Local`). `Engine` is judged only when `Datum.yml` chose
+it, not when the pipeline passed `-Engine`. An unlisted key is not governed.
 
 Three things are deliberately outside a policy, because they come from the pipeline or the module
 rather than from the configuration: the [`Source` and `Connect` actions](Execution-Lifecycle) and
@@ -226,4 +244,6 @@ The design, the reasoning and the follow-up list are in
 | `resolves a credential through the '…' Credential action` | Add the action to the layer's `Credentials`, or have the layer use one it already has. |
 | `notifies N resource(s) …, forcing them to re-run Set()` | Set `Notify: true` for the layer, or use `dependsOn` if ordering is all that was wanted. |
 | `uses a restart of its remote Target` | The resource's `Set()` has run and asked for a reboot. Set `Reboot: true` for the layer, or restart the machine yourself. |
+| `refuses N PipelineRunnerSettings value(s) of Datum.yml` | A `Datum.yml` setting (or the default for one it leaves out) is not in the policy's `Settings`. Change `Datum.yml`, or have the policy allow the value. |
+| `Settings: '…' is not a setting a policy can govern` | `Settings` accepts `AllowExecutionScripts`, `Engine`, `Reboot` and `Target`. |
 | `layer '…' matches no file` (a warning) | A path pattern is wrong. The files you meant it to own are in `(unclaimed)` and may do nothing. |

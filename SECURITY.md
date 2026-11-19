@@ -186,7 +186,9 @@ platform's vault and inline passwords; whether `preExecutionScript`/`postExecuti
 script blocks are allowed; whether a resource may `notify` another into re-applying itself; and
 whether the runner may **restart a remote target**. A capability a layer does not list follows the
 policy's `Default`, so with `Default: Deny` a capability added in a later version of the runner is
-denied until the policy grants it.
+denied until the policy grants it. Its optional `Settings` block also limits the values
+`Datum.yml`'s `PipelineRunnerSettings` may hold (`AllowExecutionScripts`, `Reboot`, `Target`,
+`Engine`), checked before the compile.
 
 Enforcement is in three places: a raw-text scan of the layer files before Datum loads anything;
 every knowable violation before the first resource of a compiled file runs, reported in one pass;

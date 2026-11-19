@@ -233,7 +233,6 @@ function Invoke-DscPipelineRunner {
             $buildArguments.PolicyPath = $capabilityPolicy.Path
             Write-Information "Capability policy (preview): $($capabilityPolicy.Layers.Count) layer(s) from '$($capabilityPolicy.Path)', default $($capabilityPolicy.Default)." -Tags 'Dsc.PipelineRunner'
         }
-        Build-DatumConfiguration @buildArguments
 
         #
         # Resolve PipelineRunnerSettings (#57 §2/§3/§4) from the (pre-compile) Datum source
@@ -242,6 +241,14 @@ function Invoke-DscPipelineRunner {
         # unmodified defaults (AllowExecutionScripts effectively always false), regardless of
         # what the Datum.yml PipelineRunnerSettings block actually specifies.
         $settings = Get-PipelineRunnerSetting -ConfigurationDirectory $DatumConfigurationPath
+
+        # The values the policy's Settings block allows, judged before anything is compiled. This
+        # entry point never takes the engine from Datum.yml, so Engine is not judged.
+        if ($capabilityPolicy) {
+            Assert-RunnerSettingsPolicy -Policy $capabilityPolicy -Settings $settings -EngineFromPipeline
+        }
+
+        Build-DatumConfiguration @buildArguments
 
         #
         # Create the Azure DevOps Authentication Provider.

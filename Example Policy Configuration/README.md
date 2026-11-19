@@ -28,6 +28,10 @@ Example Policy Configuration/
 | `Notify` | yes | no (`Default: Deny`) |
 | `Reboot` | yes | no (`Default: Deny`) |
 
+Its `Settings` block also limits `Datum.yml`'s `PipelineRunnerSettings`: `Engine` must be `DscV2`
+or `DscV3`, the default `Target` must be `Local`, and `Reboot` must be `Fail` (the default).
+Setting `Reboot: Ignore` in `Datum.yml` stops the run before compile.
+
 `Policy.yml` is a file of its own at the root. Datum builds its tree from the root's sub-folders,
 so the policy is outside the hierarchy: no layer can add to it or override it, and it is not in
 `ResolutionPrecedence`.

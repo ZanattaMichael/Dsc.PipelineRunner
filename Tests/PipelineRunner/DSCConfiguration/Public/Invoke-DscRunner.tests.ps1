@@ -20,6 +20,8 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             (Get-FunctionPath 'Resolve-CacheDirectory.ps1')
             (Get-FunctionPath 'Resolve-CapabilityPolicyPath.ps1')
             (Get-FunctionPath 'Import-CapabilityPolicy.ps1')
+            (Get-FunctionPath 'Assert-RunnerSettingsPolicy.ps1')
+            (Get-FunctionPath 'Get-PolicyLayer.ps1')
             (Get-FunctionPath 'Resolve-DscV3ResourcePath.ps1')
         ) | ForEach-Object { . $_.FullName }
 
@@ -193,6 +195,37 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
                 $Engine -eq 'DscV2'
             }
             Assert-MockCalled -CommandName Get-PipelineRunnerSetting -Exactly 1 -Scope It
+        }
+    }
+
+    Context "Capability policy Settings: what Datum.yml's PipelineRunnerSettings may say (#86)" {
+
+        BeforeAll {
+            Import-Module -Name 'powershell-yaml' -ErrorAction Stop
+            $script:SettingsPolicyPath = Join-Path $TestDrive 'settings-policy.yml'
+            Set-Content -LiteralPath $SettingsPolicyPath -Value "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Platform`n    Paths: [ 'Datum.yml' ]`nSettings:`n  Engine: [ DscV3 ]`n  Reboot: [ Fail ]"
+        }
+
+        It "Stops before compile when Datum.yml holds a value the policy does not allow" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Engine = 'DscV3'; Reboot = 'Ignore' } }
+
+            { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath } |
+                Should -Throw "*PipelineRunnerSettings.Reboot is 'Ignore'*layer 'Platform'*"
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 0 -Scope It
+        }
+
+        It "Judges the engine the configuration selected" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ DSCResourceVersion = '2.0' } }
+
+            { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath } |
+                Should -Throw "*PipelineRunnerSettings.Engine is 'DscV2'*"
+        }
+
+        It "Does not govern an engine the pipeline chose" {
+            Mock -CommandName Get-PipelineRunnerSetting -MockWith { return @{ Engine = 'DscV3' } }
+
+            { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -PolicyPath $SettingsPolicyPath -Engine 'DscV2' } | Should -Not -Throw
+            Assert-MockCalled -CommandName Build-DatumConfiguration -Exactly 1 -Scope It
         }
     }
 

@@ -40,8 +40,8 @@ ResolutionPrecedence:
 default_lookup_options: MostSpecific
 
 PipelineRunnerSettings:
-  ConfigurationVersion: 0.2
-  PipelineRunnerVersion: 1.0.0
+  ConfigurationVersion: 0.6
+  PipelineRunnerVersion: 1.2.0
   Engine: DscV2
 ```
 

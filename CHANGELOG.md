@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **The capability policy governs `PipelineRunnerSettings`** (preview, #86). An optional
+  `Settings` block in `Policy.yml` lists the values `Datum.yml` may use for
+  `AllowExecutionScripts`, `Reboot`, `Target` and `Engine`. A value outside it, or the runner's
+  default for a key `Datum.yml` leaves out, stops the run before compile and is reported by
+  `Get-DscCapabilityPolicyReport` as `SettingsRefusal`. An engine passed by the pipeline is not
+  governed.
+
 - **The capability policy decides what a resource may be, not only what it may use** (preview,
   #86 Part B). Five capabilities join `Targets`, `Engines`, `ExecutionScripts` and
   `DatumScriptBlocks` in `Policy.yml`:
@@ -47,6 +54,9 @@ All notable changes to this project will be documented in this file.
   performing Datum's merge, so it is advisory — the run is authoritative.
 
 ### Changed
+
+- The shipped example configurations and the documentation's `Datum.yml` examples declare
+  `ConfigurationVersion: 0.6` and `PipelineRunnerVersion: 1.2.0`.
 
 - **A policy violation names the node, the policy and the files of the layer that refused.** The
   aggregate message that stops a file now reads `Capability policy: N violation(s) in node
