@@ -26,6 +26,7 @@ properties that make it worth having:
     are not governed;
   * the report (Get-DscCapabilityPolicyReport) describes the policy without compiling anything,
     and finds the ways a policy ends up quietly ineffective.
+  * a passthrough document (#106), which has no layers, can never half-enforce a policy.
 
 Dummy values only.
 #>
@@ -459,6 +460,51 @@ Layers:
         It "Checks a literal Target at the point of use against the resource's own layers" {
             Test-ResourceTargetPolicy -Policy $Policy -Provenance $ExpressionCheck.Provenance -ResourceKey 'M/R/Platform resource' -TargetAction 'SSH' | Should -BeNullOrEmpty
             Test-ResourceTargetPolicy -Policy $Policy -Provenance $ExpressionCheck.Provenance -ResourceKey 'M/R/Not in the record' -TargetAction 'Local' | Should -Match '\(unclaimed\)'
+        }
+    }
+
+    Context "A passthrough document cannot half-enforce a policy (#106)" {
+
+        # Invoke-DscRunner refuses -PolicyPath / -RequirePolicy for a passthrough configuration
+        # outright (see Public/Invoke-DscRunner.tests.ps1). This is the second line of defence:
+        # a document the compile never saw has no provenance record, so even a policy handed
+        # straight to the run stops it rather than enforcing nothing in particular.
+
+        It "Refuses a document with resources but no provenance record, naming the reason" {
+            $handWritten = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.yml')
+            Set-Content -LiteralPath $handWritten -Value 'resources: []' -Encoding UTF8
+
+            $result = Get-RunPolicyViolation -Policy $Policy -FilePath $handWritten `
+                -Task @(@{ type = 'M/R'; name = 'Passthrough resource'; target = @{ action = 'Local' } }) `
+                -DefaultTargetAction 'Local' -Engine 'DscV2'
+
+            $result.Violations | Should -Match 'There is no provenance record'
+            ($result.Violations -join "`n") | Should -Match 'compiled with the same policy'
+            $result.Provenance | Should -BeNullOrEmpty
+        }
+
+        It "Does not let a document supply its own layers by writing a provenance record beside itself" {
+            # The record is written by the compile under a named policy and keyed to that policy's
+            # hash. One written by anything else is rejected, so a passthrough author cannot
+            # declare their document to be the most privileged layer.
+            $handWritten = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.yml')
+            Set-Content -LiteralPath $handWritten -Value 'resources: []' -Encoding UTF8
+            $forged = @{
+                SchemaVersion      = '1.0'
+                PolicySha256       = ('f' * 64)
+                SettingsLayer      = 'Platform'
+                Layers             = @()
+                ContributingLayers = @('Platform')
+                Resources          = @{ 'M/R/Passthrough resource' = @('Platform') }
+            }
+            Set-Content -LiteralPath ($handWritten -replace '\.yml$', '.provenance.json') -Value ($forged | ConvertTo-Json -Depth 6) -Encoding UTF8
+
+            $result = Get-RunPolicyViolation -Policy $Policy -FilePath $handWritten `
+                -Task @(@{ type = 'M/R'; name = 'Passthrough resource'; target = @{ action = 'SSH' } }) `
+                -DefaultTargetAction 'Local' -Engine 'DscV2'
+
+            $result.Violations | Should -Match 'different policy'
+            $result.Provenance | Should -BeNullOrEmpty
         }
     }
 

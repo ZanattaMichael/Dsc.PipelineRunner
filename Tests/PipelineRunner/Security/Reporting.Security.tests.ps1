@@ -15,7 +15,9 @@ pin that:
     run's result or stop the other reporters,
   * the Webhook reporter is https only, refuses credentials in the URL, sends the token in a
     header, does not follow redirects, and never puts the token, the URL path or a response body
-    in an error.
+    in an error,
+  * the node name decides the report files' names, so a -NodeName (#106) that is not a plain
+    file name cannot steer a report write out of the report directory.
 
 Dummy values only.
 #>
@@ -514,6 +516,81 @@ Describe "Security: reports, captured state and reporters" -Tag Unit, Security {
             @($text -split "`n" | Where-Object { $_ -match '^\| FAIL ' }).Count | Should -Be 200
             $text | Should -Match '250 more not shown'
             $text.Length | Should -BeLessThan 100000
+        }
+    }
+
+    Context "the node name names the report files, so it is held to a file name's rules (#106)" {
+
+        # Start-DscRunner writes <node>.csv, <node>.report.json, <node>.state.json and
+        # <node>.rsop.json under -ReportPath. The node name is normally the configuration file's
+        # own base name, but a passthrough caller may supply one, so it is untrusted input on a
+        # path. It is held to the same rule Resolve-DscDatumProject applies to a Datum node name.
+
+        It "writes the reports under the supplied node name" {
+            $file = New-TwoResourceConfig -Name 'nodename-ok.json'
+            $rep = New-ReportDirectory
+
+            $result = Start-DscRunner -FilePath $file -Mode Test -ReportPath $rep -EngineAction $script:engine -NodeName 'SRV-APP-01'
+
+            $result.NodeName | Should -Be 'SRV-APP-01'
+            Test-Path -LiteralPath (Join-Path $rep 'SRV-APP-01.csv') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $rep 'SRV-APP-01.report.json') | Should -BeTrue
+            # Nothing under the file's own name.
+            Test-Path -LiteralPath (Join-Path $rep 'nodename-ok.csv') | Should -BeFalse
+        }
+
+        It "falls back to the configuration file's base name when none is supplied" {
+            $file = New-TwoResourceConfig -Name 'nodename-default.json'
+            $rep = New-ReportDirectory
+
+            $result = Start-DscRunner -FilePath $file -Mode Test -ReportPath $rep -EngineAction $script:engine
+
+            $result.NodeName | Should -Be 'nodename-default'
+            Test-Path -LiteralPath (Join-Path $rep 'nodename-default.csv') | Should -BeTrue
+        }
+
+        It "refuses the node name <Name> before any resource runs" -ForEach @(
+            @{ Name = '../escape';   Why = 'a relative parent segment' }
+            @{ Name = '..\escape';   Why = 'a relative parent segment, Windows-style' }
+            @{ Name = 'sub/node';    Why = 'a forward separator' }
+            @{ Name = 'sub\node';    Why = 'a backslash separator' }
+            @{ Name = '.hidden';     Why = 'a leading dot' }
+            @{ Name = 'node*';       Why = 'a wildcard' }
+            @{ Name = 'node?';       Why = 'a single-character wildcard' }
+            @{ Name = 'C:node';      Why = 'a drive qualifier' }
+            @{ Name = 'node|pipe';   Why = 'a pipe' }
+            @{ Name = ' node';       Why = 'leading whitespace' }
+            @{ Name = 'node ';       Why = 'trailing whitespace' }
+            @{ Name = 'a..b';        Why = 'a doubled dot' }
+        ) {
+            $file = New-TwoResourceConfig -Name ('nodename-bad-' + [guid]::NewGuid().ToString('N') + '.json')
+            $rep = New-ReportDirectory
+            $Global:ReportSecEngineCalls = 0
+            $countingEngine = { param($Context) $Global:ReportSecEngineCalls++; return @{ InDesiredState = $true } }
+
+            { Start-DscRunner -FilePath $file -Mode Test -ReportPath $rep -EngineAction $countingEngine -NodeName $Name } |
+                Should -Throw "*is not a valid file name*"
+
+            # It fails closed: nothing ran, and nothing was written anywhere.
+            $Global:ReportSecEngineCalls | Should -Be 0
+            @(Get-ChildItem -LiteralPath $rep -Recurse -File).Count | Should -Be 0
+            @(Get-ChildItem -LiteralPath $TestDrive -Recurse -File -Filter 'escape*').Count | Should -Be 0
+            Remove-Variable -Name ReportSecEngineCalls -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "accepts the ordinary node name <Name>" -ForEach @(
+            @{ Name = 'SRV-APP-01' }
+            @{ Name = 'srv.app.01' }
+            @{ Name = 'node 7' }
+            @{ Name = 'Node_7' }
+        ) {
+            $file = New-TwoResourceConfig -Name ('nodename-good-' + [guid]::NewGuid().ToString('N') + '.json')
+            $rep = New-ReportDirectory
+
+            $result = Start-DscRunner -FilePath $file -Mode Test -ReportPath $rep -EngineAction $script:engine -NodeName $Name
+
+            $result.NodeName | Should -Be $Name
+            Test-Path -LiteralPath (Join-Path $rep ("{0}.csv" -f $Name)) | Should -BeTrue
         }
     }
 }
