@@ -15,7 +15,9 @@ All notable changes to this project will be documented in this file.
   Rules, conditions, `dependsOn`/`notify` ordering, lifecycle scripts, `reference()`/`using()`,
   the report and the exit code. Three things follow from there being no hierarchy. The node name
   is the document's file name without its extension, the same rule the compiled path uses, so two
-  documents in one run may not share one. `PipelineRunnerSettings` come from the new
+  documents in one run may not share one; `-NodeName` overrides it for a single document, and is
+  validated as a plain file name because the report files are named after it.
+  `PipelineRunnerSettings` come from the new
   `-RunnerSettings` hashtable, not from the document — `AllowExecutionScripts` is a decision for
   whoever starts the run. And the capability policy (preview) does not apply, because a layer is
   decided by where a file sits in the hierarchy: `-PolicyPath` and `-RequirePolicy` are refused

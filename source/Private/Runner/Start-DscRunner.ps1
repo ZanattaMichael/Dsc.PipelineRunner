@@ -25,6 +25,11 @@ Specifies the mode of operation. Valid values are 'Test' (default) and 'Set'.
 .PARAMETER ReportPath
 Optional directory for saving the report. When provided, a CSV and a JSON report are written for the configuration.
 
+.PARAMETER NodeName
+The node name for this run. Defaults to the configuration file's base name, which is what the
+Datum compile produces. Supplied only by a passthrough caller (issue #106) whose file is not
+named after its node. It is written into the report file names, so it is validated as a file name.
+
 .PARAMETER Engine
 Execution engine action (Actions/Engine/<Engine>.ps1). 'Auto' opts in to detection; default is Invoke-DscResource (DscV2).
 
@@ -75,7 +80,13 @@ function Start-DscRunner {
         # not present in a compiled per-node YAML file) and passes it through; a direct caller
         # of Start-DscRunner may also supply it. Defaults are applied throughout when absent, so
         # every key stays optional and today's behavior is unchanged when this is not supplied.
-        [hashtable] $RunnerSettings = @{}
+        [hashtable] $RunnerSettings = @{},
+
+        # The node name for this run (#106). Optional: when omitted it is the configuration
+        # file's base name, which is what the Datum compile produces (one <node>.yml per node,
+        # named for the node) and what every caller got before this parameter existed. A
+        # passthrough caller whose file is not named after its node supplies it here.
+        [string] $NodeName
     )
 
     # Informational output is the pipeline log's signal channel; make it visible by default
@@ -181,7 +192,22 @@ function Start-DscRunner {
 
     # Run-level bookkeeping. Results are structured records, deduplicated by the
     # (ConfigurationFile, ResourceType, InstanceName) tuple so a resource is counted once.
-    $nodeName    = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
+    # The node name. NOTE: $NodeName (the parameter above) and $nodeName are the SAME variable,
+    # because PowerShell variable names are case-insensitive. That is deliberate here: resolving
+    # it once at the top means every use below - the result records, the nodeName() accessor, the
+    # report file names and the reporter context - reads the resolved value with no second path.
+    if ([string]::IsNullOrWhiteSpace($NodeName)) {
+        $nodeName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
+    }
+    elseif ($NodeName -notmatch '^[^/\\:*?"<>|\x00-\x1F]+$' -or $NodeName.StartsWith('.') -or
+            $NodeName -match '\.\.' -or $NodeName -ne $NodeName.Trim()) {
+        # A node name becomes a file name: the report is written as <node>.csv, <node>.report.json,
+        # <node>.state.json and <node>.rsop.json under -ReportPath. Held to the same rule
+        # Resolve-DscDatumProject applies to a node name, for the same reason - a path separator,
+        # a wildcard, '..' or a leading '.' must not be able to steer a report write out of the
+        # report directory.
+        throw "[Start-DscRunner] The node name '$($NodeName -replace '[\x00-\x1F]', '?')' is not a valid file name (path separators, wildcard characters, '..' and a leading '.' are not allowed); the node name is written into this run's report file names."
+    }
     $results     = [System.Collections.Generic.List[pscustomobject]]::new()
     $resultIndex = [System.Collections.Generic.Dictionary[string, pscustomobject]]::new([System.StringComparer]::Ordinal)
     $runStatus   = 'Completed'

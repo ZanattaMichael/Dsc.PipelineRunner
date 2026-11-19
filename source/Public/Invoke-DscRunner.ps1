@@ -24,7 +24,8 @@ reference()/using(), report and exit code. Three things differ, and all three ar
 of not having a hierarchy rather than of the runner:
 
   * The node name is the document's file name, without its extension — the same rule the
-    compiled path uses, since the compile names each file after its node.
+    compiled path uses, since the compile names each file after its node. -NodeName overrides
+    it for a single document.
   * PipelineRunnerSettings come from -RunnerSettings. There is no Datum.yml to read them
     from, and they are deliberately not read out of the document itself.
   * The capability policy does not apply: it decides what a resource may do from the layer
@@ -79,6 +80,17 @@ The settings are not read from the document. A compiled document has no Pipeline
 block by design, and whether a configuration may run unconstrained lifecycle scripts
 (AllowExecutionScripts) is a decision for whoever starts the run — a document that could grant
 it to itself would not be a decision at all.
+
+.PARAMETER NodeName
+Passthrough runs only, and only for a single document. The node name, when the document's file
+is not named after its node. It is the NodeName on every result row, what nodeName() returns,
+and what the report files are named after (<node>.csv, <node>.report.json), so it is validated
+as a file name by the same rule the compile applies to a Datum node name.
+
+Omit it and the node name is the document's file name without its extension - the same rule the
+compiled path uses. It cannot be combined with -ConfigurationDirectory, or with several
+-ConfigurationFile paths, because a node name belongs to one node: name those files after their
+nodes instead.
 
 .PARAMETER Connect
 Name of the Connect action (a file under Actions/Connect/). Default: 'None'.
@@ -166,6 +178,11 @@ Invoke-DscRunner -ConfigurationFile 'C:\out\SRV-APP-01.yml' -Mode Test
 Runs one document the caller already has, with no Datum compile. The node is 'SRV-APP-01'.
 
 .EXAMPLE
+Invoke-DscRunner -ConfigurationFile 'C:\tmp\rendered.yml' -NodeName 'SRV-APP-01' -Mode Test
+Runs a document whose file is not named after its node - the run, its results and its report
+are all for 'SRV-APP-01'.
+
+.EXAMPLE
 Invoke-DscRunner -ConfigurationDirectory 'C:\out' -RunnerSettings @{ Engine = 'DscV3'; Reboot = 'Ignore' } -Mode Set
 Runs every document in a directory, with the settings a compiled run would have read from
 Datum.yml's PipelineRunnerSettings block.
@@ -199,6 +216,13 @@ function Invoke-DscRunner {
         [Parameter(ParameterSetName = 'PassthroughFile')]
         [Parameter(ParameterSetName = 'PassthroughDirectory')]
         [hashtable]$RunnerSettings = @{},
+
+        # The node name for a single passthrough document, when its file is not named after its
+        # node. Declared in both passthrough sets so supplying it with -ConfigurationDirectory is
+        # answered with the reason it cannot work there, rather than a parameter-set error.
+        [Parameter(ParameterSetName = 'PassthroughFile')]
+        [Parameter(ParameterSetName = 'PassthroughDirectory')]
+        [string]$NodeName,
 
         [string]$Connect = 'None',
         [scriptblock]$ConnectAction,
@@ -285,6 +309,21 @@ function Invoke-DscRunner {
             # 1p. The documents the caller supplied, validated and in run order.
             $documentPaths = @(Resolve-PassthroughConfiguration -ConfigurationFile $ConfigurationFile -ConfigurationDirectory $ConfigurationDirectory)
             Write-Verbose "[Invoke-DscRunner] Passthrough: $($documentPaths.Count) configuration document(s), no Datum compile."
+
+            #
+            # 1q. -NodeName names ONE document's node. The node name is per node: it is the
+            # NodeName on every result row, what nodeName() returns, and what the report files
+            # are named after. There is no sound way to spread one value over several documents,
+            # and silently applying it to the first (or to all, colliding their reports) would be
+            # worse than refusing.
+            if ($PSBoundParameters.ContainsKey('NodeName')) {
+                if ($PSCmdlet.ParameterSetName -eq 'PassthroughDirectory') {
+                    throw "[Invoke-DscRunner] -NodeName names one document's node, so it cannot be used with -ConfigurationDirectory: each document in a directory is its own node. Name the files after their nodes, or run the one document with -ConfigurationFile and -NodeName."
+                }
+                if ($documentPaths.Count -gt 1) {
+                    throw "[Invoke-DscRunner] -NodeName names one document's node, but $($documentPaths.Count) documents were supplied. Pass a single -ConfigurationFile with -NodeName, or name each file after its node."
+                }
+            }
 
             #
             # 2p. PipelineRunnerSettings. There is no Datum.yml to read them from, and a
@@ -417,6 +456,9 @@ function Invoke-DscRunner {
         if ($EngineAction)  { $params.EngineAction  = $EngineAction }
         if ($ReportAction)  { $params.ReportAction  = $ReportAction }
         if ($settings)      { $params.RunnerSettings = $settings }
+        # Passthrough only (#106); unbound on the Datum path, whose node name is always the
+        # compiled file's name.
+        if (-not [string]::IsNullOrWhiteSpace($NodeName)) { $params.NodeName = $NodeName }
 
         # Collect each configuration's structured result so the run can be summarized as a single
         # machine-readable object and, with -FailOnError, surface a non-zero exit code (#19).

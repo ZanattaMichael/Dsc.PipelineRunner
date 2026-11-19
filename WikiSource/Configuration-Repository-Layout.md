@@ -215,7 +215,18 @@ hierarchy:
 - **The node name is the document's file name**, without its extension — the same rule the
   compiled path uses, since the compile names each file after its node. It is what `nodeName()`
   returns, what each result row records and what the report files are named after, so two
-  documents in one run may not share a file name.
+  documents in one run may not share a file name. When the file is not named after its node,
+  `-NodeName` says what the node is:
+
+  ```powershell
+  Invoke-DscRunner -ConfigurationFile .\tmp\rendered.yml -NodeName SRV-APP-01
+  ```
+
+  A node name belongs to one node, so `-NodeName` cannot be combined with
+  `-ConfigurationDirectory` or with several `-ConfigurationFile` paths — name those files after
+  their nodes instead. It is written into the report file names, so it is validated as a plain
+  file name by the same rule the compile applies to a Datum node name: a path separator, a
+  wildcard, `..` or a leading dot is refused before anything runs.
 - **`PipelineRunnerSettings` come from `-RunnerSettings`**, a hashtable of the same keys
   [Datum.yml would carry](PipelineRunnerSettings). There is no `Datum.yml` to read them from, and
   they are deliberately *not* read out of the document: whether a configuration may run

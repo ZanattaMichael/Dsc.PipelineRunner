@@ -475,6 +475,45 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
             }
         }
 
+        Context "The node name" {
+
+            It "Is the document's file name when no override is given" {
+                Invoke-DscRunner -ConfigurationFile $nodeOne
+
+                # Start-DscRunner derives it from the file name, so the entry point passes nothing.
+                Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
+                    -not $PSBoundParameters.ContainsKey('NodeName')
+                }
+            }
+
+            It "Passes -NodeName through for a single document" {
+                Invoke-DscRunner -ConfigurationFile $nodeOne -NodeName 'SRV-APP-01'
+
+                Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
+                    $NodeName -eq 'SRV-APP-01' -and $FilePath -eq $nodeOne
+                }
+            }
+
+            It "Refuses -NodeName with -ConfigurationDirectory, because each document is its own node" {
+                { Invoke-DscRunner -ConfigurationDirectory $passthroughDir -NodeName 'SRV-APP-01' } |
+                    Should -Throw "*cannot be used with -ConfigurationDirectory*"
+
+                Assert-MockCalled -CommandName Start-DscRunner -Exactly 0 -Scope It
+            }
+
+            It "Refuses -NodeName when several documents are named" {
+                { Invoke-DscRunner -ConfigurationFile @($nodeOne, $nodeTwo) -NodeName 'SRV-APP-01' } |
+                    Should -Throw "*2 documents were supplied*"
+
+                Assert-MockCalled -CommandName Start-DscRunner -Exactly 0 -Scope It
+            }
+
+            It "Is not accepted on the Datum path, whose node name is always the compiled file's name" {
+                { Invoke-DscRunner -ConfigurationSourcePath $configDir -CacheDirectory $cacheDir -NodeName 'SRV-APP-01' } |
+                    Should -Throw
+            }
+        }
+
         Context "The capability policy does not apply, and the runner says so" {
 
             BeforeAll {
