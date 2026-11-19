@@ -77,6 +77,20 @@ Function Build-DatumConfiguration {
         $resolvedPolicyPath = [string]$capabilityPolicy.Path
         # On the raw files, before the compile runspace exists: see Assert-DatumScriptBlockPolicy.
         Assert-DatumScriptBlockPolicy -ConfigurationPath $ConfigurationPath -Policy $capabilityPolicy
+
+        # A policy whose path patterns match nothing is the one failure mode a fail-closed design
+        # cannot report by refusing: the files land in '(unclaimed)', which denies everything, so
+        # the run stops for a reason that looks nothing like 'your Paths have a typo'. Say it here,
+        # where the policy and the configuration are both in hand. A warning, not an error: a layer
+        # that matches no file can be deliberate (one policy shared by several configurations).
+        $coverage = Get-CapabilityPolicyCoverage -ConfigurationPath $ConfigurationPath -Policy $capabilityPolicy
+        foreach ($unmatchedLayer in @($coverage.UnmatchedLayers)) {
+            $patterns = @($capabilityPolicy.Layers | Where-Object { [string]$_.Name -eq $unmatchedLayer } | Select-Object -First 1).Paths -join ', '
+            Write-Warning "[Build-DatumConfiguration] Capability policy: layer '$unmatchedLayer' matches no file in '$ConfigurationPath' (Paths: $patterns), so it grants nothing. Check its path patterns; files no layer claims may do nothing at all. Get-DscCapabilityPolicyReport shows the whole mapping."
+        }
+        if (@($coverage.UnclaimedFiles).Count -gt 0) {
+            Write-Warning "[Build-DatumConfiguration] Capability policy: $(@($coverage.UnclaimedFiles).Count) file(s) belong to no layer and may therefore do nothing: $(@($coverage.UnclaimedFiles) -join ', ')."
+        }
     }
 
     if ($SourceIsRemote) {

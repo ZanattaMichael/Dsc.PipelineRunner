@@ -7,10 +7,10 @@ Least privilege: something that several layers contributed to is allowed only if
 those layers is allowed it. So a resource a platform layer declares and an application layer
 overrides runs with the application layer's permissions.
 
-For a list capability (Targets, Engines) -Value is the name being used, matched against the
-layer's patterns. For a switch capability (ExecutionScripts, DatumScriptBlocks) -Value is omitted.
-A capability a layer does not list falls back to the policy's Default. The '(unclaimed)' layer is
-denied everything.
+For a list capability (Targets, Engines, Resources, Credentials, RemoteTargets) -Value is the name
+being used, matched against the layer's patterns. For a switch capability (ExecutionScripts,
+DatumScriptBlocks, Notify, Reboot) -Value is omitted. A capability a layer does not list falls back
+to the policy's Default. The '(unclaimed)' layer is denied everything.
 
 .OUTPUTS
 [pscustomobject] Allowed ([bool]) and DeniedBy ([string[]], the layers that refused).
@@ -27,7 +27,8 @@ function Test-PolicyCapability {
         [string[]] $Layer,
 
         [Parameter(Mandatory)]
-        [ValidateSet('Targets', 'Engines', 'ExecutionScripts', 'DatumScriptBlocks')]
+        [ValidateSet('Targets', 'Engines', 'Resources', 'Credentials', 'RemoteTargets',
+            'ExecutionScripts', 'DatumScriptBlocks', 'Notify', 'Reboot')]
         [string] $Capability,
 
         [string] $Value
@@ -50,8 +51,13 @@ function Test-PolicyCapability {
                 $allowed = $rule
             }
             else {
-                foreach ($pattern in @($rule)) {
-                    if ([System.Management.Automation.WildcardPattern]::new([string]$pattern, [System.Management.Automation.WildcardOptions]::IgnoreCase).IsMatch($Value)) { $allowed = $true; break }
+                # A list capability needs a value to judge. Asking for one without a value (or with
+                # an empty one) cannot be allowed by a pattern, not even '*': there is nothing to
+                # match, so the only safe answer is no.
+                if (-not [string]::IsNullOrWhiteSpace($Value)) {
+                    foreach ($pattern in @($rule)) {
+                        if ([System.Management.Automation.WildcardPattern]::new([string]$pattern, [System.Management.Automation.WildcardOptions]::IgnoreCase).IsMatch($Value)) { $allowed = $true; break }
+                    }
                 }
             }
         }
