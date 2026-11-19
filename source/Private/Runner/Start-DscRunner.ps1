@@ -489,6 +489,13 @@ function Start-DscRunner {
     # Capability policy (preview, #86 Part B). $policyProvenance stays $null when no policy is set.
     $policyProvenance = $null
     $policyExpressionTargets = @{}
+    # A short identifier for the policy, for messages. Defensive about the length: a direct caller
+    # may hand over a hashtable this module did not build.
+    $policyFingerprint = if ($Policy) {
+        $sha = [string]$Policy.Sha256
+        if ($sha.Length -ge 12) { $sha.Substring(0, 12) } elseif ($sha) { $sha } else { 'unknown' }
+    }
+    else { 'unknown' }
 
     try {
         # Before anything runs: every policy violation in this file, in one pass. A file that
@@ -496,11 +503,14 @@ function Start-DscRunner {
         if ($Policy) {
             $policyCheck = Get-RunPolicyViolation -Policy $Policy -FilePath $FilePath -Task @($tasks) -DefaultTargetAction $defaultTargetAction -Engine ([string]$resolvedEngine) -HasEngineAction:([bool]$EngineAction)
             if ($policyCheck.Violations.Count -gt 0) {
-                throw "Capability policy: $($policyCheck.Violations.Count) violation(s); no resource was run.`n  - $($policyCheck.Violations -join "`n  - ")"
+                # Name the node and the policy that refused it: a pipeline log shows this message
+                # on its own, often for one of several nodes, and 'which policy, which node' is
+                # the first thing the reader needs.
+                throw "Capability policy: $($policyCheck.Violations.Count) violation(s) in node '$nodeName'; no resource was run. Policy: '$($Policy.Path)' ($policyFingerprint).`n  - $($policyCheck.Violations -join "`n  - ")"
             }
             $policyProvenance = $policyCheck.Provenance
             $policyExpressionTargets = $policyCheck.ExpressionTargets
-            Write-Information "Capability policy: the file complies (policy $(([string]$Policy.Sha256).Substring(0, 12)))." -Tags $infoTag
+            Write-Information "Capability policy: the file complies (policy $policyFingerprint)." -Tags $infoTag
         }
 
         if ($Mode -eq 'DryRun' -and -not $EngineAction -and -not (& $actionExists 'Engine' $resolvedEngine)) {
@@ -741,6 +751,21 @@ function Start-DscRunner {
             $resourceStatus = 'OK'
             $resourceError = $null
 
+            # Capability policy, at the point of use: a resourceCredential resolves a secret out
+            # of a vault, an environment variable or the configuration and injects it into the
+            # resource's properties. Checked before the properties are touched, so nothing is read
+            # for a resource whose layers may not use that Credential action.
+            if ($Policy -and $policyProvenance -and $null -ne $task.resourceCredential) {
+                $policyCredentialAction = if ($task.resourceCredential -is [System.Collections.IDictionary] -and -not [string]::IsNullOrWhiteSpace([string]$task.resourceCredential.action)) { [string]$task.resourceCredential.action } else { 'Environment' }
+                $policyCredentialMessage = Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $policyProvenance -ResourceKey $resourceKey -Capability 'Credentials' -Value $policyCredentialAction -Subject 'the Credential action'
+                if ($policyCredentialMessage) {
+                    Write-Error "[Start-DscRunner] $policyCredentialMessage" -ErrorAction Continue
+                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $policyCredentialMessage
+                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $policyCredentialMessage)) -Tags $infoTag
+                    continue
+                }
+            }
+
             # Resolve the properties in two passes. Expand-Parameters runs first and does
             # whole-scalar substitution of `<params=Name>` tokens, so a parameter keeps its
             # type (a number stays a number, a hashtable stays a hashtable). Expand-HashTable
@@ -804,6 +829,32 @@ function Start-DscRunner {
                     Write-Error "[Start-DscRunner] $policyTargetMessage" -ErrorAction Continue
                     & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $policyTargetMessage
                     Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $policyTargetMessage)) -Tags $infoTag
+                    continue
+                }
+            }
+
+            # Capability policy, at the point of use: the machine this resource is about to reach
+            # and the Credential action it is about to resolve. The pre-run check saw the same
+            # literal text - the runner expands expressions in a resource's properties only,
+            # never inside its 'target' block - so this is mostly defence in depth. It is the
+            # only gate for a resource whose Target action was not knowable before the run: that
+            # widens the question to every layer that contributed to the node, any of which could
+            # have supplied the value, and a machine one of them may not reach is refused here.
+            if ($Policy -and $policyProvenance -and $targetAction -ne 'Local') {
+                $policyUseMessage = Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $policyProvenance -ResourceKey $resourceKey `
+                    -Capability 'RemoteTargets' -Value ([string]$task.target.computerName) -Subject 'the remote Target computer' `
+                    -FromExpression:([bool]$policyExpressionTargets[$resourceKey])
+
+                if (-not $policyUseMessage -and $task.target.credential) {
+                    $policyTargetCredentialAction = if ($task.target.credential -is [System.Collections.IDictionary] -and -not [string]::IsNullOrWhiteSpace([string]$task.target.credential.action)) { [string]$task.target.credential.action } else { 'Environment' }
+                    $policyUseMessage = Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $policyProvenance -ResourceKey $resourceKey `
+                        -Capability 'Credentials' -Value $policyTargetCredentialAction -Subject 'the Credential action'
+                }
+
+                if ($policyUseMessage) {
+                    Write-Error "[Start-DscRunner] $policyUseMessage" -ErrorAction Continue
+                    & $recordResult $task.type $task.name 'FAIL' $resourceStopwatch.ElapsedMilliseconds $policyUseMessage
+                    Write-Information ("[{0}/{1}] FAIL {2} ({3}ms) - {4}" -f $TaskCounter, $totalTasks, $logKey, $resourceStopwatch.ElapsedMilliseconds, (& $safeText $policyUseMessage)) -Tags $infoTag
                     continue
                 }
             }
@@ -915,7 +966,20 @@ function Start-DscRunner {
                     # runner itself is on would kill the run mid-file), so it fails the resource
                     # and stops the rest of the file unless the policy explicitly says to ignore it.
                     if ($result.RebootRequired) {
-                        if ($session -and $session.IsRemote) {
+                        # Capability policy: restarting a machine is the most disruptive thing the
+                        # runner does, and the only one it does on its own initiative. A layer
+                        # without the Reboot capability gets a failed resource instead, with the
+                        # target left running and its Set() already applied.
+                        $policyRebootMessage = $null
+                        if ($Policy -and $policyProvenance -and $session -and $session.IsRemote) {
+                            $policyRebootMessage = Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $policyProvenance -ResourceKey $resourceKey -Capability 'Reboot' -Subject 'a restart of its remote Target'
+                        }
+                        if ($policyRebootMessage) {
+                            $resourceStatus = 'FAIL'
+                            $resourceError = "$policyRebootMessage The resource's Set() has already been applied; the target was not restarted, so it may need one before it is in the desired state."
+                            Write-Error "[Start-DscRunner] $resourceError" -ErrorAction Continue
+                        }
+                        elseif ($session -and $session.IsRemote) {
                             Write-Information "Reboot required on remote target [$($session.ComputerName)] after resource [$logKey]; restarting and waiting..." -Tags $infoTag
                             $restartParams = @{ ComputerName = $session.ComputerName; Wait = $true; Force = $true; ErrorAction = 'Stop' }
                             if ($task.target.credential -and $session.PSSession -and $session.PSSession.Credential) {

@@ -27,12 +27,18 @@ resources:
       Target:
         - Machine
 
-  # Allowed for this layer: WinRM is in its Targets list.
+  # Allowed for this layer: WinRM is in its Targets, web01 is in its RemoteTargets, and the
+  # credential comes from the agent's environment, which is the one Credential action the team
+  # has. Change any one of the three and the file does not start.
   - name: Site name on the web server
     type: PSDscResources/Environment
     target:
       action: WinRM
-      computerName: web01.contoso.example
+      computerName: web01.app.contoso.example
+      credential:
+        action: Environment
+        UserNameVariable: WEB_DEPLOY_USER
+        PasswordVariable: WEB_DEPLOY_PASSWORD
     properties:
       Name: APP_SITE_NAME
       Value: $(variables('SiteName'))

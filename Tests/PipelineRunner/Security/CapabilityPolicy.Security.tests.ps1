@@ -15,8 +15,14 @@ properties that make it worth having:
   * a file that breaks the policy does not start, and every violation is named in one pass;
   * a Target written as an expression is checked when it is known, against every layer that
     could have supplied its value;
-  * a missing provenance record, or one from another policy, fails closed - which is also what
-    stops a passthrough document (#106), which has no layers, from ever half-enforcing a policy.
+  * a missing provenance record, one from another policy, or one written for another node, fails closed;
+  * what a resource may *be* is governed too: a resource type, the machine a remote Target may
+    reach, the Credential actions a layer may resolve, a 'notify' that forces another layer's
+    resource to re-apply, and restarting a remote target - each denied by default under
+    Default: Deny, each named in the violation together with the layer and the files it owns;
+  * the report (Get-DscCapabilityPolicyReport) describes the policy without compiling anything,
+    and finds the ways a policy ends up quietly ineffective.
+  * a passthrough document (#106), which has no layers, can never half-enforce a policy.
 
 Dummy values only.
 #>
@@ -30,7 +36,12 @@ Describe "Security: capability policy (preview)" -Tag Unit, Security {
         . (Get-FunctionPath 'Get-PolicyLayer.ps1').FullName
         . (Get-FunctionPath 'Test-PolicyCapability.ps1').FullName
         . (Get-FunctionPath 'Assert-DatumScriptBlockPolicy.ps1').FullName
+        . (Get-FunctionPath 'Test-ResourceCapabilityPolicy.ps1').FullName
         . (Get-FunctionPath 'Get-RunPolicyViolation.ps1').FullName
+        . (Get-FunctionPath 'Get-CapabilityPolicyCoverage.ps1').FullName
+        . (Get-FunctionPath 'Format-CapabilityPolicyReport.ps1').FullName
+        . (Get-FunctionPath 'Get-PipelineRunnerSetting.ps1').FullName
+        . (Get-FunctionPath 'Get-DscCapabilityPolicyReport.ps1').FullName
 
         $script:PolicyYaml = @'
 PolicyVersion: 1
@@ -41,13 +52,21 @@ Layers:
     Capabilities:
       Targets: [ '*' ]
       Engines: [ '*' ]
+      Resources: [ '*' ]
+      Credentials: [ '*' ]
+      RemoteTargets: [ '*' ]
       ExecutionScripts: true
       DatumScriptBlocks: true
+      Notify: true
+      Reboot: true
   - Name: Teams
     Paths: [ 'Projects/**' ]
     Capabilities:
       Targets: [ Local, WinRM ]
       Engines: [ DscV2, DscV3 ]
+      Resources: [ 'M/*' ]
+      Credentials: [ Environment ]
+      RemoteTargets: [ '*.contoso.example' ]
 '@
 
         function New-PolicyFile {
@@ -59,12 +78,26 @@ Layers:
 
         # A compiled file with its provenance record, as the compile step leaves them.
         function New-CompiledFile {
-            param([hashtable] $Resources, [string[]] $ContributingLayers = @('Platform', 'Teams'), [string] $Sha256 = $script:Policy.Sha256)
+            param([hashtable] $Resources, [string[]] $ContributingLayers = @('Platform', 'Teams'), [string] $Sha256 = $script:Policy.Sha256, [string] $Node = 'Node')
             $directory = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -ItemType Directory -Path $directory
             if ($null -ne $Resources) {
-                @{ SchemaVersion = '1.0'; PolicySha256 = $Sha256; ContributingLayers = $ContributingLayers; Resources = $Resources } |
-                    ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $directory 'Node.provenance.json')
+                @{
+                    SchemaVersion      = '1.0'
+                    PolicySha256       = $Sha256
+                    # The record says which node it is about, so it cannot be made to stand in
+                    # for another file by being renamed or copied beside one.
+                    Node               = $Node
+                    ContributingLayers = $ContributingLayers
+                    # As the compile writes it: each precedence entry with the layer it mapped to.
+                    # A violation message names the files of the layer that refused, so a reader
+                    # knows where to look without opening the record.
+                    Layers             = @(
+                        @{ Path = 'Projects/Present/App'; Layer = 'Teams' }
+                        @{ Path = 'OrganizationPolicies/Organization'; Layer = 'Platform' }
+                    )
+                    Resources          = $Resources
+                } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $directory 'Node.provenance.json')
             }
             return (Join-Path $directory 'Node.yml')
         }
@@ -324,8 +357,8 @@ Layers:
         It "Passes a file that complies" {
             $file = New-CompiledFile -Resources @{ 'M/R/Platform only' = @('Platform'); 'M/R/Shared' = @('Platform', 'Teams') }
             $tasks = @(
-                @{ type = 'M/R'; name = 'Platform only'; target = @{ action = 'SSH' }; preExecutionScript = 'Write-Verbose hi' }
-                @{ type = 'M/R'; name = 'Shared'; target = @{ action = 'WinRM' } }
+                @{ type = 'M/R'; name = 'Platform only'; target = @{ action = 'SSH'; computerName = 'bastion.contoso.example' }; preExecutionScript = 'Write-Verbose hi' }
+                @{ type = 'M/R'; name = 'Shared'; target = @{ action = 'WinRM'; computerName = 'web01.contoso.example' } }
             )
             (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task $tasks -DefaultTargetAction 'Local' -Engine 'DscV2').Violations | Should -BeNullOrEmpty
         }
@@ -333,7 +366,7 @@ Layers:
         It "Names every violation in one pass" {
             $file = New-CompiledFile -Resources @{ 'M/R/Shared' = @('Platform', 'Teams'); 'M/R/Team' = @('Teams') }
             $tasks = @(
-                @{ type = 'M/R'; name = 'Shared'; target = @{ action = 'SSH' } }
+                @{ type = 'M/R'; name = 'Shared'; target = @{ action = 'SSH'; computerName = 'web01.contoso.example' } }
                 @{ type = 'M/R'; name = 'Team'; postExecutionScript = 'Stop-TaskProcessing' }
             )
             $violations = (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task $tasks -DefaultTargetAction 'Local' -Engine 'Custom').Violations
@@ -374,6 +407,19 @@ Layers:
             (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @() -DefaultTargetAction 'Local' -Engine 'DscV2').Violations | Should -Match 'different policy'
         }
 
+        It "Fails closed on a provenance record written for another node" {
+            $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Platform') } -Node 'SomeOtherNode'
+            $result = Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @() -DefaultTargetAction 'Local' -Engine 'DscV2'
+            ($result.Violations -join "`n") | Should -Match "is for node 'SomeOtherNode', not for 'Node'"
+            $result.Provenance | Should -BeNullOrEmpty
+        }
+
+        It "Fails closed on a provenance record that does not say which node it is for" {
+            $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Platform') } -Node ''
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @() -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -Match "is for node '\(none\)'"
+        }
+
         It "Fails closed on a provenance record that cannot be read" {
             $file = New-CompiledFile -Resources $null
             Set-Content -LiteralPath ($file -replace '\.yml$', '.provenance.json') -Value '{ this is not json'
@@ -385,7 +431,7 @@ Layers:
 
         BeforeAll {
             $script:ExpressionFile = New-CompiledFile -Resources @{ 'M/R/Platform resource' = @('Platform') } -ContributingLayers 'Platform', 'Teams'
-            $script:ExpressionTasks = @(@{ type = 'M/R'; name = 'Platform resource'; target = @{ action = '$(variables(''TargetAction''))' } })
+            $script:ExpressionTasks = @(@{ type = 'M/R'; name = 'Platform resource'; target = @{ action = '$(variables(''TargetAction''))'; computerName = 'bastion.contoso.example' } })
             $script:ExpressionCheck = Get-RunPolicyViolation -Policy $Policy -FilePath $ExpressionFile -Task $ExpressionTasks -DefaultTargetAction 'Local' -Engine 'DscV2'
         }
 
@@ -450,6 +496,356 @@ Layers:
 
             $result.Violations | Should -Match 'different policy'
             $result.Provenance | Should -BeNullOrEmpty
+        }
+    }
+
+    Context "What a resource may be: the Resources capability" {
+
+        It "Allows a resource type the layer lists" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team' }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+
+        It "Refuses a resource type the layer does not, naming the type, the layer and the layer's files" {
+            # A Script resource is arbitrary code: a layer that could declare one would not be
+            # constrained by the Target, Credential or script capabilities at all.
+            $file = New-CompiledFile -Resources @{ 'PSDesiredStateConfiguration/Script/Payload' = @('Teams') }
+            $violations = (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'PSDesiredStateConfiguration/Script'; name = 'Payload' }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n"
+            $violations | Should -Match "is of the resource type 'PSDesiredStateConfiguration/Script', which is not allowed for layer\(s\) Teams"
+            $violations | Should -Match 'layer Teams owns Projects/Present/App'
+        }
+
+        It "Holds a resource several layers contributed to to the narrower list" {
+            $file = New-CompiledFile -Resources @{ 'Other/Thing/Shared' = @('Platform', 'Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'Other/Thing'; name = 'Shared' }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n" |
+                Should -Match "resource type 'Other/Thing', which is not allowed for layer\(s\) Teams"
+        }
+
+        It "Refuses every resource of a layer that has no Resources rule under Default: Deny" {
+            $narrow = Import-CapabilityPolicy -Path (New-PolicyFile -Content "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Teams`n    Paths: [ 'Projects/**' ]`n    Capabilities:`n      Targets: [ Local ]")
+            (Test-PolicyCapability -Policy $narrow -Layer 'Teams' -Capability Resources -Value 'M/R').Allowed | Should -BeFalse
+        }
+
+        It "Refuses a Resources pattern that is not a resource type, instead of silently allowing nothing" {
+            # 'PSDscResources' matches no 'Module/Resource' type, so a policy written that way
+            # would deny everything while reading as though it allowed a module.
+            { Import-CapabilityPolicy -Path (New-PolicyFile -Content "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: A`n    Paths: [ '*' ]`n    Capabilities:`n      Resources: [ PSDscResources ]") } |
+                Should -Throw "*does not name a resource type*"
+        }
+    }
+
+    Context "Which machine a layer may reach: the RemoteTargets capability" {
+
+        It "Allows a computer the layer's patterns cover" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; target = @{ action = 'WinRM'; computerName = 'web01.contoso.example' } }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+
+        It "Refuses a computer outside them, even on a Target the layer may use" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; target = @{ action = 'WinRM'; computerName = 'dc01.corp.example' } }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n" |
+                Should -Match "uses the remote Target computer 'dc01.corp.example', which is not allowed for layer\(s\) Teams"
+        }
+
+        It "Does not judge a Local Target against it" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; target = @{ action = 'Local' } }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+
+        It "Refuses a non-Local Target that names no computer at all" {
+            # There is nothing for the policy to allow, and the built-in Target actions refuse it
+            # too; saying so here means the reason names the policy rather than the connection.
+            $file = New-CompiledFile -Resources @{ 'M/R/Platform only' = @('Platform') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Platform only'; target = @{ action = 'SSH' } }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n" |
+                Should -Match 'uses a remote Target with no computerName'
+        }
+
+        It "Checks the computer even when the Target action is an expression" {
+            # The action is not knowable before the run; the computer is, and it is literal text
+            # either way - the runner never expands anything inside a 'target' block.
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            $check = Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; target = @{ action = '$(variables(''Hop''))'; computerName = 'dc01.corp.example' } }) -DefaultTargetAction 'Local' -Engine 'DscV2'
+            $check.ExpressionTargets.Keys | Should -Be @('M/R/Team')
+            ($check.Violations -join "`n") | Should -Match "uses the remote Target computer 'dc01.corp.example'"
+            ($check.Violations -join "`n") | Should -Not -Match 'uses the Target'
+        }
+
+        It "Allows no computer at all for a layer with an empty RemoteTargets list" {
+            $none = Import-CapabilityPolicy -Path (New-PolicyFile -Content "PolicyVersion: 1`nDefault: Allow`nLayers:`n  - Name: A`n    Paths: [ '*' ]`n    Capabilities:`n      RemoteTargets: []")
+            (Test-PolicyCapability -Policy $none -Layer 'A' -Capability RemoteTargets -Value 'anything.example').Allowed | Should -BeFalse
+        }
+
+        It "Never matches an empty computer name, not even against '*'" {
+            (Test-PolicyCapability -Policy $Policy -Layer 'Platform' -Capability RemoteTargets -Value '').Allowed | Should -BeFalse
+        }
+    }
+
+    Context "Which credentials a layer may resolve: the Credentials capability" {
+
+        It "Allows the Credential action the layer lists, in either block" {
+            $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Teams'); 'M/R/B' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(
+                    @{ type = 'M/R'; name = 'A'; target = @{ action = 'WinRM'; computerName = 'web01.contoso.example'; credential = @{ action = 'Environment' } } }
+                    @{ type = 'M/R'; name = 'B'; resourceCredential = @{ action = 'Environment'; UserNameVariable = 'U' } }
+                ) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations | Should -BeNullOrEmpty
+        }
+
+        It "Refuses a Credential action the layer does not, and says which block asked for it" {
+            $file = New-CompiledFile -Resources @{ 'M/R/A' = @('Teams'); 'M/R/B' = @('Teams') }
+            $violations = (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(
+                    @{ type = 'M/R'; name = 'A'; target = @{ action = 'WinRM'; computerName = 'web01.contoso.example'; credential = @{ action = 'SecretManagement'; Name = 'platform' } } }
+                    @{ type = 'M/R'; name = 'B'; resourceCredential = @{ action = 'Static'; UserName = 'u'; Password = 'dummy' } }
+                ) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n"
+            $violations | Should -Match "resolves a credential through the 'SecretManagement' Credential action \(target.credential\)"
+            $violations | Should -Match "resolves a credential through the 'Static' Credential action \(resourceCredential\)"
+        }
+
+        It "Treats a credential block with no action as the 'Environment' default, which is what the runner does" {
+            $file = New-CompiledFile -Resources @{ 'M/R/B' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'B'; resourceCredential = @{ UserNameVariable = 'U' } }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+
+        It "Lets a layer use no credential at all" {
+            $none = Import-CapabilityPolicy -Path (New-PolicyFile -Content "PolicyVersion: 1`nDefault: Allow`nLayers:`n  - Name: A`n    Paths: [ '*' ]`n    Capabilities:`n      Credentials: []")
+            (Test-PolicyCapability -Policy $none -Layer 'A' -Capability Credentials -Value 'Environment').Allowed | Should -BeFalse
+        }
+    }
+
+    Context "Forcing another resource to re-apply: the Notify capability" {
+
+        It "Refuses a notify from a layer that does not have it, naming what would be forced" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; notify = @('M/R/Platform only') }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations -join "`n" |
+                Should -Match 'notifies 1 resource\(s\) \(M/R/Platform only\), forcing them to re-run Set\(\)'
+        }
+
+        It "Allows a notify from a layer that has it" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Platform only' = @('Platform') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Platform only'; notify = @('M/R/Team') }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+
+        It "Does not restrict dependsOn, which only orders resources that were going to run" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; dependsOn = @('M/R/Platform only') }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+
+        It "Ignores an empty notify list" {
+            $file = New-CompiledFile -Resources @{ 'M/R/Team' = @('Teams') }
+            (Get-RunPolicyViolation -Policy $Policy -FilePath $file -Task @(@{ type = 'M/R'; name = 'Team'; notify = @() }) -DefaultTargetAction 'Local' -Engine 'DscV2').Violations |
+                Should -BeNullOrEmpty
+        }
+    }
+
+    Context "The point-of-use gate for every capability it guards" {
+
+        BeforeAll {
+            $script:PointOfUse = @{
+                Resources          = @{ 'M/R/Platform resource' = @('Platform'); 'M/R/Team resource' = @('Teams') }
+                ContributingLayers = @('Platform', 'Teams')
+                Layers             = @(@{ Path = 'Projects/Present/App'; Layer = 'Teams' })
+            }
+        }
+
+        It "Refuses <Capability> at the point of use for a layer that may not use it" -ForEach @(
+            @{ Capability = 'RemoteTargets'; Value = 'dc01.corp.example'; Subject = 'the remote Target computer'; Match = "uses the remote Target computer 'dc01.corp.example'" }
+            @{ Capability = 'Credentials'; Value = 'Static'; Subject = 'the Credential action'; Match = "uses the Credential action 'Static'" }
+            @{ Capability = 'Reboot'; Value = $null; Subject = 'a restart of its remote Target'; Match = 'uses a restart of its remote Target' }
+        ) {
+            $arguments = @{ Policy = $Policy; Provenance = $PointOfUse; ResourceKey = 'M/R/Team resource'; Capability = $Capability; Subject = $Subject }
+            if ($null -ne $Value) { $arguments.Value = $Value }
+            $message = Test-ResourceCapabilityPolicy @arguments
+            $message | Should -Match $Match
+            $message | Should -Match 'which is not allowed for layer\(s\) Teams'
+            $message | Should -Match 'layer Teams owns Projects/Present/App'
+        }
+
+        It "Allows the same thing for a layer that may" {
+            Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $PointOfUse -ResourceKey 'M/R/Platform resource' -Capability Reboot | Should -BeNullOrEmpty
+            Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $PointOfUse -ResourceKey 'M/R/Platform resource' -Capability Credentials -Value 'SecretManagement' | Should -BeNullOrEmpty
+        }
+
+        It "Widens to every contributing layer for a value that came from an expression" {
+            # The resource is the platform's, but any layer's variable could have decided a value
+            # the pre-run check could not read.
+            Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $PointOfUse -ResourceKey 'M/R/Platform resource' -Capability RemoteTargets -Value 'dc01.corp.example' |
+                Should -BeNullOrEmpty
+            Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $PointOfUse -ResourceKey 'M/R/Platform resource' -Capability RemoteTargets -Value 'dc01.corp.example' -FromExpression |
+                Should -Match 'not allowed for layer\(s\) Teams'
+        }
+
+        It "Gives a resource that is not in the record no capabilities" {
+            Test-ResourceCapabilityPolicy -Policy $Policy -Provenance $PointOfUse -ResourceKey 'M/R/Smuggled' -Capability Reboot | Should -Match '\(unclaimed\)'
+        }
+    }
+
+    Context "The policy is legible before it bites: Get-DscCapabilityPolicyReport" {
+
+        BeforeAll {
+            # A configuration with one thing wrong in each category the report is meant to find.
+            $script:ReportRoot = Join-Path $TestDrive 'report-config'
+            foreach ($folder in 'OrganizationPolicies', 'Projects/Present', 'Loose') {
+                $null = New-Item -ItemType Directory -Path (Join-Path $ReportRoot $folder) -Force
+            }
+            Set-Content -LiteralPath (Join-Path $ReportRoot 'Datum.yml') -Value "ResolutionPrecedence:`n  - Projects/`$(`$Node.ProjectPresence)/`$(`$Node.Project)`n  - OrganizationPolicies/Organization`nPipelineRunnerSettings:`n  Target: Local"
+            Set-Content -LiteralPath (Join-Path $ReportRoot 'Policy.yml') -Value $PolicyYaml
+            Set-Content -LiteralPath (Join-Path $ReportRoot 'OrganizationPolicies/Organization.yml') -Value "resources:`n  - name: Platform only`n    type: M/R`n    target:`n      action: SSH`n      computerName: bastion.contoso.example`n    properties:`n      Setting: platform"
+            Set-Content -LiteralPath (Join-Path $ReportRoot 'Projects/Present/App.yml') -Value "resources:`n  - name: Team payload`n    type: PSDesiredStateConfiguration/Script`n    properties:`n      Setting: team"
+            Set-Content -LiteralPath (Join-Path $ReportRoot 'Loose/Stray.yml') -Value 'resources: []'
+
+            $script:Report = Get-DscCapabilityPolicyReport -ConfigurationPath $ReportRoot
+        }
+
+        It "Names the policy it read and its fingerprint" {
+            $Report.PolicyPath | Should -Be (Join-Path $ReportRoot 'Policy.yml')
+            $Report.PolicySha256 | Should -Match '^[0-9a-f]{64}$'
+            $Report.Default | Should -Be 'Deny'
+        }
+
+        It "Shows the effective rule for a capability a layer does not list, not a blank" {
+            $teams = $Report.Layers | Where-Object Name -EQ 'Teams'
+            $teams.Capabilities['Notify'] | Should -Be 'Deny (not listed; from Default)'
+            $teams.Capabilities['ExecutionScripts'] | Should -Be 'Deny (not listed; from Default)'
+            $teams.Capabilities['Targets'] | Should -Be 'Local, WinRM'
+            ($Report.Layers | Where-Object Name -EQ 'Platform').Capabilities['Reboot'] | Should -Be 'Allow'
+        }
+
+        It "Maps each file to its layer, and leaves the policy file out of the mapping" {
+            $byFile = @{}
+            foreach ($file in $Report.Files) { $byFile[$file.File] = $file.Layer }
+            $byFile['Datum.yml'] | Should -Be 'Platform'
+            $byFile['OrganizationPolicies/Organization.yml'] | Should -Be 'Platform'
+            $byFile['Projects/Present/App.yml'] | Should -Be 'Teams'
+            $byFile['Loose/Stray.yml'] | Should -Be '(unclaimed)'
+            $byFile.ContainsKey('Policy.yml') | Should -BeFalse
+        }
+
+        It "Maps each ResolutionPrecedence entry to its layer, placeholders and all" {
+            @($Report.ResolutionPrecedence).Count | Should -Be 2
+            $Report.ResolutionPrecedence[0].Layer | Should -Be 'Teams'
+            $Report.ResolutionPrecedence[1].Layer | Should -Be 'Platform'
+        }
+
+        It "Judges each resource declaration against the layers that declare it" {
+            ($Report.Resources | Where-Object Name -EQ 'Platform only').Allowed | Should -BeTrue
+            $refused = $Report.Resources | Where-Object Name -EQ 'Team payload'
+            $refused.Allowed | Should -BeFalse
+            ($refused.Refusals -join ' ') | Should -Match "resource type 'PSDesiredStateConfiguration/Script'"
+        }
+
+        It "Reports a file no layer claims as an error" {
+            $Report.HasError | Should -BeTrue
+            @($Report.Findings | Where-Object Code -EQ 'UnclaimedFile').Message | Should -Match 'Loose/Stray.yml'
+        }
+
+        It "Reports a refused declaration as an error" {
+            @($Report.Findings | Where-Object Code -EQ 'DeclarationRefused').Message | Should -Match 'Team payload'
+        }
+
+        It "Says which layer owns the definition file, because that layer controls the merge" {
+            @($Report.Findings | Where-Object Code -EQ 'DefinitionFileOwner').Message | Should -Match "layer 'Platform'"
+        }
+
+        It "Warns about a layer whose Paths match no file: the one way a policy is silently ineffective" {
+            $typo = Join-Path $TestDrive 'typo-config'
+            $null = New-Item -ItemType Directory -Path (Join-Path $typo 'Projects') -Force
+            Set-Content -LiteralPath (Join-Path $typo 'Datum.yml') -Value 'ResolutionPrecedence: []'
+            Set-Content -LiteralPath (Join-Path $typo 'Policy.yml') -Value "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Platform`n    Paths: [ 'Platfrom/**' ]`n    Capabilities:`n      Resources: [ '*' ]`n  - Name: Teams`n    Paths: [ 'Projects/**' ]`n    Capabilities:`n      Resources: [ '*' ]"
+            Set-Content -LiteralPath (Join-Path $typo 'Projects/App.yml') -Value 'resources: []'
+            $finding = @((Get-DscCapabilityPolicyReport -ConfigurationPath $typo).Findings | Where-Object Code -EQ 'LayerMatchesNothing')
+            $finding.Count | Should -Be 1
+            $finding[0].Message | Should -Match "Layer 'Platform' matches no file"
+        }
+
+        It "Warns about a layer that may use a remote Target but may reach no computer" {
+            $odd = Join-Path $TestDrive 'no-computer-config'
+            $null = New-Item -ItemType Directory -Path (Join-Path $odd 'Projects') -Force
+            Set-Content -LiteralPath (Join-Path $odd 'Datum.yml') -Value 'ResolutionPrecedence: []'
+            Set-Content -LiteralPath (Join-Path $odd 'Policy.yml') -Value "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Teams`n    Paths: [ 'Projects/**' ]`n    Capabilities:`n      Targets: [ Local, WinRM ]`n      Resources: [ '*' ]"
+            Set-Content -LiteralPath (Join-Path $odd 'Projects/App.yml') -Value 'resources: []'
+            @((Get-DscCapabilityPolicyReport -ConfigurationPath $odd).Findings | Where-Object Code -EQ 'RemoteTargetWithoutComputer').Count | Should -Be 1
+        }
+
+        It "Warns about a layer that owns files but may declare no resource type" {
+            $odd = Join-Path $TestDrive 'no-resources-config'
+            $null = New-Item -ItemType Directory -Path (Join-Path $odd 'Projects') -Force
+            Set-Content -LiteralPath (Join-Path $odd 'Datum.yml') -Value 'ResolutionPrecedence: []'
+            Set-Content -LiteralPath (Join-Path $odd 'Policy.yml') -Value "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Teams`n    Paths: [ 'Projects/**' ]`n    Capabilities:`n      Targets: [ Local ]"
+            Set-Content -LiteralPath (Join-Path $odd 'Projects/App.yml') -Value 'resources: []'
+            @((Get-DscCapabilityPolicyReport -ConfigurationPath $odd).Findings | Where-Object Code -EQ 'LayerDeclaresNothing').Count | Should -Be 1
+        }
+
+        It "Warns about Default: Allow" {
+            $permissive = Join-Path $TestDrive 'permissive-config'
+            $null = New-Item -ItemType Directory -Path (Join-Path $permissive 'Projects/Present') -Force
+            Set-Content -LiteralPath (Join-Path $permissive 'Datum.yml') -Value 'ResolutionPrecedence: []'
+            Set-Content -LiteralPath (Join-Path $permissive 'Policy.yml') -Value ($PolicyYaml -replace 'Default: Deny', 'Default: Allow')
+            @((Get-DscCapabilityPolicyReport -ConfigurationPath $permissive).Findings | Where-Object Code -EQ 'DefaultAllow').Count | Should -Be 1
+        }
+
+        It "Reports the same refusal the compile would make for a Datum script block, without compiling" {
+            $blocky = Join-Path $TestDrive 'block-config'
+            $null = New-Item -ItemType Directory -Path (Join-Path $blocky 'Projects/Present') -Force
+            Set-Content -LiteralPath (Join-Path $blocky 'Datum.yml') -Value 'ResolutionPrecedence: []'
+            Set-Content -LiteralPath (Join-Path $blocky 'Policy.yml') -Value $PolicyYaml
+            Set-Content -LiteralPath (Join-Path $blocky 'Projects/Present/App.yml') -Value "variables:`n  Sneaky: '[x={ Get-Date }=]'"
+            $finding = @((Get-DscCapabilityPolicyReport -ConfigurationPath $blocky).Findings | Where-Object Code -EQ 'PreCompileRefusal')
+            $finding.Count | Should -Be 1
+            $finding[0].Message | Should -Match 'contains a Datum script block'
+        }
+
+        It "Reports a configuration with no policy as having none, and does not call that an error" {
+            $bare = Join-Path $TestDrive 'bare-config'
+            $null = New-Item -ItemType Directory -Path $bare -Force
+            $bareReport = Get-DscCapabilityPolicyReport -ConfigurationPath $bare
+            $bareReport.PolicyPath | Should -BeNullOrEmpty
+            $bareReport.HasError | Should -BeFalse
+            @($bareReport.Findings | Where-Object Code -EQ 'NoPolicy').Count | Should -Be 1
+        }
+
+        It "Still fails when a policy is required and there is none" {
+            $bare = Join-Path $TestDrive 'bare-required-config'
+            $null = New-Item -ItemType Directory -Path $bare -Force
+            { Get-DscCapabilityPolicyReport -ConfigurationPath $bare -RequirePolicy } | Should -Throw '*A policy is required*'
+        }
+
+        It "Renders as text for a person, with the capabilities and the findings in it" {
+            $text = Get-DscCapabilityPolicyReport -ConfigurationPath $ReportRoot -AsText
+            $joined = $text -join "`n"
+            $joined | Should -Match 'What the policy permits'
+            $joined | Should -Match 'Deny \(not listed; from Default\)'
+            $joined | Should -Match 'Findings'
+            $joined | Should -Match 'REFUSED'
+            $joined | Should -Match 'does not perform Datum''s merge'
+        }
+
+        It "Reads nothing and writes nothing outside the configuration: no compile, no output files" {
+            $before = @(Get-ChildItem -LiteralPath $ReportRoot -Recurse -File).Count
+            $null = Get-DscCapabilityPolicyReport -ConfigurationPath $ReportRoot
+            @(Get-ChildItem -LiteralPath $ReportRoot -Recurse -File).Count | Should -Be $before
+        }
+    }
+
+    Context "The shipped example is its own regression test" {
+
+        It "Has a policy whose layers all match files, and no refused declaration" {
+            $report = Get-DscCapabilityPolicyReport -ConfigurationPath (Join-Path $Global:RepositoryRoot 'Example Policy Configuration') -RequirePolicy
+            @($report.Findings | Where-Object Severity -EQ 'Error') | Should -BeNullOrEmpty
+            @($report.Resources | Where-Object { -not $_.Allowed }) | Should -BeNullOrEmpty
+            $report.Default | Should -Be 'Deny'
+        }
+
+        It "Grants every capability explicitly to the platform, so a new capability is a deliberate choice" {
+            $report = Get-DscCapabilityPolicyReport -ConfigurationPath (Join-Path $Global:RepositoryRoot 'Example Policy Configuration')
+            $platform = $report.Layers | Where-Object Name -EQ 'Platform'
+            foreach ($capability in $platform.Capabilities.Keys) {
+                $platform.Capabilities[$capability] | Should -Not -Match 'from Default' -Because "the example's most trusted layer should list $capability explicitly"
+            }
         }
     }
 }

@@ -4,16 +4,30 @@ parameters: {}
 variables:
   # A Datum script block. Only a layer with the DatumScriptBlocks capability may write one.
   BuildStamp: '[x={ (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd") }=]'
-  JumpHost: bastion.contoso.example
 
 resources:
 
-  # Reached through SSH and followed by a script: both are things only the platform may do.
+  # Everything about this resource is something only the platform may do:
+  #   * the SSH Target                       (Targets)
+  #   * the bastion it reaches               (RemoteTargets - not in the teams' list)
+  #   * a credential out of the vault        (Credentials - the teams may only use Environment)
+  #   * a script after the resource          (ExecutionScripts)
+  #   * forcing 'Log level' to re-apply      (Notify)
+  #
+  # Note that computerName is written out in full. The runner does not expand expressions in a
+  # 'target' block - not in action, not in computerName - so `$(variables('JumpHost'))` here
+  # would be a literal host name, not a lookup. That is deliberate: it is what stops a lower
+  # layer steering someone else's resource onto another machine by setting a variable.
   - name: Platform marker
     type: PSDscResources/Environment
     target:
       action: SSH
-      computerName: $(variables('JumpHost'))
+      computerName: bastion.contoso.example
+      credential:
+        action: SecretManagement
+        Name: platform-bastion
+    notify:
+      - PSDscResources/Environment/Log level
     properties:
       Name: PLATFORM_BASELINE
       Value: $(variables('BuildStamp'))

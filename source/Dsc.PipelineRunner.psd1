@@ -93,6 +93,7 @@
     FunctionsToExport = @(
         'Build-DatumConfiguration'
         'ConvertTo-DscV3ConfigurationDocument'
+        'Get-DscCapabilityPolicyReport'
         'Invoke-DscPipelineRunner'
         'Invoke-DscRunner'
         'Resolve-DscDatumProject'

@@ -45,7 +45,7 @@ function Assert-DatumScriptBlockPolicy {
 
         $relative = $file.FullName.Substring($root.Length + 1) -replace '\\', '/'
         # Layers are matched on the path without the extension; the definition file keeps its name.
-        $layerPath = if ($relative -ieq 'Datum.yml' -or $relative -ieq 'Datum.yaml') { 'Datum.yml' } else { $relative -replace '\.[^./]+$', '' }
+        $layerPath = ConvertTo-PolicyLayerPath -Root $root -FullName $file.FullName
         $layer = Get-PolicyLayer -Policy $Policy -RelativePath $layerPath
 
         $decision = Test-PolicyCapability -Policy $Policy -Layer $layer -Capability 'DatumScriptBlocks'

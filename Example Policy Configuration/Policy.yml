@@ -1,4 +1,4 @@
-# Capability policy (preview): what each layer of this configuration may use.
+# Capability policy: what each layer of this configuration may use.
 #
 # This file sits beside Datum.yml and is used automatically. It is outside the Datum hierarchy,
 # so no layer can add to it or override it. Protect it the way you protect Datum.yml: whoever can
@@ -7,11 +7,15 @@
 # Reference: docs/capability-policy.md
 PolicyVersion: 1
 
-# What a layer may do with a capability it does not list. Deny is the safe choice.
+# What a layer may do with a capability it does not list. Deny is the safe choice: a capability a
+# later version of the runner adds is then denied to every layer until the policy grants it.
 Default: Deny
 
 # The first layer whose Paths match a file owns that file. Paths are relative to this folder,
 # use forward slashes and have no file extension. A file no layer claims may do nothing.
+#
+# `Get-DscCapabilityPolicyReport -ConfigurationPath . -AsText` prints everything below as what it
+# resolves to, file by file, without compiling or running anything.
 Layers:
 
   # The platform team: the definition file and the baseline every node gets.
@@ -21,16 +25,33 @@ Layers:
       - Platform/**
       - Composites/**
     Capabilities:
-      Targets: [ '*' ]            # any Target action, including SSH
+      Targets: [ '*' ]                   # any Target action, including SSH
       Engines: [ '*' ]
-      ExecutionScripts: true      # preExecutionScript / postExecutionScript
-      DatumScriptBlocks: true     # [x={ ... }=] blocks evaluated during the merge
+      Resources: [ '*' ]                 # any resource type, 'Module/Resource'
+      Credentials: [ '*' ]               # any Credential action
+      RemoteTargets: [ '*' ]             # any machine
+      ExecutionScripts: true             # preExecutionScript / postExecutionScript
+      DatumScriptBlocks: true            # [x={ ... }=] blocks evaluated during the merge
+      Notify: true                       # may force another resource to re-run Set()
+      Reboot: true                       # may have the runner restart a remote target
 
-  # Application teams: their own node files.
+  # Application teams: their own node files. Least privilege - everything these teams need, and
+  # nothing else. The capabilities that are absent are as deliberate as the ones that are here.
   - Name: Teams
     Paths:
       - Projects/**
     Capabilities:
-      Targets: [ Local, WinRM ]   # no SSH
-      Engines: [ DscV2, DscV3 ]   # the built-in engines only
-      # ExecutionScripts and DatumScriptBlocks are not listed, so Default (Deny) applies.
+      Targets: [ Local, WinRM ]          # no SSH
+      Engines: [ DscV2, DscV3 ]          # the built-in engines only
+      # What a team's resource may BE. 'PSDesiredStateConfiguration/Script' is arbitrary code, so
+      # a team that could declare one would not be constrained by anything else in this list.
+      Resources: [ 'PSDscResources/*' ]
+      # A team may read a credential from the agent's environment, but not out of the platform's
+      # vault (SecretManagement) and never from a password written in the configuration (Static).
+      Credentials: [ Environment ]
+      # Where a team's remote resources may reach: its own application subnet, nothing else. The
+      # platform's bastion is not in this list, and neither is any domain controller.
+      RemoteTargets: [ '*.app.contoso.example' ]
+      # ExecutionScripts, DatumScriptBlocks, Notify and Reboot are not listed, so Default (Deny)
+      # applies: no scripts, no code in the merge, no forcing a platform resource to re-apply
+      # itself, and no restarting a machine.
