@@ -71,6 +71,10 @@ All notable changes to this project will be documented in this file.
   a lookup. Both the example's README and `docs/capability-policy.md` now say so, and the
   integration suite makes each refusal the README claims.
 
+## [1.5.0] - 2026-11-19
+
+### Changed
+
 - **A later run reuses the last run's DSC v3 resource list.** The one full discovery each run
   made (`dsc resource list`, about three seconds on a hosted Windows agent) is saved under the
   user's own cache directory, keyed on the `dsc` executable, `PATH`, `PSModulePath` and the
