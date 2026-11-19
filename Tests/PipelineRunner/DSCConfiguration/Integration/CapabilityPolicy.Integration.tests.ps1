@@ -1120,24 +1120,36 @@ Layers:
         # GetNewClosure() captures the local scope's variables only, so a scriptblock literal
         # written inside an It captures nothing and $Calls - which BeforeEach sets in a parent
         # scope - reads as $null inside the closure. Same shape as New-RecordingEngine above.
+        $plainTeamYaml = @'
+resources:
+  - name: Team thing
+    type: Stub/Thing
+    properties:
+      Setting: team
+'@
+
         function New-UseEngine {
             param(
                 [System.Collections.Generic.List[object]] $Calls,
                 # Reports drift on Test and asks for a reboot after Set, as a resource that needs
                 # a restart to finish does.
-                [switch] $RebootAfterSet
+                [switch] $RebootAfterSet,
+                # With -RebootAfterSet, only the resource whose 'Setting' property is this drifts;
+                # every other resource reports it is already in the desired state, so it never
+                # reaches Set and never asks for a reboot. The property is what tells one resource
+                # from another here - an engine's $Context.Name is the resource TYPE, not the
+                # instance name - which is how the describe above distinguishes them too.
+                [string] $DriftOnly
             )
-            if ($RebootAfterSet) {
-                return {
-                    param($Context)
-                    $Calls.Add([string]$Context.Method)
-                    return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
-                }.GetNewClosure()
-            }
+            $wantsReboot = [bool]$RebootAfterSet
             return {
                 param($Context)
                 $Calls.Add([string]$Context.Method)
-                return @{ InDesiredState = $true; Message = 'ok' }
+                if (-not $wantsReboot) { return @{ InDesiredState = $true; Message = 'ok' } }
+                if (-not [string]::IsNullOrEmpty($DriftOnly) -and [string]$Context.Property.Setting -ne $DriftOnly) {
+                    return @{ InDesiredState = $true; Message = 'ok' }
+                }
+                return @{ InDesiredState = ($Context.Method -eq 'Get'); Message = 'drift'; RebootRequired = ($Context.Method -eq 'Set') }
             }.GetNewClosure()
         }
 
@@ -1198,13 +1210,13 @@ resources:
 '@
         $script:TeamRebootPolicy = $script:UsePolicy
 
-        # Only the platform's remote resource. A Local resource in the same node would be
-        # evaluated first, drift, ask for a reboot after Set, and stop the rest of the file -
-        # the runner cannot restart its own host mid-run - so the remote resource would never be
-        # reached and nothing would be restarted.
-        $script:PlatformRebootFile = New-UseNode -TeamYaml @'
-resources: []
-'@ -BaselineYaml @'
+        # The team's Local resource stays, and the engine is told not to drift it (-DriftOnly
+        # 'platform'). A Local resource that DOES drift would ask for a reboot after Set, and the
+        # runner cannot restart its own host mid-run: it fails that resource and stops the rest of
+        # the file, so the platform's remote resource would never be reached. An empty team file is
+        # not the way out either - with UniqueKeyValTuples an empty most-specific layer wins, and
+        # the node compiles with no resources at all.
+        $script:PlatformRebootFile = New-UseNode -TeamYaml $plainTeamYaml -BaselineYaml @'
 resources:
   - name: Platform thing
     type: Stub/Thing
@@ -1300,7 +1312,7 @@ resources:
     }
 
     It "Restarts it for a layer that has the capability" {
-        $result = Start-DscRunner -FilePath $PlatformRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet) -Policy $PlatformRebootPolicy -ErrorAction SilentlyContinue
+        $result = Start-DscRunner -FilePath $PlatformRebootFile -Mode Set -EngineAction (New-UseEngine -Calls $Calls -RebootAfterSet -DriftOnly 'platform') -Policy $PlatformRebootPolicy -ErrorAction SilentlyContinue
         ($result.FailedResources | Where-Object InstanceName -EQ 'Platform thing') | Should -BeNullOrEmpty
         @($Global:PipelineRunnerRestartCalls) | Should -Be @('dc01.corp.example.test')
     }
