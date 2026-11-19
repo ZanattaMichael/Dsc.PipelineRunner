@@ -13,7 +13,10 @@ inline -EngineAction, and pin that:
   * a malformed resource, a duplicate name or a scalar `target` is a recorded failure for that
     resource, never an aborted file or a silent local run,
   * a secret that an engine echoes back in an error never reaches the log, CSV or JSON report,
-  * structural mistakes fail closed with a clear message.
+  * structural mistakes fail closed with a clear message,
+  * a configuration file's own PipelineRunnerSettings block is inert - the runner's settings
+    never come from the file, so a document cannot grant itself AllowExecutionScripts - and the
+    leftover is warned about rather than ignored (#106).
 
 Dummy values only.
 #>
@@ -264,6 +267,81 @@ Describe "Security: the runner treats configuration and engine output as untrust
         It "rejects a variables section that is not a mapping" {
             $file = New-ConfigFile -Name 'vars-list.json' -Json '{ "variables": ["a", "b"], "resources": [ { "name": "one", "type": "Test/Res" } ] }'
             { Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:okEngine } | Should -Throw "*'variables' section*must be a mapping*"
+        }
+    }
+
+    Context "a configuration file's own PipelineRunnerSettings block is inert, and said so (#106)" {
+
+        # The runner's settings never come from the configuration file. Invoke-DscRunner resolves
+        # them from Datum.yml before the compile, or takes them from a passthrough caller's
+        # -RunnerSettings; the compile strips the block from what it writes. A block found in a
+        # file is therefore a leftover, and the dangerous part of staying silent is
+        # AllowExecutionScripts: a document that could grant itself unconstrained lifecycle
+        # scripts would not be a gate at all. These pin that it cannot, and that the leftover is
+        # surfaced rather than ignored.
+
+        BeforeEach {
+            # Start-DscRunner has no [CmdletBinding()], so -WarningVariable is swallowed into
+            # $args; capture the warnings through the cmdlet instead.
+            $Global:RunnerSecWarnings = [System.Collections.Generic.List[string]]::new()
+            Mock -CommandName Write-Warning -MockWith { param($Message) $Global:RunnerSecWarnings.Add([string]$Message) }
+        }
+
+        AfterEach {
+            Remove-Variable -Name RunnerSecWarnings -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "warns once for the document, naming the file and what to do instead" {
+            $json = @{
+                PipelineRunnerSettings = @{ Engine = 'DscV2'; Reboot = 'Ignore' }
+                resources = @(
+                    @{ name = 'one'; type = 'Test/Res'; properties = @{} }
+                    @{ name = 'two'; type = 'Test/Res'; properties = @{} }
+                )
+            } | ConvertTo-Json -Depth 8
+            $file = New-ConfigFile -Name 'inert-settings.json' -Json $json
+
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:okEngine
+
+            $hits = @($Global:RunnerSecWarnings | Where-Object { $_ -like '*PipelineRunnerSettings block*' })
+            $hits.Count | Should -Be 1                      # once per document, not per resource
+            $hits[0] | Should -Match 'inert-settings\.json'
+            $hits[0] | Should -Match 'IGNORED'
+            $hits[0] | Should -Match '\-RunnerSettings'
+            # A warning, not a refusal: the document is otherwise valid.
+            $result.Status | Should -Be 'Completed'
+            $result.TotalResources | Should -Be 2
+        }
+
+        It "warns even when -RunnerSettings was also supplied, which is the clearest mistake" {
+            $json = @{
+                PipelineRunnerSettings = @{ Engine = 'DscV2' }
+                resources = @(@{ name = 'one'; type = 'Test/Res'; properties = @{} })
+            } | ConvertTo-Json -Depth 8
+            $file = New-ConfigFile -Name 'inert-and-supplied.json' -Json $json
+
+            $result = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:okEngine -RunnerSettings @{ Reboot = 'Ignore' }
+
+            @($Global:RunnerSecWarnings | Where-Object { $_ -like '*PipelineRunnerSettings block*' }).Count | Should -Be 1
+            $result.Status | Should -Be 'Completed'
+        }
+
+        It "says nothing when there is no block" {
+            $json = @{ resources = @(@{ name = 'one'; type = 'Test/Res'; properties = @{} }) } | ConvertTo-Json -Depth 8
+            $file = New-ConfigFile -Name 'no-settings-block.json' -Json $json
+
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:okEngine
+
+            @($Global:RunnerSecWarnings | Where-Object { $_ -like '*PipelineRunnerSettings block*' }).Count | Should -Be 0
+        }
+
+        It "matches the key whatever its case, so a lower-case block cannot slip past the warning" {
+            $json = '{ "pipelinerunnersettings": { "engine": "DscV2" }, "resources": [ { "name": "one", "type": "Test/Res", "properties": {} } ] }'
+            $file = New-ConfigFile -Name 'inert-lowercase.json' -Json $json
+
+            $null = Start-DscRunner -FilePath $file -Mode Test -EngineAction $script:okEngine
+
+            @($Global:RunnerSecWarnings | Where-Object { $_ -like '*PipelineRunnerSettings block*' }).Count | Should -Be 1
         }
     }
 }

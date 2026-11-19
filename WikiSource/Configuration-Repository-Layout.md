@@ -201,9 +201,11 @@ repository to get at the runner. `-ConfigurationFile` names one or more document
 as they are. Both are mutually exclusive with the `Source` parameters.
 
 ```powershell
-Invoke-DscRunner -ConfigurationFile .\out\SRV-APP-01.yml -Mode Test
-Invoke-DscRunner -ConfigurationDirectory .\out -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
+Invoke-DscRunner -ConfigurationFile .\out\SRV-APP-01.yml -BypassDatumPolicy -Mode Test
+Invoke-DscRunner -ConfigurationDirectory .\out -BypassDatumPolicy -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
 ```
+
+`-BypassDatumPolicy` is required, and is explained under the capability policy below.
 
 A document must be what the compile would have produced: flat, composites already expanded
 (an unexpanded `Composite/` instance is refused), and `.yml`, `.yaml` or `.json`. Everything in
@@ -233,13 +235,46 @@ hierarchy:
   unconstrained lifecycle scripts (`AllowExecutionScripts`) is a decision for whoever starts the
   run, and a document that could grant it to itself would not be a decision at all. Omit the
   parameter and the runner's defaults apply.
-- **The [capability policy](Capability-Policy) does not apply.** A policy says what each *layer*
-  of a configuration may use, and a layer is decided by where a file sits in the hierarchy; a
-  passthrough document has no layers. `-PolicyPath` and `-RequirePolicy` are refused for a
-  passthrough run rather than accepted and enforced over nothing, every passthrough run says on
-  the information stream that no policy is applied, and a `Policy.yml` sitting beside the
-  documents is warned about rather than silently ignored. A configuration whose layers must be
-  constrained has to be compiled through Datum.
+
+  A `PipelineRunnerSettings` block left in a document is therefore **inert**, and the runner says
+  so: one warning per document naming the file, because silence would let someone believe those
+  settings took effect. It is not an error — the document is otherwise valid.
+- **The [capability policy](Capability-Policy) does not apply, and that has to be declared.** A
+  policy says what each *layer* of a configuration may use, and a layer is decided by where a
+  file sits in the hierarchy; a passthrough document has no layers, so no policy can be enforced
+  over it. That would make choosing passthrough a quiet way out of the policy, so the runner will
+  not infer it from the absence of layers — `-BypassDatumPolicy` is **required** for a
+  passthrough run. A run that takes it warns that the policy is bypassed and records
+  `PolicyBypassed` on every node's result and report document, so the step is visible afterwards
+  and not only in the console. `-PolicyPath` and `-RequirePolicy` remain refused: there is no
+  layer for them to decide a capability from.
+
+  The switch grants no exception. Precedence:
+
+  | Behind the documents | Without `-BypassDatumPolicy` | With it |
+  |---|---|---|
+  | A `Datum.yml` **and** a `Policy.yml` | Refused | **Refused** — run it through the Datum path |
+  | No policy | Refused, naming the switch | Runs, warns, records the bypass |
+
+  **Where the runner looks.** The two files sit at the configuration *root* while a node file sits
+  two levels below it, so looking only beside the document would miss the case worth catching.
+  For each document the runner walks from the document's own directory upward through its parents
+  — the way `git` finds a `.git` — and takes the first directory holding a `Datum.yml` as the
+  configuration behind it. A policy counts only when it sits *beside* that file, which is the only
+  place a policy is ever read from; a `Policy.yml` in a sub-folder is a file a constrained layer
+  could have written. One governed document refuses the whole run.
+
+  **What that cannot do.** It recognises a configuration by its `Datum.yml`. It cannot tell that a
+  document was *copied out* of a governed repository and left somewhere else — nothing in a flat
+  document records where it came from, which is the whole reason a policy cannot apply to it. So
+  the check closes the "pointed passthrough at the repository" case, and the switch remains a
+  declaration by the caller rather than a proof. A `Policy.yml` with no `Datum.yml` above the
+  documents is the ambiguous case: it governs nothing the runner can resolve layers for, so it
+  draws a warning rather than a refusal.
+
+  `-BypassDatumPolicy` is refused on the Datum path, where every resource has a layer and the
+  policy applies, so it can never be a way to switch enforcement off for a configuration that
+  has one.
 
 A passthrough document is code in exactly the same sense a compiled one is — see the
 [trust model](https://github.com/ZanattaMichael/Dsc.PipelineRunner/blob/main/docs/trust-model.md).

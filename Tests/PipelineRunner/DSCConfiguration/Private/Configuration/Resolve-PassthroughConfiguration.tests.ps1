@@ -57,6 +57,23 @@ Describe "Resolve-PassthroughConfiguration Function Tests" -Tag Unit, Runner {
             @($result | ForEach-Object { [System.IO.Path]::GetFileName($_) }) | Should -Be @('n1.yml')
         }
 
+        It "ignores a configuration root's own <File>, which is never a node document" -ForEach @(
+            @{ File = 'Datum.yml' }
+            @{ File = 'Datum.yaml' }
+            @{ File = 'Policy.yml' }
+            @{ File = 'Policy.yaml' }
+        ) {
+            # Both are *.yml, so without this, pointing -ConfigurationDirectory at a configuration
+            # repository would try to run Datum.yml as a configuration.
+            $rootDir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -Path $rootDir -ItemType Directory -Force
+            $null = & $script:Write (Join-Path $rootDir 'n1.yml')
+            $null = & $script:Write (Join-Path $rootDir $File)
+
+            $result = Resolve-PassthroughConfiguration -ConfigurationDirectory $rootDir
+            @($result | ForEach-Object { [System.IO.Path]::GetFileName($_) }) | Should -Be @('n1.yml')
+        }
+
         It "does not search the directory recursively" {
             $parent = Join-Path $TestDrive 'nested'
             $child = Join-Path $parent 'deeper'

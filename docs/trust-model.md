@@ -153,8 +153,16 @@ It is a preview with stated limits; in particular it is not a sandbox for the co
 
 A policy also cannot be applied to a configuration supplied directly with
 `Invoke-DscRunner -ConfigurationFile` / `-ConfigurationDirectory` (issue #106): a layer is decided
-by where a file sits in the hierarchy, and such a document has none. The runner refuses
-`-PolicyPath` and `-RequirePolicy` for those runs rather than appearing to enforce a policy it
+by where a file sits in the hierarchy, and such a document has none. Because that would make
+choosing passthrough a quiet way out of the policy, the runner does not infer it: such a run must
+declare it with `-BypassDatumPolicy`, warns that the policy is bypassed, and records
+`PolicyBypassed` on every node's result and report document so the step is auditable. The switch
+grants no exception — when a `Datum.yml` and a `Policy.yml` sit together above the documents the
+configuration is governed and the run is refused with or without it, and the switch is refused
+outright on the Datum path. That check finds the configuration by walking up from each document to
+the first `Datum.yml`; it cannot tell that a document was copied out of a governed repository and
+left elsewhere, so the switch is a declaration by the caller, not a proof. `-PolicyPath` and
+`-RequirePolicy` stay refused for those runs rather than appearing to enforce a policy the runner
 cannot decide, and `Get-RunPolicyViolation` fails closed on a file with no provenance record in
 any case. A configuration whose layers must be trusted differently has to be compiled through
 Datum. Supplying a document directly removes the compile, not the trust boundary above: it runs

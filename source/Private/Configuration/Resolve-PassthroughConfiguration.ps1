@@ -32,10 +32,11 @@ the order the caller listed them.
 
 .PARAMETER ConfigurationDirectory
 A directory of compiled configuration documents. Every *.yml, *.yaml and *.json file directly
-in it is run, in name order, except the sidecar files the runner itself writes
-(<node>.report.json, <node>.state.json, <node>.rsop.json, <node>.provenance.json) - a caller
-who points this at a directory that has also been used as a -ReportPath should not have last
-run's report fed back in as a configuration. The directory is not searched recursively.
+in it is run, in name order, except two kinds of file that are never node documents: the sidecars
+the runner itself writes (<node>.report.json, <node>.state.json, <node>.rsop.json,
+<node>.provenance.json) - a caller who points this at a directory that has also been used as a
+-ReportPath should not have last run's report fed back in as a configuration - and a
+configuration root's own Datum.yml / Policy.yml. The directory is not searched recursively.
 
 .OUTPUTS
 [string[]] The full path of each document, in the order it should be run.
@@ -60,6 +61,12 @@ function Resolve-PassthroughConfiguration {
     # Sidecars the runner writes beside a node's output. Excluded from a directory listing
     # only - a caller who names one explicitly has said what they meant.
     $sidecarSuffix = @('.report.json', '.state.json', '.rsop.json', '.provenance.json')
+
+    # A configuration root's own two files are never node documents, and both are *.yml. Without
+    # this, pointing -ConfigurationDirectory at a configuration repository would try to run
+    # Datum.yml as a configuration and fail with 'no resources section' instead of saying what is
+    # actually wrong. Excluded from a directory listing only, like the sidecars above.
+    $rootFileName = @('Datum.yml', 'Datum.yaml', 'Policy.yml', 'Policy.yaml')
 
     $hasFile = @($ConfigurationFile | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0
     $hasDirectory = -not [string]::IsNullOrWhiteSpace($ConfigurationDirectory)
@@ -126,6 +133,7 @@ function Resolve-PassthroughConfiguration {
         $candidates = [System.IO.Directory]::GetFiles($full) | Where-Object {
             $name = [System.IO.Path]::GetFileName($_)
             ([System.IO.Path]::GetExtension($name) -in $supportedExtension) -and
+            ($name -notin $rootFileName) -and
             -not ($sidecarSuffix | Where-Object { $name.EndsWith($_, [System.StringComparison]::OrdinalIgnoreCase) })
         } | Sort-Object -Property { [System.IO.Path]::GetFileName($_) }
 

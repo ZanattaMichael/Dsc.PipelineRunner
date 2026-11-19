@@ -503,6 +503,7 @@ forced-refresh semantics in `Set` mode, and the declaration-gated visibility
 | `ConfigurationSourcePath` | Convenience: a local directory or git URL. Populates the `Source` action's context (`Path` for `Local`, `Url` for `Git`). |
 | `ConfigurationFile` / `ConfigurationDirectory` | Run a configuration the caller already has, skipping the Datum compile. One or more `.yml`/`.yaml`/`.json` documents of the shape the compile produces, or a directory of them. Mutually exclusive with the `Source` parameters. Each document's file name is its node name. See [Configuration Repository Layout](https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki/Configuration-Repository-Layout). |
 | `NodeName` | Passthrough runs only, and only for a single document. The node name when the document's file is not named after its node. Defaults to the file's base name (the rule the compiled path uses). Written into the report file names, so it is validated as a plain file name; cannot be combined with `ConfigurationDirectory` or with several `ConfigurationFile` paths. |
+| `BypassDatumPolicy` | Switch, **required** for a passthrough run. Declares that the run steps outside the [capability policy](docs/capability-policy.md), which a passthrough document cannot be held to because it has no layers. The run warns and records `PolicyBypassed` on each node's result. It grants no exception: a document with a `Datum.yml` and a `Policy.yml` above it is refused either way. Refused on the Datum path. |
 | `RunnerSettings` | Passthrough runs only. The `PipelineRunnerSettings` a compiled run would read from `Datum.yml` (`Engine`, `AllowExecutionScripts`, `Reboot`, `Target`, `Report`). Not read from the document itself. |
 | `Source` / `SourceAction` / `SourceContext` | Name of the `Source` action (default `Local`), an inline scriptblock override, and the hashtable context passed to it. |
 | `Connect` / `ConnectAction` / `ConnectContext` | Name of the `Connect` action (default `None`), an inline scriptblock override, and the hashtable context passed to it. |
@@ -526,7 +527,8 @@ Invoke-DscRunner -Source Git -SourceContext @{ Url = $repoUrl } `
                  -Engine DscV3
 
 # A configuration the caller compiled themselves: no Datum hierarchy, same per-resource loop.
-Invoke-DscRunner -ConfigurationDirectory 'C:\out' -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
+# -BypassDatumPolicy declares that the run steps outside the capability policy.
+Invoke-DscRunner -ConfigurationDirectory 'C:\out' -BypassDatumPolicy -RunnerSettings @{ Engine = 'DscV3' } -Mode Set
 ```
 
 ### `Invoke-DscPipelineRunner` Parameters

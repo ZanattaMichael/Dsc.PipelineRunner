@@ -28,9 +28,10 @@ of not having a hierarchy rather than of the runner:
     it for a single document.
   * PipelineRunnerSettings come from -RunnerSettings. There is no Datum.yml to read them
     from, and they are deliberately not read out of the document itself.
-  * The capability policy does not apply: it decides what a resource may do from the layer
-    its file sits in, and a passthrough document has no layers. -PolicyPath / -RequirePolicy
-    are refused rather than silently ignored.
+  * The capability policy does not apply: it decides what a resource may do from the layer its
+    file sits in, and a passthrough document has no layers. That has to be declared, not
+    inferred, so -BypassDatumPolicy is REQUIRED for a passthrough run - and it is refused
+    outright, switch or no switch, when the documents have a governed configuration behind them.
 
 A passthrough document is code in exactly the same sense a compiled one is — see
 docs/trust-model.md. It must come from somewhere reviewed.
@@ -91,6 +92,21 @@ Omit it and the node name is the document's file name without its extension - th
 compiled path uses. It cannot be combined with -ConfigurationDirectory, or with several
 -ConfigurationFile paths, because a node name belongs to one node: name those files after their
 nodes instead.
+
+.PARAMETER BypassDatumPolicy
+Passthrough runs only, and required for them. Declares that this run steps outside the capability
+policy mechanism. A policy says what each LAYER of a configuration may use and a layer is decided
+by where a file sits in the Datum hierarchy, so a passthrough document cannot be held to one.
+Rather than let that be inferred from the absence of layers - which would make choosing
+passthrough a quiet way out of the policy - the caller declares it, and the run records it: a
+warning naming the bypass, and PolicyBypassed on every node's result and report document.
+
+It grants no exception. When a Datum definition file and a policy sit together above the
+documents, the configuration is governed and the run is refused with or without this switch; run
+it through the Datum path instead, where the policy applies. The switch declares that there is no
+policy to step outside of, not permission to step outside one that exists.
+
+It is refused on the Datum path, where every resource has a layer and the policy applies.
 
 .PARAMETER Connect
 Name of the Connect action (a file under Actions/Connect/). Default: 'None'.
@@ -154,11 +170,14 @@ violation is named. See docs/capability-policy.md.
 
 A passthrough configuration (-ConfigurationFile / -ConfigurationDirectory) has no layers for a
 policy to be decided over, so supplying this with one is an error rather than a policy that
-quietly enforces nothing.
+quietly enforces nothing. Such a run declares the step outside the policy with
+-BypassDatumPolicy instead.
 
 .PARAMETER RequirePolicy
 Preview. Fail when there is no capability policy: no Policy.yml in the configuration and no
 -PolicyPath. Refused for a passthrough configuration, for the reason given under -PolicyPath.
+A pipeline that sets this is saying every run must be governed, which a passthrough run cannot
+be - so the two are deliberately incompatible.
 
 .EXAMPLE
 Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -Mode Test
@@ -174,16 +193,17 @@ Invoke-DscRunner -ConfigurationSourcePath 'C:\config' -ConnectAction {
 }
 
 .EXAMPLE
-Invoke-DscRunner -ConfigurationFile 'C:\out\SRV-APP-01.yml' -Mode Test
+Invoke-DscRunner -ConfigurationFile 'C:\out\SRV-APP-01.yml' -BypassDatumPolicy -Mode Test
 Runs one document the caller already has, with no Datum compile. The node is 'SRV-APP-01'.
+-BypassDatumPolicy is required: it declares that this run steps outside the capability policy.
 
 .EXAMPLE
-Invoke-DscRunner -ConfigurationFile 'C:\tmp\rendered.yml' -NodeName 'SRV-APP-01' -Mode Test
+Invoke-DscRunner -ConfigurationFile 'C:\tmp\rendered.yml' -NodeName 'SRV-APP-01' -BypassDatumPolicy -Mode Test
 Runs a document whose file is not named after its node - the run, its results and its report
 are all for 'SRV-APP-01'.
 
 .EXAMPLE
-Invoke-DscRunner -ConfigurationDirectory 'C:\out' -RunnerSettings @{ Engine = 'DscV3'; Reboot = 'Ignore' } -Mode Set
+Invoke-DscRunner -ConfigurationDirectory 'C:\out' -BypassDatumPolicy -RunnerSettings @{ Engine = 'DscV3'; Reboot = 'Ignore' } -Mode Set
 Runs every document in a directory, with the settings a compiled run would have read from
 Datum.yml's PipelineRunnerSettings block.
 #>
@@ -260,7 +280,17 @@ function Invoke-DscRunner {
 
         # Preview: fail when there is no capability policy (no Policy.yml in the configuration and
         # no -PolicyPath), for a pipeline that must never run an unconstrained configuration.
-        [switch]$RequirePolicy
+        [switch]$RequirePolicy,
+
+        # Passthrough only (#106). Declares that this run steps outside the capability policy
+        # mechanism, which a passthrough document cannot be held to because it has no layers.
+        # Required for a passthrough run, so that choosing passthrough is never a quiet way out of
+        # the policy. It grants no exception: a document with a governed configuration behind it is
+        # refused with or without it. Declared in every parameter set so that supplying it on the
+        # Datum path is answered with the reason it cannot apply there, rather than with
+        # PowerShell's "parameter set cannot be resolved" - it must never look like a way to turn
+        # enforcement off for a configuration that does have a policy.
+        [switch]$BypassDatumPolicy
     )
 
     $ErrorActionPreference = 'Stop'
@@ -269,6 +299,14 @@ function Invoke-DscRunner {
     # and nothing to compile. Everything from the Connect action onwards is the path a compiled
     # run takes, unchanged.
     $isPassthrough = $PSCmdlet.ParameterSetName -in 'PassthroughFile', 'PassthroughDirectory'
+
+    # -BypassDatumPolicy is meaningless on the Datum path and must never be a way to switch
+    # enforcement off for a configuration that has a policy: there, a layer IS known for every
+    # resource, so the policy applies and is the thing being asked about. Refused before the
+    # source is resolved, so it cannot have any effect at all.
+    if ($BypassDatumPolicy -and -not $isPassthrough) {
+        throw "[Invoke-DscRunner] -BypassDatumPolicy applies only to a passthrough configuration (-ConfigurationFile / -ConfigurationDirectory). A configuration compiled from a Datum hierarchy has a layer for every resource, so its capability policy applies and cannot be bypassed; remove -BypassDatumPolicy, or remove the policy from the configuration if it should not be enforced."
+    }
 
     # Fold the convenience path into the Source context under the keys the built-in
     # Source actions understand (Local reads Path; Git reads Url, falling back to Path).
@@ -334,25 +372,54 @@ function Invoke-DscRunner {
 
             #
             # 3p. Capability policy (preview, #86 Part B). The policy decides what a resource may
-            # do from the layer its file sits in, and a passthrough document has no layers, so
-            # there is nothing to decide one from. Refuse the run rather than let a
-            # pipeline that asked for a policy proceed with nothing enforced.
-            if ($PSBoundParameters.ContainsKey('PolicyPath') -or $RequirePolicy) {
-                throw "[Invoke-DscRunner] A capability policy cannot be applied to a passthrough configuration. The policy decides what a resource may do from the layer its file sits in, and a document supplied with -ConfigurationFile/-ConfigurationDirectory has no layers. Drop -PolicyPath/-RequirePolicy, or compile through Datum (-ConfigurationSourcePath) so every resource's layer is known. See issue #106."
+            # do from the LAYER its file sits in, and a passthrough document has no layers, so
+            # there is nothing to decide one from. That makes choosing passthrough a way to step
+            # outside the policy mechanism, so the step has to be declared by the caller and
+            # visible afterwards - never inferred from the absence of layers. Three rules, in
+            # this order:
+            #
+            #   1. A governed configuration behind the documents refuses the run, with or without
+            #      -BypassDatumPolicy. The switch is not an escalation path.
+            #   2. No policy behind them and no switch: refused, naming the switch.
+            #   3. No policy behind them and the switch given: runs, says so loudly once, and
+            #      records the bypass on every node's result and report document.
+            $policyContext = Resolve-PassthroughPolicyContext -ConfigurationFile $documentPaths
+
+            # Rule 1. A Datum definition file with a policy beside it means the caller has a
+            # governed configuration in front of them, and its resources have layers - so they
+            # belong on the Datum path, where the policy applies. Checked before -PolicyPath and
+            # before the switch, because neither makes any difference to it.
+            if ($policyContext.GovernedRoot) {
+                throw "[Invoke-DscRunner] This passthrough run is refused: the configuration behind these documents is governed by a capability policy. '$($policyContext.GovernedRoot)' holds both '$([System.IO.Path]::GetFileName($policyContext.GovernedDatumPath))' and '$([System.IO.Path]::GetFileName($policyContext.GovernedPolicyPath))', so every resource in it has a layer and the policy written for them applies. Run it through the Datum path (-ConfigurationSourcePath '$($policyContext.GovernedRoot)'), where it is enforced. -BypassDatumPolicy does not override this - it declares that there is no policy to step outside of, not permission to step outside one that exists."
             }
 
-            # Said on every passthrough run, so a log never leaves a reader to assume the policy
-            # their compiled runs enforce is also in force here.
-            Write-Information "Capability policy: not applied - a passthrough configuration has no layers to decide one from." -Tags 'Dsc.PipelineRunner'
+            # -PolicyPath / -RequirePolicy still cannot be honoured: there is no layer to decide
+            # a capability from. Point at the supported way through.
+            if ($PSBoundParameters.ContainsKey('PolicyPath') -or $RequirePolicy) {
+                throw "[Invoke-DscRunner] A capability policy cannot be applied to a passthrough configuration. The policy decides what a resource may do from the layer its file sits in, and a document supplied with -ConfigurationFile/-ConfigurationDirectory has no layers. Either compile through Datum (-ConfigurationSourcePath) so every resource's layer is known, or drop -PolicyPath/-RequirePolicy and declare the step outside the policy with -BypassDatumPolicy. See issue #106."
+            }
 
-            # A Policy.yml beside the documents is the single most likely thing to make someone
-            # believe otherwise, so name it rather than ignore it silently.
-            foreach ($documentDirectory in @($documentPaths | ForEach-Object { [System.IO.Path]::GetDirectoryName($_) } | Select-Object -Unique)) {
-                foreach ($policyFileName in 'Policy.yml', 'Policy.yaml') {
-                    if ([System.IO.File]::Exists([System.IO.Path]::Combine([string]$documentDirectory, $policyFileName))) {
-                        Write-Warning "[Invoke-DscRunner] '$policyFileName' sits beside the passthrough configuration in '$documentDirectory' and is NOT being applied - a capability policy needs the hierarchy its layers are defined over. Nothing in this run is constrained by it."
-                    }
-                }
+            # Rule 2. Not declared: refuse, and name the switch.
+            if (-not $BypassDatumPolicy) {
+                throw "[Invoke-DscRunner] A passthrough configuration cannot be held to a capability policy: the policy decides what a resource may do from the layer its file sits in the Datum hierarchy, and a document supplied with -ConfigurationFile/-ConfigurationDirectory has no layers. Running one therefore steps outside the policy mechanism, which must be declared rather than assumed: pass -BypassDatumPolicy to say so, or compile the configuration through Datum (-ConfigurationSourcePath) so the policy applies. See issue #106."
+            }
+
+            # Rule 3. Declared. Said once per run on the warning stream, which is visible without
+            # the caller opting in, so the step is in the log of every run that takes it; the
+            # information-stream line is kept for a caller already reading that stream; and
+            # Start-DscRunner records it on each node's result and report document below.
+            Write-Warning "[Invoke-DscRunner] -BypassDatumPolicy: the capability policy is BYPASSED for this run. $($documentPaths.Count) passthrough document(s) will run with no layer-based constraint on their Targets, engines or execution scripts. Nothing in this run is checked against a policy."
+            Write-Information "Capability policy: bypassed by -BypassDatumPolicy - a passthrough configuration has no layers to decide one from." -Tags 'Dsc.PipelineRunner'
+
+            # A policy file sitting beside the documents with no Datum definition file above them
+            # is the ambiguous case: it governs nothing this runner can resolve layers for, so it
+            # is not rule 1. Named rather than ignored, because it is the single most likely thing
+            # to make someone believe a policy is in force.
+            if ($policyContext.StrayPolicyPath) {
+                Write-Warning "[Invoke-DscRunner] '$($policyContext.StrayPolicyPath)' sits beside the passthrough configuration and is NOT being applied: a capability policy needs the Datum hierarchy its layers are defined over, and there is no Datum definition file above these documents. If this is a governed configuration, run it through the Datum path instead."
+            }
+            elseif ($policyContext.DatumRoot) {
+                Write-Verbose "[Invoke-DscRunner] A Datum definition file was found at '$($policyContext.DatumRoot)' with no policy beside it; nothing to enforce."
             }
         }
         else {
@@ -459,6 +526,9 @@ function Invoke-DscRunner {
         # Passthrough only (#106); unbound on the Datum path, whose node name is always the
         # compiled file's name.
         if (-not [string]::IsNullOrWhiteSpace($NodeName)) { $params.NodeName = $NodeName }
+        # #106: recorded per node on the result and in the report document, so the bypass is
+        # visible to an audit and not only in the console. Only ever set on a passthrough run.
+        if ($isPassthrough -and $BypassDatumPolicy) { $params.PolicyBypassed = $true }
 
         # Collect each configuration's structured result so the run can be summarized as a single
         # machine-readable object and, with -FailOnError, surface a non-zero exit code (#19).
