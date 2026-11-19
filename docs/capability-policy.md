@@ -167,7 +167,8 @@ Settings:
   the default makes that key mandatory.
 - A key the policy does not list is not governed. Other keys (`ConfigurationVersion`,
   `PipelineRunnerVersion`, `Report`) are refused at load.
-- The pipeline is not governed: its owner is the policy's owner.
+- The pipeline is not governed: its owner is the policy's owner. That includes a passthrough run's
+  `-RunnerSettings`; a passthrough run below a governed configuration is refused anyway.
 
 The file is read strictly. An unknown key, a wrong type or a missing field is an error. A policy
 that was silently misread would be worse than none.

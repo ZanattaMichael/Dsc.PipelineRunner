@@ -717,6 +717,21 @@ Describe "Invoke-DscRunner Function Tests" -Tag Unit, Runner {
                     @($policyWarning | ForEach-Object { [string]$_ }) -join "`n" | Should -Match 'is NOT being applied'
                     Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It
                 }
+
+                It "Does not judge -RunnerSettings against a stray policy's Settings block (#86)" {
+                    # The settings of a passthrough run come from the pipeline, whose owner is the
+                    # policy's owner, so a Settings block it cannot resolve layers for governs nothing.
+                    $withSettings = Join-Path $TestDrive 'straypolicy-settings'
+                    $null = New-Item -Path $withSettings -ItemType Directory -Force
+                    [System.IO.File]::WriteAllText((Join-Path $withSettings 'n.yml'), 'resources: []')
+                    [System.IO.File]::WriteAllText((Join-Path $withSettings 'Policy.yml'), "PolicyVersion: 1`nDefault: Deny`nLayers:`n  - Name: Platform`n    Paths: [ 'Datum.yml' ]`nSettings:`n  Reboot: [ Fail ]")
+
+                    Invoke-DscRunner -ConfigurationDirectory $withSettings -BypassDatumPolicy -RunnerSettings @{ Reboot = 'Ignore' } -WarningAction SilentlyContinue
+
+                    Assert-MockCalled -CommandName Start-DscRunner -Exactly 1 -Scope It -ParameterFilter {
+                        $RunnerSettings['Reboot'] -eq 'Ignore' -and $null -eq $Policy
+                    }
+                }
             }
 
             Context "the switch is meaningless on the Datum path" {
