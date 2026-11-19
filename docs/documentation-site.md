@@ -36,14 +36,16 @@ workflow and gated per pull request by the Wiki workflow, exactly as
 1. `tools/build-site.js` discovers the documents above and assembles the site source into
    `site-src/` (ignored by git): the pages are copied under `guides/`, `wiki/`, `examples/` and so
    on, every link is rewritten so it works from inside the site, the navigation is written to
-   `site-src/.nav.yml` (which `mkdocs.yml` inherits through `INHERIT`) and the Resources page is
-   generated. The README's `<picture>` header becomes the home page's hero: the logo motif as an
+   `site-src/SUMMARY.md` (mdBook's table of contents: each section a part, *Home* first) and the
+   Resources page is generated. The README's `<picture>` header becomes the home page's hero: the logo motif as an
    inline SVG that draws itself, and the wordmark in the header artwork's colours for each scheme,
    so it follows the site's own light/dark toggle instead of the operating system.
-2. `mkdocs build --strict` renders `site-src/` into `site/` with
-   [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), configured in
-   `mkdocs.yml`: the logo and favicon, light and dark palettes in the logo's colours
-   (`assets/site.css`), grouped navigation, search and copy buttons on code blocks.
+2. `mdbook build` renders `site-src/` into `site/` with [mdBook](https://rust-lang.github.io/mdBook/),
+   configured in `book.toml`: the sidebar, full-text search (press `S` or `/`), the light and dark
+   themes, the favicon, and `assets/site.css` and `assets/site.js` on every page.
+3. `node tools/check-site.js site --site-url=/Dsc.PipelineRunner/` checks every link, image,
+   stylesheet and script in what mdBook wrote: each must exist, and each `#anchor` must be an id
+   on its page. Links to other sites are not fetched (`--external` lists them).
 
 Links are rewritten by these rules, and `tools/build-site.test.js` holds an example of each:
 
@@ -62,31 +64,35 @@ Absolute URLs and bare anchors are left as they are, including links to the
 repository and to the GitHub wiki. Links inside code spans and fenced code blocks are examples,
 not links, and are left alone.
 
-Strict mode means a warning fails the build: a link to a page that is not there, an anchor that
-no heading produces, or a page missing from the navigation. A broken link in any of the source
-files therefore fails the pull request that introduces it, not the deployment.
+A link to a page that is not there or an anchor that no heading produces fails the build, so a
+broken link in any of the source files fails the pull request that introduces it, not the
+deployment. An anchor is the heading in lower case, punctuation dropped, each space a hyphen
+(`## [1.5.0] - 2026-11-19` is `#150---2026-11-19`), as on GitHub.
 
 ## Motion
 
 The site moves a little, where it helps: the hero draws the logo once when the home page opens
 (the three configuration layers merge into one line and the check mark completes it), the
 *How it works* animation plays on the home page, sections fade in as they scroll into view
-(`assets/site.js`), and the light/dark toggle fades between the palettes. All of it is CSS and a
-few lines of plain JavaScript; there is no framework and nothing is loaded from elsewhere.
+(`assets/site.js`), and sidebar entries slide under the pointer. Behind every page,
+`assets/site.js` draws a faint animated sky: lines from three sources merging into one point, as
+in the logo, with light travelling along them; the top bar and the sidebar frost it. All of it is
+CSS and a few lines of plain JavaScript; nothing is loaded from elsewhere.
 
 A reader whose system asks for reduced motion (`prefers-reduced-motion: reduce`) gets none of it:
-the hero is shown finished, the *How it works* animation is replaced by a still frame
+the hero is shown finished, the sky is still, the *How it works* animation is replaced by a still frame
 (`assets/how-it-works-still.png`, through a `<picture>` the build writes), no section is ever
-hidden, and the palette switches at once. Without JavaScript nothing is hidden either.
+hidden. Without JavaScript nothing is hidden either.
 
 ## Workflows
 
 | Workflow | Runs | Does |
 | --- | --- | --- |
-| `.github/workflows/Docs-Site.yml` | every pull request and push to `main` | runs the unit tests of `tools/build-site.js`, builds the site in strict mode and uploads it as the `docs-site` artifact |
-| `.github/workflows/Pages.yml` | pushes to `main` that touch anything the site is built from, and on demand | builds the site the same way and publishes it to GitHub Pages with `actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages` |
+| `.github/workflows/Docs-Site.yml` | every pull request and push to `main` | runs the unit tests of `tools/build-site.js` and `tools/check-site.js`, builds the site, checks its links and uploads it as the `docs-site` artifact |
+| `.github/workflows/Pages.yml` | pushes to `main` that touch anything the site is built from, and on demand | builds and checks the site the same way and publishes it to GitHub Pages with `actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages` |
 
-Both workflows build the wiki content first (PowerShell ships on the hosted runner) so the command
+Both workflows install mdBook (`cargo install`, version pinned in `MDBOOK_VERSION`, cached) and
+build the wiki content first (PowerShell ships on the hosted runner) so the command
 reference is on the site. Without it, `tools/build-site.js` writes a command reference page that
 points at the GitHub wiki instead, so the site still builds on a machine without PowerShell.
 
@@ -104,18 +110,20 @@ A repository administrator sets it once:
 2. Under **Build and deployment**, set **Source** to **GitHub Actions**.
 
 Until that is done, the Pages workflow's deploy job fails with a message saying the site is not
-configured for Actions, and the branch rendering stays as it was. The setting is not in any file,
+configured for Actions. Without that check the deploy would report success and GitHub's Jekyll
+build of the branch would replace the site a few minutes later. The setting is not in any file,
 so it is not part of a pull request.
 
 ## Building the site locally
 
 ```powershell
-pip install --requirement tools/site-requirements.txt            # Material for MkDocs, pinned
+cargo install --locked mdbook --version 0.5.4                      # the version the workflows pin
 ./scripts/Build-WikiContent.ps1 -SourcePath $PWD -OutputPath ./output/WikiContent   # optional
 node tools/build-site.js --wiki-content output/WikiContent         # or without --wiki-content
-mkdocs serve                                                       # http://127.0.0.1:8000/Dsc.PipelineRunner/
-mkdocs build --strict                                              # what CI runs
-node --test tools/build-site.test.js                               # the builder's unit tests
+mdbook serve                                                       # http://localhost:3000/
+mdbook build                                                       # what CI runs, then:
+node tools/check-site.js site --site-url=/Dsc.PipelineRunner/
+node --test tools/build-site.test.js                               # the unit tests
 ```
 
 ## Adding a document

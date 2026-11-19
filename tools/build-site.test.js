@@ -6,10 +6,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  GITHUB, GITHUB_TREE, GITHUB_WIKI, ROOT_PAGES, RESOURCES_PAGE, NAV_FILE,
+  GITHUB, GITHUB_TREE, GITHUB_WIKI, ROOT_PAGES, RESOURCES_PAGE, NAV_FILE, FAVICONS,
   createContext, pageFor, rewriteTarget, rewriteLinks, titleOf, summaryOf, synopsisOf, headingAnchor,
-  navPages, homePage, build,
+  navPages, summary, homePage, build,
 } = require('./build-site.js');
+const { check } = require('./check-site.js');
 
 const repository = path.join(__dirname, '..');
 
@@ -177,7 +178,7 @@ test('titles, summaries, synopses and heading anchors are read from the document
   assert.match(summaryOf(`# T\n\n${'word '.repeat(80)}`), /^(word ){40,43}word…$/);
   assert.equal(synopsisOf('<#\n.SYNOPSIS\n  Checks foo.\n\n.DESCRIPTION\nx\n#>'), 'Checks foo.');
   assert.equal(synopsisOf('function x {}'), '');
-  assert.equal(headingAnchor('[1.3.1] - 2026-11-17'), '131-2026-11-17');
+  assert.equal(headingAnchor('[1.3.1] - 2026-11-17'), '131---2026-11-17');
   assert.equal(headingAnchor('[Unreleased]'), 'unreleased');
   assert.equal(headingAnchor('Run it from a CI/CD pipeline'), 'run-it-from-a-cicd-pipeline');
 });
@@ -236,7 +237,12 @@ test('the site carries every documentation file in the repository, and the navig
   const listed = navPages(nav);
   assert.deepEqual(listed.filter((page, at) => listed.indexOf(page) !== at), [], 'a page is listed twice in the navigation');
   assert.deepEqual(new Set(listed), new Set(pages), 'the navigation and the site do not hold the same pages');
-  assert.ok(fs.existsSync(path.join(out, NAV_FILE)));
+  // SUMMARY.md, mdBook's table of contents, links every page the navigation reaches, and mdBook
+  // renders only what SUMMARY.md links.
+  const toc = fs.readFileSync(path.join(out, NAV_FILE), 'utf8');
+  const linked = [...toc.matchAll(/\]\(([^)]+)\)/g)].map((match) => decodeURIComponent(match[1]));
+  assert.deepEqual(new Set(linked), new Set(pages), 'SUMMARY.md and the site do not hold the same pages');
+  for (const page of Object.keys(FAVICONS)) assert.ok(fs.existsSync(path.join(out, page)), `${page} is not written`);
   for (const asset of ['logo.svg', 'logo-dark.svg', 'logo-512.png', 'header-light.svg', 'header-dark.svg', 'how-it-works.gif', 'how-it-works-still.png', 'site.css', 'site.js']) {
     assert.ok(fs.existsSync(path.join(out, 'assets', asset)), `assets/${asset} is not on the site`);
   }
@@ -322,7 +328,7 @@ test('a new document gets onto the site, into the navigation and onto the Resour
   assert.match(resources, /## Pipeline Rules[\s\S]*\*\*PreParse\*\*\n\n- \*\*\[Test-Foo\]\(https:\/\/github\.com\/ZanattaMichael\/Dsc\.PipelineRunner\/blob\/main\/Pipeline%20Rules\/PreParse\/Test-Foo\.ps1\)\*\* — Checks foo\./);
   assert.doesNotMatch(resources, /\*\*Format\*\*/, 'a group with no scripts is not listed');
   assert.match(resources, /## Actions[\s\S]*\*\*Source\*\*\n\n- \*\*\[Local\]\([^)]+Actions\/Source\/Local\.ps1\)\*\* — Reads the configuration from a folder\./);
-  assert.match(resources, /- \[Unreleased\]\(changelog\.md#unreleased\)\n- \[0\.2\.0 \(2026-02-02\)\]\(changelog\.md#020-2026-02-02\) · \[release\]\(https:\/\/github\.com\/ZanattaMichael\/Dsc\.PipelineRunner\/releases\/tag\/v0\.2\.0\)\n- \[0\.1\.0 \(2026-01-01\)\]/);
+  assert.match(resources, /- \[Unreleased\]\(changelog\.md#unreleased\)\n- \[0\.2\.0 \(2026-02-02\)\]\(changelog\.md#020---2026-02-02\) · \[release\]\(https:\/\/github\.com\/ZanattaMichael\/Dsc\.PipelineRunner\/releases\/tag\/v0\.2\.0\)\n- \[0\.1\.0 \(2026-01-01\)\]/);
   assert.match(resources, /\*\*\[Agent image\]\(containers\/img\/index\.md\)\*\* — A base image\./);
   for (const link of ['https://www.powershellgallery.com/packages/Dsc.PipelineRunner', 'https://github.com/ZanattaMichael/Dsc.PipelineRunnerActions', 'https://zanattamichael.github.io/Dsc.PipelineRunnerActions/', 'https://github.com/ZanattaMichael/Dsc.PipelineRunner/wiki']) assert.ok(resources.includes(link), `${link} is not on the Resources page`);
   // Add a file, build again: it is there.
@@ -340,7 +346,40 @@ test('a new document gets onto the site, into the navigation and onto the Resour
 
 test('the Pages workflow runs when anything the site is built from changes', () => {
   const workflow = fs.readFileSync(path.join(repository, '.github', 'workflows', 'Pages.yml'), 'utf8');
-  for (const trigger of ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'docs/**', 'WikiSource/**', 'assets/**', 'Example*/**', 'Pipeline Rules/**', 'Actions/**', 'containers/**', 'source/Public/**', 'scripts/Build-WikiContent.ps1', 'mkdocs.yml', 'tools/build-site.js', 'tools/site-requirements.txt', '.github/workflows/Pages.yml']) {
+  for (const trigger of ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'docs/**', 'WikiSource/**', 'assets/**', 'Example*/**', 'Pipeline Rules/**', 'Actions/**', 'containers/**', 'source/Public/**', 'scripts/Build-WikiContent.ps1', 'book.toml', 'tools/build-site.js', 'tools/check-site.js', '.github/workflows/Pages.yml']) {
     assert.match(workflow, new RegExp(`^\\s+- ['"]?${trigger.replace(/[.*]/g, '\\$&')}['"]?\\s*$`, 'm'), `${trigger} does not trigger the Pages workflow`);
   }
+});
+
+test('SUMMARY.md: Home is a prefix chapter, sections are parts, a group is its overview page or a draft', () => {
+  const toc = summary([
+    ['Home', 'index.md'],
+    ['Guides', [['A [guide] \\ here', 'guides/a.md'], ['Plans', [['B', 'guides/b.md']]]]],
+    ['Reference', [['Command reference', [['Overview', 'wiki/Command-Reference.md'], ['C', 'wiki/Command-C.md']]], ['Example Thing', 'examples/example thing/index.md']]],
+  ]);
+  assert.match(toc, /^# Summary\n/);
+  assert.match(toc, /\n\[Home\]\(index\.md\)\n\n# Guides\n\n- \[A \\\[guide\\\] \\\\ here\]\(guides\/a\.md\)\n- \[Plans\]\(\)\n  - \[B\]\(guides\/b\.md\)\n/);
+  assert.match(toc, /\n# Reference\n\n- \[Command reference\]\(wiki\/Command-Reference\.md\)\n  - \[C\]\(wiki\/Command-C\.md\)\n- \[Example Thing\]\(examples\/example%20thing\/index\.md\)\n/);
+});
+
+test('the link checker finds a missing page, a missing anchor and a link that leaves the site, and lists external links', () => {
+  const site = temporary();
+  writeFiles(site, {
+    'index.html': '<h1 id="top">Home</h1><a href="guide.html#part">ok</a><a href="guide.html#nope">bad anchor</a><a href="gone.html">missing</a>'
+      + '<a href="/elsewhere/x.html">leaves</a><a href="/Site/guide.html">ok</a><a href="#top">ok</a><a href="https://example.com/">external</a>'
+      + '<a href="mailto:x@example.com">mail</a><img src="img.png"><script>var x = "<a href=\\"nothing.html\\">";</script>',
+    'guide.html': '<h2 id="part">Part</h2><a href="index.html">home</a><a href="sub/">folder</a>',
+    'sub/index.html': '<p>sub</p>',
+    'img.png': 'png',
+    'print.html': '<a href="never-checked.html">skipped</a>',
+  });
+  const result = check(site, '/Site/');
+  assert.deepEqual(result.failures.sort(), [
+    'index.html: leaves the site -> /elsewhere/x.html',
+    'index.html: missing anchor -> guide.html#nope',
+    'index.html: missing file -> gone.html',
+  ]);
+  assert.deepEqual(result.external, ['https://example.com/']);
+  assert.throws(() => check(path.join(site, 'sub', 'none')), /not a built site/);
+  fs.rmSync(site, { recursive: true, force: true });
 });

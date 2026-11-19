@@ -83,8 +83,8 @@ The README, `docs/`, `WikiSource/`, the example folders and the rest of the repo
 documentation are published as one site, <https://zanattamichael.github.io/Dsc.PipelineRunner/>,
 by `.github/workflows/Pages.yml` on every push to `main` that touches them. A new document gets
 onto the site by adding the file: `tools/build-site.js` discovers it, writes the navigation and the
-Resources page, and rewrites the links; `mkdocs build --strict` renders the site with Material for
-MkDocs (`mkdocs.yml`), so a broken link fails the build, and `node --test tools/build-site.test.js`
+Resources page, and rewrites the links; `mdbook build` renders the site (`book.toml`) and
+`tools/check-site.js` checks every link in it, so a broken link fails the build, and `node --test tools/build-site.test.js`
 fails if a documentation file exists that the site does not carry.
 [docs/documentation-site.md](docs/documentation-site.md) describes how it is built, how to build it
 locally, and the one-time repository setting it needs (**Settings > Pages > Source: GitHub

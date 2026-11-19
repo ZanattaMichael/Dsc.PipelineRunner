@@ -1,33 +1,163 @@
-/* The documentation site's stylesheet (mkdocs.yml, extra_css). Colours: the blue of the logo
-   tile (#0e66b5 to #249ee2) and its mint check mark (#9ff3d0). mkdocs.yml selects them through
-   primary: custom / accent: custom. The motion rules at the end only apply to readers who have
-   not asked for reduced motion: everyone else gets the finished state with no animation. */
-:root {
-  --md-primary-fg-color: #0e66b5;
-  --md-primary-fg-color--light: #249ee2;
-  --md-primary-fg-color--dark: #0a4f8c;
-  --md-accent-fg-color: #0b8f6b;
-  --md-accent-fg-color--transparent: rgba(11, 143, 107, 0.1);
+/* The documentation site's stylesheet (book.toml, additional-css), on top of mdBook's own themes.
+   Colours: the blue of the logo tile (#0e66b5 to #249ee2) and its mint check mark (#9ff3d0).
+   Everything that moves is inside `@media (prefers-reduced-motion: no-preference)`, so a reader
+   who has asked for less motion gets the same site, still. */
+.light, .rust, html:not(.js) {
+  --links: #0b5cad;
+  --sidebar-active: #0b5cad;
   --site-title-color: #0f172a;
   --site-title-accent: #0b5cad;
   --site-tagline-color: #475569;
+  --site-shadow: rgba(10, 37, 64, 0.22);
 }
 
-[data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #0e66b5;
-  --md-primary-fg-color--light: #5cc2f2;
-  --md-primary-fg-color--dark: #0a4f8c;
-  --md-accent-fg-color: #9ff3d0;
-  --md-accent-fg-color--transparent: rgba(159, 243, 208, 0.12);
-  --md-typeset-a-color: #5cc2f2;
+.navy, .coal, .ayu {
+  --links: #5cc2f2;
+  --sidebar-active: #9ff3d0;
   --site-title-color: #f8fafc;
   --site-title-accent: #5cc2f2;
   --site-tagline-color: #94a3b8;
+  --site-shadow: rgba(0, 0, 0, 0.55);
+}
+
+/* The sky behind every page (assets/site.js draws it). The page lets it show through; the top bar
+   and the sidebar frost it. Without the script nothing changes. */
+.light, .rust, html:not(.js) {
+  --site-sky-line: #0e66b5;
+  --site-sky-line-alpha: 0.12;
+  --site-sky-dot-alpha: 0.16;
+  --site-sky-glow-alpha: 0.12;
+  --site-sky-a: #0e66b5;
+  --site-sky-b: #249ee2;
+  --site-sky-c: #0b8f6b;
+  --site-sky-light: #0a2540;
+  --site-sky-light-alpha: 0.4;
+  --site-sky-pulse-alpha: 0.22;
+  --site-glass: rgba(255, 255, 255, 0.7);
+}
+
+.navy, .coal, .ayu {
+  --site-sky-line: #5cc2f2;
+  --site-sky-line-alpha: 0.14;
+  --site-sky-dot-alpha: 0.2;
+  --site-sky-glow-alpha: 0.16;
+  --site-sky-a: #249ee2;
+  --site-sky-b: #5cc2f2;
+  --site-sky-c: #9ff3d0;
+  --site-sky-light: #ffffff;
+  --site-sky-light-alpha: 0.5;
+  --site-sky-pulse-alpha: 0.3;
+  --site-glass: rgba(30, 33, 41, 0.6);
+}
+
+.site-sky {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+.site-sky svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.site-sky__world {
+  transition: transform 0.6s ease-out;
+  will-change: transform;
+}
+
+.site-sky__dot {
+  fill: var(--site-sky-line);
+  opacity: var(--site-sky-dot-alpha);
+}
+
+.site-sky__lines path {
+  fill: none;
+  opacity: var(--site-sky-line-alpha);
+  stroke: var(--site-sky-line);
+  stroke-width: 1.4;
+}
+
+.site-sky__glow { opacity: var(--site-sky-glow-alpha); }
+.site-sky__stop-a { stop-color: var(--site-sky-a); }
+.site-sky__stop-b { stop-color: var(--site-sky-b); }
+.site-sky__stop-c { stop-color: var(--site-sky-c); }
+
+.site-sky__point {
+  fill: var(--site-sky-light);
+  opacity: calc(var(--site-sky-light-alpha) * 0.7);
+}
+
+.site-sky__halo {
+  fill: var(--site-sky-light);
+  opacity: 0.08;
+}
+
+/* The light along three lines. Readers who ask for reduced motion get the lines without it. */
+.site-sky__pulse {
+  display: none;
+  fill: none;
+  stroke-dasharray: 6 94;
+  stroke-linecap: round;
+}
+
+.site-sky__pulse--soft { opacity: var(--site-sky-pulse-alpha); stroke-width: 9; }
+.site-sky__pulse--sharp { opacity: var(--site-sky-light-alpha); stroke: var(--site-sky-light); stroke-width: 2.5; }
+.site-sky__pulse--a { stroke: var(--site-sky-a); }
+.site-sky__pulse--b { stroke: var(--site-sky-b); }
+.site-sky__pulse--c { stroke: var(--site-sky-c); }
+
+/* The page lets the sky show through; the top bar and the sidebar frost it. */
+html.has-sky body,
+html.has-sky .page-wrapper {
+  background-color: transparent;
+}
+
+html.has-sky {
+  background-color: var(--bg);
+}
+
+html.has-sky #mdbook-menu-bar,
+html.has-sky #mdbook-menu-bar.sticky {
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(12px) saturate(1.2);
+  background-color: var(--site-glass);
+}
+
+html.has-sky .sidebar {
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  background-color: color-mix(in srgb, var(--sidebar-bg) 86%, transparent);
+}
+
+/* The logo beside the title in the top bar, and the pair as a link home (assets/site.js). */
+.menu-title .site-mark {
+  border-radius: 0.3em;
+  height: 1.5em;
+  margin-right: 0.45em;
+  vertical-align: -0.35em;
+  width: 1.5em;
+}
+
+.menu-title a.site-home {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Section headings in the sidebar. */
+.chapter li.part-title {
+  color: var(--sidebar-active);
+  font-size: 0.8em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 /* The home page hero (tools/build-site.js writes it in place of the README's <picture> header):
    the logo motif as inline SVG and the wordmark in the header artwork's colours for each scheme. */
-.md-typeset .site-hero {
+.content .site-hero {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
@@ -35,18 +165,18 @@
   margin: 0 0 1.5rem;
 }
 
-.md-typeset .site-hero__logo {
+.content .site-hero__logo {
   flex: none;
   height: 7.5rem;
   width: 7.5rem;
 }
 
-.md-typeset .site-hero__text {
+.content .site-hero__text {
   flex: 1 1 16rem;
   min-width: 0;
 }
 
-.md-typeset h1.site-hero__title {
+.content h1.site-hero__title {
   color: var(--site-title-color);
   font-size: 2.6em;
   font-weight: 700;
@@ -55,11 +185,11 @@
   margin: 0;
 }
 
-.md-typeset .site-hero__title span {
+.content .site-hero__title span {
   color: var(--site-title-accent);
 }
 
-.md-typeset .site-hero__tagline {
+.content .site-hero__tagline {
   color: var(--site-tagline-color);
   font-size: 1.15em;
   margin: 0.3em 0 0;
@@ -74,26 +204,41 @@
 }
 
 /* An animation with a still for reduced motion (a <picture> tools/build-site.js writes). */
-.md-typeset .site-animation img {
+.content .site-animation img {
   display: block;
   margin: 0 auto;
 }
 
 /* Badges on the home page sit on one line each, as on GitHub. */
-.md-typeset p > a > img[src*="badge"],
-.md-typeset p > a > img[src*="shields.io"] {
+.content p > a > img[src*="badge"],
+.content p > a > img[src*="shields.io"] {
   vertical-align: middle;
 }
 
-/* Illustrations never overflow a phone. */
-.md-typeset img {
+/* Illustrations never overflow a phone, and get the tile's corners. */
+.content img {
   height: auto;
   max-width: 100%;
 }
 
-/* Settings and property tables are wide: let them use the room. */
-.md-typeset table:not([class]) {
-  font-size: 0.72rem;
+.content .site-animation img {
+  border-radius: 12px;
+  box-shadow: 0 10px 30px -14px var(--site-shadow);
+}
+
+/* Code blocks carry the logo's blue-to-mint line along their top. */
+.content pre {
+  border-image: linear-gradient(90deg, #0e66b5, #249ee2, #9ff3d0) 1;
+  border-top: 2px solid transparent;
+}
+
+/* Wide tables (settings and properties) scroll inside the page, not the page itself. */
+.content .table-wrapper {
+  overflow-x: auto;
+}
+
+.content table {
+  font-size: 0.92em;
 }
 
 /* Motion. Nothing below runs for a reader whose system asks for reduced motion. */
@@ -138,40 +283,80 @@
     animation: site-hero-rise 0.6s ease-out 0.4s both;
   }
 
-  /* Sections reveal as they scroll into view (assets/site.js adds the classes, so without
-     JavaScript nothing is ever hidden). */
-  .site-reveal .md-typeset .reveal {
-    opacity: 0;
-    transform: translateY(10px);
-    transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+  /* Each page rises in as it opens, and its blocks as they scroll into view (assets/site.js adds
+     the classes, so without JavaScript nothing is ever hidden). */
+  .content main {
+    animation: site-hero-rise 0.4s ease-out both;
   }
 
-  .site-reveal .md-typeset .reveal.is-visible {
+  .site-reveal {
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  }
+
+  .site-reveal.is-visible {
     opacity: 1;
     transform: none;
   }
 
-  /* The palette toggle fades between light and dark instead of snapping. */
-  body,
-  .md-main,
-  .md-content,
-  .md-sidebar,
-  .md-nav,
-  .md-footer,
-  .md-footer-meta,
-  .md-typeset pre,
-  .md-typeset code,
-  .md-typeset table:not([class]),
-  .md-typeset blockquote,
-  .md-typeset .admonition {
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  /* Links underline themselves from the left. */
+  .content main a:not(.header) {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    background-size: 0 1px;
+    text-decoration: none;
+    transition: background-size 0.25s ease;
   }
+
+  .content main a:not(.header):hover,
+  .content main a:not(.header):focus-visible {
+    background-size: 100% 1px;
+  }
+
+  /* The sidebar's entries slide a little as the pointer finds them. */
+  .chapter li a {
+    transition: color 0.2s ease, padding-left 0.2s ease;
+  }
+
+  .chapter li a:hover,
+  .chapter li a:focus-visible {
+    padding-left: 0.3em;
+  }
+
+  /* The sky's light travels from the three sources to the merge point, its glows drift and the
+     merge point breathes. */
+  .site-sky__pulse {
+    animation: site-sky-travel 8s linear infinite;
+    display: block;
+  }
+
+  .site-sky__glow {
+    animation: site-sky-drift 46s ease-in-out infinite alternate;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .site-sky__glow--2 { animation-delay: -20s; animation-duration: 58s; }
+  .site-sky__glow--3 { animation-delay: -35s; animation-duration: 52s; }
+
+  .site-sky__halo {
+    animation: site-sky-breathe 5s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
 }
 
 @media print {
-  .md-typeset .reveal {
+  .site-reveal {
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .site-sky {
+    display: none;
   }
 }
 
@@ -191,4 +376,18 @@
 @keyframes site-hero-rise {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
+}
+
+@keyframes site-sky-travel {
+  to { stroke-dashoffset: -100; }
+}
+
+@keyframes site-sky-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-90px, 60px) scale(1.18); }
+}
+
+@keyframes site-sky-breathe {
+  0%, 100% { opacity: 0.06; transform: scale(1); }
+  50% { opacity: 0.16; transform: scale(1.3); }
 }
