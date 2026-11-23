@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-23
+
 ### Added
 
 - **A capability policy warns when `Datum.yml` declares older `PipelineRunnerSettings` versions.**
